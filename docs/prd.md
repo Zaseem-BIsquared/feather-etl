@@ -86,7 +86,7 @@ Source system changes columns. feather-etl detects drift via schema snapshot com
 
 ### FR1: Source Abstraction
 
-**FR1.1** The system shall support multiple source types, configured per-table:
+feather-etl supports heterogeneous source systems — CSV files, DuckDB databases, SQL Server instances — yet the loader never knows which source produced the data. This is possible because every source returns a PyArrow Table as the common interchange format. The source type determines *how* data is read, but the loader always receives the same columnar format. This decoupling is what makes the pipeline testable end-to-end with file-based sources and deployable against production databases without changing loader or transform code.
 
 | Source Type | Reader | Change Detection | Incremental Support |
 |------------|--------|-----------------|-------------------|
@@ -97,17 +97,8 @@ Source system changes columns. feather-etl detects drift via schema snapshot com
 | `json` | DuckDB `read_json()` | File mtime + file hash | No (full refresh only) |
 | `sqlserver` | pyodbc → PyArrow | CHECKSUM_AGG + COUNT(*) | Yes (timestamp watermark) |
 
-**FR1.2** File-based sources shall use **dual change detection**:
-1. Check file modification time (`os.path.getmtime()`) — cheap, skip if unchanged
-2. If mtime changed, compute file hash (`hashlib.md5` of file contents) and compare to stored hash — definitive
-3. If hash unchanged (file was touched but content identical): skip extraction
-4. If hash changed: extract (full refresh or incremental depending on strategy)
+File-based sources use **dual change detection**: first check file modification time (cheap), then compute a content hash only if mtime changed (definitive). Database sources use CHECKSUM_AGG + COUNT(*) for cold/full tables and timestamp watermarks for hot/incremental tables.
 
-**FR1.3** Database sources (SQL Server) shall use **CHECKSUM_AGG + COUNT(*)** for cold tables and **timestamp watermarks** for hot tables (unchanged from v1.0).
-
-**FR1.4** All source types shall return data as PyArrow Tables to the loader. The source type determines HOW data is read, but the loader always receives the same format.
-
-**FR1.5** File-based sources shall read data via DuckDB's native readers (executed on a temporary DuckDB connection), then export to PyArrow:
 ```python
 # CSV example
 temp_con.execute("SELECT * FROM read_csv(?)", [file_path])
@@ -123,17 +114,72 @@ import openpyxl
 # convert to Arrow via PyArrow directly
 ```
 
-For `.xlsx` files, use DuckDB's `excel` extension (`read_xlsx()`). For `.xls` files, fall back to `openpyxl` and convert to a PyArrow Table before passing to the loader. If a file path ends in `.xls`, the system shall log a warning that the native DuckDB reader does not support this format and openpyxl is being used.
+For `.xlsx` files, use DuckDB's `excel` extension (`read_xlsx()`). For `.xls` files, fall back to `openpyxl` and convert to a PyArrow Table before passing to the loader.
 
-**FR1.6** For file-based sources with `strategy: incremental`, the system shall apply the same timestamp watermark logic as SQL Server: `WHERE {timestamp_column} >= {effective_watermark} ORDER BY {timestamp_column}`.
+> **Decision: DuckDB native readers rather than pandas or direct Python file reading.**
+> DuckDB's built-in readers (`read_csv`, `read_json`, `read_xlsx`, `sqlite_scan`) are columnar, produce zero-copy Arrow output via `fetcharrow()`, and handle type inference reliably for analytical data. Pandas would add a heavy dependency and require an extra conversion step (DataFrame → Arrow). Direct Python file reading (csv module, json module) would require manual type inference and columnar assembly. DuckDB readers give us correct types, efficient memory layout, and a single code path for all file formats.
+
+#### Requirements
+
+```
+# FR1.1
+THE SYSTEM SHALL support multiple source types (duckdb, sqlite, csv, excel, json, sqlserver),
+configured per-table via the source type field.
+
+# FR1.2
+WHEN a file-based source is configured
+THE SYSTEM SHALL check file mtime (os.path.getmtime()) before computing hash.
+
+# FR1.3
+WHEN file mtime is unchanged compared to stored mtime
+THE SYSTEM SHALL skip extraction without computing a hash.
+
+# FR1.4
+WHEN file mtime has changed
+THE SYSTEM SHALL compute file hash (hashlib.md5) and compare to stored hash.
+
+# FR1.5
+WHEN file mtime changed but hash is unchanged
+THE SYSTEM SHALL skip extraction (file was touched but content identical).
+
+# FR1.6
+WHEN file hash has changed
+THE SYSTEM SHALL extract the file (full refresh or incremental depending on strategy).
+
+# FR1.7
+THE SYSTEM SHALL use CHECKSUM_AGG + COUNT(*) for change detection
+on SQL Server full-strategy tables, and timestamp watermarks for incremental tables.
+
+# FR1.8
+THE SYSTEM SHALL return data as PyArrow Tables from all source types to the loader.
+
+# FR1.9
+THE SYSTEM SHALL read file-based sources via DuckDB native readers
+on a temporary DuckDB connection, then export to PyArrow via fetcharrow().
+
+# FR1.10
+WHEN a file path ends in .xls
+THE SYSTEM SHALL fall back to openpyxl for reading
+AND log a warning that the native DuckDB reader does not support .xls format.
+
+# FR1.11
+WHEN a file-based source has strategy: incremental
+THE SYSTEM SHALL apply timestamp watermark logic:
+WHERE {timestamp_column} >= {effective_watermark} ORDER BY {timestamp_column}.
+```
+
+#### Acceptance Criteria
+
+**AC-FR1.a:** Given a CSV source file that was touched (mtime updated) but has identical content, when `feather run` executes, then extraction is skipped and the run is recorded as `skipped` with reason "unchanged".
+
+**AC-FR1.b:** Given an Excel file with `.xls` extension, when extraction runs, then a warning is logged mentioning openpyxl fallback and the data is returned as a PyArrow Table identical in schema to what DuckDB's `read_xlsx` would produce for an equivalent `.xlsx` file.
+
+**AC-FR1.c:** Given a DuckDB file source with `strategy: incremental` and `timestamp_column: modified_date`, when the stored watermark is `2024-01-15T10:00:00`, then the extraction query includes `WHERE modified_date >= '2024-01-15T09:58:00'` (applying the 2-minute overlap window).
 
 ### FR2: Configuration
 
-**FR2.1** The system shall be configured via a single YAML file (`feather.yaml`).
+One YAML file (`feather.yaml`) defines everything: source connection, destination, tables, schedules, alerts, and defaults. One file per client project. The goal is reproducible deployments — an operator can copy a `feather.yaml` to a new machine, set environment variables, and run. No Python code, no programmatic configuration, no hidden state.
 
-**FR2.2** The config shall support environment variable substitution using `${VAR_NAME}` syntax, resolved at load time via `os.path.expandvars()`.
-
-**FR2.3** Source configuration shall specify connection details per source type:
 ```yaml
 source:
   type: csv                          # file-based (for testing)
@@ -150,7 +196,6 @@ source:
   connection_string: "${SQL_SERVER_CONNECTION_STRING}"
 ```
 
-**FR2.4** Destination configuration:
 ```yaml
 destination:
   path: ./feather_data.duckdb        # local DuckDB (always)
@@ -161,7 +206,7 @@ sync:                                 # optional remote sync
   database: "client_analytics"
 ```
 
-**FR2.5** Each table shall be independently configurable with:
+Each table is independently configurable with:
 - `name` — logical name (used in CLI, state, logs)
 - `source_table` — source table name or filename (e.g., `dbo.SALESINVOICE` or `customers.csv`)
 - `target_table` — local DuckDB target (e.g., `silver.sales_invoice`). Defaults to `silver.{name}` if omitted.
@@ -177,32 +222,99 @@ sync:                                 # optional remote sync
 - `quality_checks` — (optional) declarative DQ checks: `not_null`, `unique`
 - `column_map` — (optional) source→target column rename mapping
 
-**FR2.6** Schedules shall use human-readable names: `hourly`, `every 2 hours`, `twice daily`, `daily`, `weekly`.
-
-**FR2.7** Schedule tiers shall be supported as shortcuts:
+Schedule tiers allow shorthand:
 ```yaml
 schedule_tiers:
   hot: "twice daily"
   cold: "weekly"
 ```
 
-**FR2.8** Global defaults shall be configurable:
-- `overlap_window_minutes` — lookback window for incremental extraction (default: 2)
-- `batch_size` — rows per fetch batch (default: 120,000)
+> **Decision: Environment variable substitution via `${VAR_NAME}` syntax.**
+> Credentials (connection strings, tokens, SMTP passwords) must never be stored in YAML. The `${VAR_NAME}` syntax is resolved at load time via `os.path.expandvars()`. This is simpler than dotenv files or vault integrations and matches how operators manage secrets in cron and systemd environments.
 
-**FR2.9** Config validation shall enforce:
-- `strategy: incremental` requires `timestamp_column`
-- `strategy: append` requires `timestamp_column`
-- `schedule` must resolve to a known schedule name
-- `primary_key` is required for all tables
-- `source.type` must be a recognized source type
-- File-based source types require `source.path` to exist
-- `target_table` schema prefix must be one of: `bronze`, `silver`, `gold` (or omitted, defaulting to `silver`)
-- All relative paths (`destination.path`, `state.path`, `source.path`) are resolved relative to the `feather.yaml` file location, not CWD. Validation shall resolve and log the absolute path for each at startup so the operator can confirm locations before a run.
+> **Decision: All relative paths resolve against `feather.yaml` location, not CWD.**
+> The config file's directory is the anchor so the state DB and data DB locations are stable regardless of how or where the process is invoked (CLI, cron, APScheduler daemon). Validation resolves and logs the absolute path for each at startup so the operator can confirm locations before a run.
+
+#### Requirements
+
+```
+# FR2.1
+THE SYSTEM SHALL be configured via a single YAML file (feather.yaml).
+
+# FR2.2
+WHEN the config contains ${VAR_NAME} syntax
+THE SYSTEM SHALL resolve it at load time via os.path.expandvars().
+
+# FR2.3
+THE SYSTEM SHALL support source configuration per source type
+(csv, duckdb, sqlite, excel, json, sqlserver) with type-specific connection details.
+
+# FR2.4
+THE SYSTEM SHALL support destination configuration with a local DuckDB path
+and an optional remote sync section.
+
+# FR2.5
+THE SYSTEM SHALL support per-table configuration with name, source_table,
+target_table, strategy, schedule, primary_key, timestamp_column,
+checksum_columns, filter, quality_checks, and column_map fields.
+
+# FR2.6
+IF target_table is omitted THEN THE SYSTEM SHALL default to silver.{name}.
+
+# FR2.7
+THE SYSTEM SHALL support human-readable schedule names:
+hourly, every 2 hours, twice daily, daily, weekly.
+
+# FR2.8
+THE SYSTEM SHALL support schedule tier shortcuts mapping tier names
+to schedule names (e.g., hot → twice daily).
+
+# FR2.9
+THE SYSTEM SHALL support global defaults for overlap_window_minutes (default: 2)
+and batch_size (default: 120,000).
+
+# FR2.10
+WHEN strategy is incremental or append AND timestamp_column is not configured
+THE SYSTEM SHALL raise a validation error at load time.
+
+# FR2.11
+WHEN primary_key is not configured for a table
+THE SYSTEM SHALL raise a validation error at load time.
+
+# FR2.12
+WHEN source.type is not a recognized source type
+THE SYSTEM SHALL raise a validation error at load time.
+
+# FR2.13
+WHEN a file-based source type is configured AND source.path does not exist
+THE SYSTEM SHALL raise a validation error at load time.
+
+# FR2.14
+WHEN target_table schema prefix is not one of bronze, silver, gold
+THE SYSTEM SHALL raise a validation error at load time.
+
+# FR2.15
+THE SYSTEM SHALL resolve all relative paths (destination.path, state.path, source.path)
+relative to the feather.yaml file location, not CWD.
+
+# FR2.16
+THE SYSTEM SHALL resolve and log absolute paths at startup
+so the operator can confirm locations before a run.
+```
+
+#### Acceptance Criteria
+
+**AC-FR2.a:** Given a `feather.yaml` with `strategy: incremental` and no `timestamp_column`, when config is loaded, then a validation error is raised naming the table and the missing field.
+
+**AC-FR2.b:** Given a `feather.yaml` at `/opt/client/feather.yaml` with `destination.path: ./data.duckdb`, when config is loaded, then the resolved path is `/opt/client/data.duckdb` regardless of the process CWD.
+
+**AC-FR2.c:** Given a `feather.yaml` with `${MOTHERDUCK_TOKEN}` in the sync section, when the environment variable is set to `abc123`, then the resolved config contains `abc123` — not the literal string `${MOTHERDUCK_TOKEN}`.
 
 ### FR3: Extraction
 
-**FR3.1** The extractor shall support two extraction paths:
+The extractor is stateless. It receives parameters (table name, watermark value, filter, batch size) and returns a PyArrow Table. It does not read or write watermarks, does not know about run history, and does not decide whether extraction should happen. That decision belongs to the pipeline orchestrator, which reads state, calls `detect_changes()`, and only invokes the extractor if work is needed. This separation means the extractor can be tested in isolation with no state database.
+
+Two extraction paths exist — file-based (DuckDB native readers → PyArrow) and database (pyodbc cursor → chunked fetch → PyArrow) — but both produce the same output format.
 
 **File-based extraction** (DuckDB, SQLite, CSV, Excel, JSON):
 - Uses DuckDB's native readers to load file contents
@@ -215,25 +327,56 @@ schedule_tiers:
 - Change detection via CHECKSUM_AGG + COUNT(*) for full-refresh tables
 - Timestamp watermark for incremental tables
 
-**FR3.2** For **incremental** tables (any source type):
-- Filter: `WHERE {timestamp_column} >= {effective_watermark} [AND {filter}] ORDER BY {timestamp_column}`
-- Effective watermark = stored watermark minus `overlap_window_minutes`
+#### Requirements
 
-**FR3.3** For **full** strategy tables:
-- File sources: check mtime → check hash → skip if unchanged, full extract if changed
-- SQL Server: check CHECKSUM_AGG + COUNT(*) → skip if unchanged, full extract if changed
+```
+# FR3.1
+THE SYSTEM SHALL support two extraction paths:
+file-based (DuckDB native readers → PyArrow) and
+database (pyodbc cursor → chunked fetch → PyArrow).
 
-**FR3.4** The extractor shall support extracting source schema metadata:
-- File sources: infer from DuckDB's column metadata after reading
-- SQL Server: query `INFORMATION_SCHEMA.COLUMNS`
+# FR3.2
+WHEN extracting an incremental table (any source type)
+THE SYSTEM SHALL apply the filter:
+WHERE {timestamp_column} >= {effective_watermark} [AND {filter}]
+ORDER BY {timestamp_column}.
 
-**FR3.5** The extractor shall be stateless — it receives parameters and returns a PyArrow Table. All state management is external.
+# FR3.3
+WHEN extracting an incremental table
+THE SYSTEM SHALL compute effective_watermark as:
+stored watermark minus overlap_window_minutes.
+
+# FR3.4
+WHEN extracting a full-strategy file source
+THE SYSTEM SHALL check mtime, then hash, and skip if unchanged.
+
+# FR3.5
+WHEN extracting a full-strategy SQL Server source
+THE SYSTEM SHALL check CHECKSUM_AGG + COUNT(*) and skip if unchanged.
+
+# FR3.6
+THE SYSTEM SHALL support extracting source schema metadata:
+file sources via DuckDB column metadata, SQL Server via INFORMATION_SCHEMA.COLUMNS.
+
+# FR3.7
+THE SYSTEM SHALL keep the extractor stateless —
+it receives parameters and returns a PyArrow Table;
+all state management is external.
+```
+
+#### Acceptance Criteria
+
+**AC-FR3.a:** Given an incremental table with stored watermark `2024-06-01T10:00:00` and `overlap_window_minutes: 2`, when extraction runs, then the query uses effective watermark `2024-06-01T09:58:00` (stored minus 2 minutes).
+
+**AC-FR3.b:** Given a full-strategy CSV source where the file has not changed (same mtime and hash), when `feather run` executes, then no data is read from the file and the run is recorded as `skipped`.
+
+**AC-FR3.c:** Given an incremental table with both a watermark filter and a user-defined `filter: "STATUS <> 1"`, when extraction runs, then both conditions appear in the WHERE clause.
 
 ### FR4: Loading
 
-**FR4.1** Data shall be loaded into a local DuckDB file (configured in `destination.path`).
+The loader writes PyArrow Tables into a local DuckDB file. Three strategies exist because tables have different update semantics: reference tables that can be swapped atomically (`full`), transactional tables where only recent partitions change (`incremental`), and audit/compliance tables where no row is ever deleted (`append`). Each strategy is idempotent — running twice produces the same result as running once, which is essential for safe retries after partial failures.
 
-**FR4.2** The local DuckDB shall create schemas on `feather setup`: `bronze`, `silver`, `gold`, `_quarantine`. All four schemas are created regardless of whether they are used — this keeps the structure consistent across deployments and makes enterprise clients' expectations met out of the box.
+All four schemas (`bronze`, `silver`, `gold`, `_quarantine`) are created on `feather setup` regardless of whether they are used — consistent structure across deployments.
 
 > **Decision: bronze is optional per table, not per deployment.**
 > The schema exists in every DuckDB file, but no table is forced into it. Bronze serves two distinct purposes depending on how it is configured:
@@ -246,82 +389,239 @@ schedule_tiers:
 >
 > Small Indian SMB clients with no compliance requirement and stable transforms configure `target_table: silver.sales_invoice` and skip bronze entirely — landing column-selected, renamed data directly into silver. The operator decides per table, per client.
 
-**FR4.3** For **full** strategy tables, use the **swap pattern** (atomic, no partial reads during load):
-1. `CREATE TABLE {target}_new AS SELECT * FROM staging_data`
-2. `DROP TABLE IF EXISTS {target}`
-3. `ALTER TABLE {target}_new RENAME TO {final_name}`
-All within a single transaction.
+> **Decision: append strategy for audit trail / compliance.**
+> The `append` strategy uses insert-only — no deletes, rows accumulate forever. The watermark advances so only new rows are fetched each run. If the target table does not yet exist, it is created on first run. This was added specifically for regulated clients who need point-in-time reconstruction and full history preservation. The alternative — using `incremental` with soft deletes — would require additional logic and still lose the original row values on update.
 
-**FR4.4** For **incremental** strategy tables, use **partition-based overwrite**:
-1. `DELETE FROM {target} WHERE {timestamp_column} >= {min_timestamp_in_batch}`
-2. `INSERT INTO {target} SELECT *, current_timestamp AS _etl_loaded_at, {run_id} AS _etl_run_id FROM staging_data`
+> **Decision: schema drift handling — auto-adapt, don't block.**
+> Added columns are absorbed (ALTER TABLE + NULL backfill). Removed columns are loaded as NULL (target retains the column). Type changes attempt a DuckDB cast; failures quarantine the affected rows. The alternative — blocking the pipeline on any drift — would cause unnecessary downtime for benign changes (e.g., a new column added to the source). Critical failures (type cast failures) still alert the operator.
 
-**FR4.5** For **append** strategy tables, use **insert-only**:
-1. `INSERT INTO {target} SELECT *, current_timestamp AS _etl_loaded_at, {run_id} AS _etl_run_id FROM staging_data`
-No deletes. Rows accumulate. The watermark advances so only new rows are fetched each run. Use for audit trail, compliance, or full history preservation. If the target table does not yet exist, it is created on first run.
+#### Requirements
 
-**FR4.6** Every loaded row shall include two metadata columns regardless of target schema (bronze, silver, or gold):
-- `_etl_loaded_at` (TIMESTAMP) — when the row was loaded
-- `_etl_run_id` (VARCHAR) — links to the `_runs` table
+```
+# FR4.1
+THE SYSTEM SHALL load data into a local DuckDB file configured in destination.path.
 
-**FR4.7** If a `column_map` is configured, renaming is applied at the PyArrow level (zero-copy) before loading.
+# FR4.2
+WHEN feather setup runs
+THE SYSTEM SHALL create schemas: bronze, silver, gold, _quarantine.
 
-**FR4.8** Loading and state update shall be wrapped in a single DuckDB transaction.
+# FR4.3
+WHEN loading a full-strategy table
+THE SYSTEM SHALL use the swap pattern within a single transaction:
+CREATE TABLE {target}_new, DROP TABLE IF EXISTS {target},
+ALTER TABLE {target}_new RENAME TO {final_name}.
 
-**FR4.10** All three load strategies shall be idempotent — running `feather run --table X` twice in a row shall produce the same result as running it once:
-- `full` — guaranteed by the swap pattern (second run produces identical table)
-- `incremental` — guaranteed by partition delete + insert on the same watermark window
-- `append` — on retry after a partial failure, the system shall first delete any rows where `_etl_run_id` matches the failed run's ID, then re-insert. This prevents duplicate rows from partial writes.
+# FR4.4
+WHEN loading an incremental-strategy table
+THE SYSTEM SHALL use partition-based overwrite:
+DELETE FROM {target} WHERE {timestamp_column} >= {min_timestamp_in_batch},
+then INSERT with _etl_loaded_at and _etl_run_id metadata columns.
 
-**FR4.9** Schema drift during load shall be handled as follows:
-- `added` column: ALTER TABLE to add the new column to the target, then load normally. Historical rows will have NULL for the new column.
-- `removed` column: load the batch with the missing column as NULL. Target table retains the column definition.
-- `type_changed`: attempt DuckDB cast. If cast succeeds, load proceeds. If cast fails, affected rows are routed to `_quarantine.{table_name}` and a `[CRITICAL]` email alert is sent. The run is marked as `partial_success` in `_runs`.
+# FR4.5
+WHEN loading an append-strategy table
+THE SYSTEM SHALL INSERT only, with _etl_loaded_at and _etl_run_id metadata columns.
+No deletes shall occur.
+
+# FR4.6
+IF the target table does not exist for an append-strategy table
+THEN THE SYSTEM SHALL create it on first run.
+
+# FR4.7
+THE SYSTEM SHALL add _etl_loaded_at (TIMESTAMP) and _etl_run_id (VARCHAR)
+metadata columns to every loaded row regardless of target schema.
+
+# FR4.8
+WHEN column_map is configured
+THE SYSTEM SHALL apply renaming at the PyArrow level (zero-copy) before loading.
+
+# FR4.9
+THE SYSTEM SHALL wrap loading and state update in a single DuckDB transaction.
+
+# FR4.10
+WHEN retrying an append-strategy table after partial failure
+THE SYSTEM SHALL first delete rows where _etl_run_id matches the failed run's ID,
+then re-insert, preventing duplicate rows.
+
+# FR4.11
+WHEN schema drift type is "added" (new column in source)
+THE SYSTEM SHALL ALTER TABLE to add the column to the target
+AND load normally with historical rows having NULL for the new column.
+
+# FR4.12
+WHEN schema drift type is "removed" (column missing from source)
+THE SYSTEM SHALL load the batch with the missing column as NULL.
+Target table retains the column definition.
+
+# FR4.13
+WHEN schema drift type is "type_changed" AND DuckDB cast succeeds
+THE SYSTEM SHALL load the data normally.
+
+# FR4.14
+WHEN schema drift type is "type_changed" AND DuckDB cast fails
+THE SYSTEM SHALL route affected rows to _quarantine.{table_name},
+send a [CRITICAL] email alert, and mark the run as partial_success.
+```
+
+#### Acceptance Criteria
+
+**AC-FR4.a:** Given an append-strategy table where a previous run partially wrote 50 of 100 rows (same `_etl_run_id`), when the pipeline retries, then the 50 partial rows are deleted before re-inserting all 100 rows — resulting in exactly 100 rows with that run ID.
+
+**AC-FR4.b:** Given an incremental table where a source column `phone_number` was added since the last run, when data is loaded, then the target table has a new `phone_number` column with NULL for all historical rows and values populated for newly loaded rows.
+
+**AC-FR4.c:** Given a full-strategy table, when `feather run --table X` executes twice with no source changes, then the target table contains the same rows after both runs (swap pattern idempotency).
 
 ### FR5: Transforms
 
-**FR5.1** Transforms shall be plain `.sql` files stored in `transforms/silver/` and `transforms/gold/`.
-
-**FR5.2** Silver transforms shall be DuckDB **views** (`CREATE OR REPLACE VIEW`).
+Transforms follow a two-layer model. Silver is the canonical mapping layer — it normalises source-system-specific naming into a standard shape that client analysts and LLM agents work against. Gold is the materialisation layer — client-specific KPIs, aggregations, and denormalized tables shaped for dashboards. Silver transforms are views (cheap, always reflect current data), gold transforms are materialised tables (rebuilt after each extraction so dashboards see fresh data).
 
 > **Decision: silver is the canonical mapping layer.**
 > Silver is where source-system-specific naming, column selection, and light cleaning happen. A SAP B1 table `ORDR` and a custom ERP table `SalesHeader` both become `silver.sales_order` with the same 10-15 columns in the same shape. Client analysts and LLM agents work against silver, not bronze. This is also the layer where the planned connector/transform library (v2) will provide reusable canonical mappings per source system — so the operator deploying a second SAP B1 client can reuse the silver transforms from the first.
 
-**FR5.3** Gold transforms shall be DuckDB **materialized tables** (`CREATE OR REPLACE TABLE ... AS SELECT ...`), rebuilt after each extraction run. Gold is client-specific — KPIs, aggregations, denormalized tables shaped for Rill dashboards or BI tools. Only gold tables are synced to MotherDuck.
+#### Requirements
 
-**FR5.4** SQL files may use `string.Template` variable substitution (`${variable}`).
+```
+# FR5.1
+THE SYSTEM SHALL store transforms as plain .sql files
+in transforms/silver/ and transforms/gold/ directories.
 
-**FR5.5** Transform execution order shall be determined by `graphlib.TopologicalSorter` (stdlib) based on declared dependencies.
+# FR5.2
+THE SYSTEM SHALL execute silver transforms as DuckDB views
+(CREATE OR REPLACE VIEW).
 
-**FR5.6** `feather setup` shall execute all transform SQL files.
+# FR5.3
+THE SYSTEM SHALL execute gold transforms as DuckDB materialized tables
+(CREATE OR REPLACE TABLE ... AS SELECT ...).
 
-**FR5.7** After each extraction run, gold tables shall be rebuilt.
+# FR5.4
+THE SYSTEM SHALL support string.Template variable substitution (${variable})
+in SQL files.
+
+# FR5.5
+THE SYSTEM SHALL determine transform execution order via
+graphlib.TopologicalSorter (stdlib) based on declared dependencies.
+
+# FR5.6
+WHEN feather setup runs
+THE SYSTEM SHALL execute all transform SQL files.
+
+# FR5.7
+WHEN an extraction run completes successfully
+THE SYSTEM SHALL rebuild all gold tables (rematerialize).
+```
+
+#### Acceptance Criteria
+
+**AC-FR5.a:** Given silver and gold transforms with a dependency chain (gold depends on silver), when `feather setup` runs, then silver views are created before gold tables — verified by gold table containing correct data from silver.
+
+**AC-FR5.b:** Given a gold transform referencing `${schema}` and a template variable `schema=silver`, when the transform executes, then the substitution resolves correctly in the generated SQL.
 
 ### FR6: Remote Sync (Optional)
 
-**FR6.1** Remote sync shall be optional, configured in the `sync` section of YAML. If not configured, the pipeline stops at local DuckDB.
+Remote sync pushes gold tables — and only gold tables — to MotherDuck via DuckDB's native ATTACH mechanism. It is the last step in the pipeline, running only after gold tables are rebuilt. If the `sync` section is not configured in YAML, the pipeline stops at local DuckDB with no error and no no-op log noise.
 
-**FR6.2** Only **gold** tables shall be synced to the remote destination.
+#### Requirements
 
-**FR6.3** MotherDuck sync shall use DuckDB ATTACH: `ATTACH 'md:{database}?motherduck_token={token}'`.
+```
+# FR6.1
+IF the sync section is not configured in feather.yaml
+THEN THE SYSTEM SHALL skip remote sync entirely (no-op, no error).
 
-**FR6.4** For each gold table: `CREATE OR REPLACE TABLE md.{database}.gold.{table} AS SELECT * FROM local.gold.{table}`.
+# FR6.2
+THE SYSTEM SHALL sync only gold-schema tables to the remote destination.
 
-**FR6.5** A single remote connection shall be reused across all gold table syncs.
+# FR6.3
+THE SYSTEM SHALL connect to MotherDuck via DuckDB ATTACH:
+ATTACH 'md:{database}?motherduck_token={token}'.
 
-**FR6.6** The sync step shall be the last step in the pipeline, after gold tables are rebuilt.
+# FR6.4
+WHEN syncing a gold table
+THE SYSTEM SHALL execute:
+CREATE OR REPLACE TABLE md.{database}.gold.{table}
+AS SELECT * FROM local.gold.{table}.
+
+# FR6.5
+THE SYSTEM SHALL reuse a single remote connection across all gold table syncs.
+
+# FR6.6
+THE SYSTEM SHALL execute the sync step last in the pipeline,
+after gold tables are rebuilt.
+```
+
+#### Acceptance Criteria
+
+**AC-FR6.a:** Given a `feather.yaml` with no `sync` section, when the pipeline completes, then no MotherDuck connection is attempted and no sync-related entries appear in `_run_steps`.
+
+**AC-FR6.b:** Given 3 gold tables to sync, when remote sync runs, then a single ATTACH is executed (not 3 separate connections).
 
 ### FR7: State Management
 
-**FR7.1** State shall be stored in a local DuckDB file, separate from the data DuckDB. Path resolution order:
-1. Use `state.path` from `feather.yaml` if configured (absolute or relative to `feather.yaml` location)
-2. Otherwise default to `{feather.yaml directory}/feather_state.duckdb`
+State lives in a separate DuckDB file from the data — `feather_state.duckdb` by default. This separation means the data DuckDB can be deleted and rebuilt from source without losing watermarks, run history, or retry state. Watermarks are the single source of truth for extraction progress: they advance only when the entire pipeline step (load + optional sync) succeeds. This invariant guarantees that no data window is silently skipped.
 
-The config file's directory is the anchor — not the current working directory — so the state DB location is stable regardless of how or where the process is invoked (CLI, cron, APScheduler daemon).
+State path resolution: use `state.path` from `feather.yaml` if configured (absolute or relative to `feather.yaml` location), otherwise default to `{feather.yaml directory}/feather_state.duckdb`. The config file's directory is the anchor — not CWD — so the state DB location is stable regardless of invocation method.
 
-The data DuckDB (`destination.path`) follows the same resolution: relative paths are resolved against `feather.yaml`'s directory, not CWD.
+> **Decision: sync failure rolls back the watermark, not the load.**
+> The load is committed to local DuckDB (it's in a transaction that already closed). Only the watermark advancement is withheld. This means on re-run, some rows may be re-loaded into local DuckDB (handled by idempotency, FR4.10) and re-synced to MotherDuck. This trades a small amount of redundant work for a hard guarantee: the watermark only reflects data that is fully visible in MotherDuck. The alternative — advancing the watermark after load regardless of sync — risks MotherDuck silently falling behind with no automated recovery path.
 
-**FR7.2** The state database shall contain these tables:
+> **Decision: boundary hash for deduplication at watermark edge.**
+> Incremental extraction with overlap windows means boundary rows (rows at the exact max watermark timestamp) may be re-fetched. Hashing the PKs of these rows and storing them in `boundary_hashes` allows the next run to skip already-loaded rows at the boundary. The alternative — relying solely on the overlap window — would re-insert boundary rows on every run, violating idempotency for incremental tables.
+
+#### Requirements
+
+```
+# FR7.1
+THE SYSTEM SHALL store state in a local DuckDB file, separate from the data DuckDB.
+
+# FR7.2
+IF state.path is configured in feather.yaml
+THEN THE SYSTEM SHALL use that path (absolute or relative to feather.yaml location).
+
+# FR7.3
+IF state.path is not configured
+THEN THE SYSTEM SHALL default to {feather.yaml directory}/feather_state.duckdb.
+
+# FR7.4
+THE SYSTEM SHALL maintain five state tables:
+_watermarks, _runs, _run_steps, _dq_results, _schema_snapshots.
+
+# FR7.5
+WHEN the entire pipeline step succeeds for a table AND sync is not configured
+THE SYSTEM SHALL advance the watermark after successful load.
+
+# FR7.6
+WHEN the entire pipeline step succeeds for a table AND sync is configured
+THE SYSTEM SHALL advance the watermark only after both load AND sync succeed.
+
+# FR7.7
+WHEN load fails
+THE SYSTEM SHALL leave the watermark unchanged
+AND roll back the data load transaction.
+
+# FR7.8
+WHEN load succeeds but sync fails
+THE SYSTEM SHALL leave the watermark unchanged.
+Loaded data remains in local DuckDB.
+Next run re-extracts the same window and re-syncs.
+
+# FR7.9
+WHEN extracting an incremental table
+THE SYSTEM SHALL hash PKs of rows at the max watermark timestamp
+AND store them in boundary_hashes.
+
+# FR7.10
+WHEN the next incremental run encounters rows whose PK hash
+matches stored boundary_hashes
+THE SYSTEM SHALL skip those rows (boundary deduplication).
+```
+
+#### Acceptance Criteria
+
+**AC-FR7.a:** Given an incremental table where load succeeds but MotherDuck sync fails, when the pipeline re-runs, then the watermark is unchanged from the previous successful value, the same data window is re-extracted, and sync is re-attempted.
+
+**AC-FR7.b:** Given a boundary row (PK=100) at watermark timestamp `2024-06-01T10:00:00` that was loaded in run N, when run N+1 extracts with overlap and the source row is unchanged, then the row is skipped via boundary hash match. But if the source row was updated (different non-PK column values), then the row is NOT excluded (the PK hash still matches, but the system should re-load it — this AC verifies the boundary hash is PK-only, not full-row).
+
+**AC-FR7.c:** Given a table with `retry_count: 2`, when the pipeline runs successfully, then `retry_count` is reset to 0 and `retry_after` is cleared.
+
+### State Schema Reference
 
 **`_watermarks`** — per-table extraction state:
 
@@ -389,63 +689,135 @@ The data DuckDB (`destination.path`) follows the same resolution: relative paths
 | data_type | VARCHAR | Source data type |
 | snapshot_at | TIMESTAMP | When snapshot taken |
 
-**FR7.3** Watermark update rules:
-- Watermark advances **only** when the entire pipeline step succeeds for that table
-- If sync is **not** configured: watermark advances after successful load
-- If sync is **configured**: watermark advances only after both load AND sync succeed
-- If load fails: watermark unchanged, data load transaction rolled back
-- If load succeeds but sync fails: watermark unchanged, loaded data remains in local DuckDB, next run re-extracts the same window and re-syncs
-
-> **Decision: sync failure rolls back the watermark, not the load.**
-> The load is committed to local DuckDB (it's in a transaction that already closed). Only the watermark advancement is withheld. This means on re-run, some rows may be re-loaded into local DuckDB (handled by idempotency, FR4.10) and re-synced to MotherDuck. This trades a small amount of redundant work for a hard guarantee: the watermark only reflects data that is fully visible in MotherDuck. The alternative — advancing the watermark after load regardless of sync — risks MotherDuck silently falling behind with no automated recovery path.
-
-**FR7.4** Boundary deduplication: for incremental tables, hash PKs of rows at the max watermark timestamp. Store in `boundary_hashes`. On next run, skip rows whose PK hash matches.
-
 ### FR8: Data Quality
 
-**FR8.1** DQ checks shall be declarative, configured per-table in YAML:
+Data quality checks are declarative — the operator specifies what to validate in YAML, not how. This keeps checks maintainable across dozens of client deployments without per-client Python code. Checks run after each load against the local DuckDB table and log results to `_dq_results`. Failures trigger alerts but do not block the pipeline — the data is still loaded, and the operator investigates at their convenience.
+
 ```yaml
 quality_checks:
   not_null: [invoice_no, customer_code]
   unique: [invoice_no]
 ```
 
-**FR8.2** Supported check types:
-- `not_null` — fail if any NULLs in specified columns
-- `unique` — fail if any duplicate values in specified columns
-- `row_count` — warn if 0 rows (always runs)
+#### Requirements
 
-**FR8.3** DQ checks run after each load, against the local DuckDB table.
+```
+# FR8.1
+THE SYSTEM SHALL support declarative DQ checks configured per-table in YAML:
+not_null, unique, and row_count.
 
-**FR8.4** DQ failures are logged to `_dq_results` and trigger email alert at `[WARNING]` severity (if configured), but do NOT block the pipeline.
+# FR8.2
+WHEN not_null check is configured for a column
+THE SYSTEM SHALL fail if any NULLs exist in that column after load.
+
+# FR8.3
+WHEN unique check is configured for a column
+THE SYSTEM SHALL fail if any duplicate values exist in that column after load.
+
+# FR8.4
+WHEN a table is loaded
+THE SYSTEM SHALL always run the row_count check
+AND warn if 0 rows were loaded.
+
+# FR8.5
+THE SYSTEM SHALL run DQ checks after each load,
+against the local DuckDB table (not the source).
+
+# FR8.6
+THE SYSTEM SHALL log all DQ results to the _dq_results state table.
+
+# FR8.7
+WHEN a DQ check fails
+THE SYSTEM SHALL trigger an email alert at [WARNING] severity (if configured)
+AND continue pipeline execution (do NOT block).
+```
+
+#### Acceptance Criteria
+
+**AC-FR8.a:** Given a table with `not_null: [invoice_no]` and 3 rows with NULL `invoice_no`, when DQ checks run, then a `fail` result is recorded in `_dq_results` with details indicating the NULL count, and the pipeline continues to the next step.
+
+**AC-FR8.b:** Given a table with no `quality_checks` configured, when loading completes with 0 rows, then a `row_count` warn result is still recorded in `_dq_results` (row_count always runs).
 
 ### FR9: Schema Drift Detection
 
-**FR9.1** On each extraction, compare source schema against stored snapshot in `_schema_snapshots`.
+Schema drift detection is observability, not a gate. The pipeline always continues — but the operator is informed when source schemas change. This matters because ERP vendors and client IT teams modify schemas without notice, and silent drift causes subtle data quality issues that surface days later in dashboards. By detecting and classifying drift at extraction time, the operator can respond proactively. Load-time handling of each drift type is defined in FR4.11–FR4.14.
 
-**FR9.2** Detect: `added` (new column), `removed` (column gone), `type_changed` (data type changed).
+#### Requirements
 
-**FR9.3** Schema changes logged in `_runs` and trigger email alert at `[INFO]` severity (if configured).
+```
+# FR9.1
+WHEN extracting a table
+THE SYSTEM SHALL compare source schema against stored snapshot in _schema_snapshots.
 
-**FR9.4** First run saves baseline — no drift reported.
+# FR9.2
+THE SYSTEM SHALL classify drift as: added (new column),
+removed (column gone), or type_changed (data type changed).
 
-**FR9.5** For file sources, schema is inferred from the file contents via DuckDB. For SQL Server, schema comes from `INFORMATION_SCHEMA.COLUMNS`.
+# FR9.3
+WHEN schema drift is detected
+THE SYSTEM SHALL log changes in the _runs.schema_changes field (JSON)
+AND trigger an email alert.
+
+# FR9.4
+WHEN drift type is "added" or "removed"
+THE SYSTEM SHALL send the alert at [INFO] severity.
+
+# FR9.5
+WHEN drift type is "type_changed"
+THE SYSTEM SHALL send the alert at [CRITICAL] severity
+(because type changes may cause cast failures and quarantined rows per FR4.14).
+
+# FR9.6
+WHEN a table is extracted for the first time
+THE SYSTEM SHALL save the schema as baseline with no drift reported.
+
+# FR9.7
+THE SYSTEM SHALL infer file source schemas from DuckDB column metadata
+AND SQL Server schemas from INFORMATION_SCHEMA.COLUMNS.
+```
+
+#### Acceptance Criteria
+
+**AC-FR9.a:** Given a table extracted for the first time, when the run completes, then `_schema_snapshots` contains the baseline schema and `_runs.schema_changes` is NULL (no drift reported).
+
+**AC-FR9.b:** Given a source table where column `phone` was added since the last snapshot, when extraction runs, then `_runs.schema_changes` contains `{"added": ["phone"]}` and an `[INFO]` email is sent (if configured).
 
 ### FR10: Scheduling
 
-**FR10.1** Two scheduling modes:
-- **Built-in:** APScheduler v3.x with SQLite job store, `feather schedule`
-- **External:** One-shot CLI (`feather run --tier hot`) for OS cron
+Two scheduling modes because operators have different preferences. Some prefer OS cron — simpler, no daemon, works with existing monitoring. Others prefer APScheduler — richer scheduling (e.g., "twice daily"), no crontab editing, single process. Both modes use the same `feather run` logic underneath; the difference is only in how runs are triggered.
 
-**FR10.2** APScheduler: `coalesce=True`, `max_instances=1`, `replace_existing=True`.
+#### Requirements
 
-**FR10.3** Schedule resolution: table schedule → tier lookup → named schedule → cron kwargs.
+```
+# FR10.1
+THE SYSTEM SHALL support two scheduling modes:
+built-in (APScheduler v3.x with SQLite job store, feather schedule command)
+and external (one-shot CLI via feather run --tier for OS cron).
+
+# FR10.2
+WHEN using APScheduler
+THE SYSTEM SHALL configure coalesce=True, max_instances=1, replace_existing=True.
+
+# FR10.3
+WHEN resolving a table's schedule
+THE SYSTEM SHALL follow the resolution chain:
+table schedule → tier lookup → named schedule → cron kwargs.
+
+# FR10.4
+WHEN feather run --tier is invoked
+THE SYSTEM SHALL execute a one-shot run of all tables matching that tier,
+then exit (suitable for OS cron).
+```
+
+#### Acceptance Criteria
+
+**AC-FR10.a:** Given APScheduler running with `max_instances=1` and `coalesce=True`, when a scheduled run is still in progress and the next trigger fires, then the second run is coalesced (not started concurrently).
+
+**AC-FR10.b:** Given a table with `schedule: hot` and tier definition `hot: "twice daily"`, when schedule resolution runs, then the table resolves to the cron kwargs for "twice daily".
 
 ### FR11: CLI
 
-**FR11.1** CLI built with typer, entry point: `feather`.
-
-**FR11.2** Commands:
+Single entry point `feather`, built with typer. Every operational action is a CLI command — no Python API required for normal operation.
 
 | Command | Purpose |
 |---------|---------|
@@ -457,13 +829,54 @@ quality_checks:
 | `feather history [--table X]` | Show run history |
 | `feather schedule` | Start APScheduler daemon |
 
-**FR11.3** All commands accept `--config PATH` (default: `feather.yaml`).
+#### Requirements
+
+```
+# FR11.1
+THE SYSTEM SHALL provide a CLI built with typer, entry point: feather.
+
+# FR11.2
+WHEN feather setup is invoked
+THE SYSTEM SHALL initialize the state DB, create schemas, and apply all transforms.
+
+# FR11.3
+WHEN feather run is invoked with no flags
+THE SYSTEM SHALL run all configured tables.
+
+# FR11.4
+WHEN feather run --table X is invoked
+THE SYSTEM SHALL run only the named table.
+
+# FR11.5
+WHEN feather run --tier T is invoked
+THE SYSTEM SHALL run all tables matching the named tier.
+
+# FR11.6
+WHEN feather status is invoked
+THE SYSTEM SHALL display watermarks and last run status for all tables.
+
+# FR11.7
+WHEN feather history is invoked
+THE SYSTEM SHALL display run history, optionally filtered by --table.
+
+# FR11.8
+WHEN feather schedule is invoked
+THE SYSTEM SHALL start the APScheduler daemon.
+
+# FR11.9
+THE SYSTEM SHALL accept --config PATH on all commands (default: feather.yaml).
+```
+
+#### Acceptance Criteria
+
+**AC-FR11.a:** Given a valid `feather.yaml` at a non-default path `/opt/client/config.yaml`, when `feather run --config /opt/client/config.yaml` is invoked, then the pipeline runs using that config file.
+
+**AC-FR11.b:** Given 5 tables configured with 2 in tier `hot`, when `feather run --tier hot` is invoked, then only the 2 hot-tier tables are executed.
 
 ### FR12: Alerting
 
-**FR12.1** Alerts via SMTP email using Python stdlib `smtplib` + `email`. No additional dependency required.
+Alerts use SMTP email via Python stdlib `smtplib` + `email` — zero additional dependencies. This works with Gmail, any corporate SMTP relay, or transactional email services. The operator configures credentials in YAML (with env var substitution for secrets). If the `alerts` section is not configured, the pipeline runs silently with no error — alerting is fully optional.
 
-**FR12.2** Email configuration via `feather.yaml` `alerts` section:
 ```yaml
 alerts:
   smtp_host: "smtp.gmail.com"
@@ -474,27 +887,92 @@ alerts:
   alert_from: "feather-etl@example.com"   # optional, defaults to smtp_user
 ```
 
-**FR12.3** Severities map to email subject prefixes:
-- `[CRITICAL]` — pipeline failures, load errors
-- `[WARNING]` — DQ check failures
-- `[INFO]` — schema drift detected
+> **Decision: SMTP email rather than Slack, PagerDuty, or webhook.**
+> SMTP uses Python stdlib — zero dependency. Every client has email. Slack/PagerDuty require account setup, API tokens, and a dependency. Webhooks are generic but require the operator to build a receiver. Email is the lowest-friction option for the target audience (Indian SMB operators who may not use Slack). If a future client needs Slack, a webhook-to-Slack relay is trivial to add outside feather-etl.
 
-**FR12.4** No-op if `alerts` section is not configured. Pipeline runs silently.
+#### Requirements
+
+```
+# FR12.1
+THE SYSTEM SHALL send alerts via SMTP email
+using Python stdlib smtplib + email (no additional dependency).
+
+# FR12.2
+THE SYSTEM SHALL support email configuration via the alerts section in feather.yaml:
+smtp_host, smtp_port, smtp_user, smtp_password, alert_to, alert_from (optional).
+
+# FR12.3
+IF alert_from is not configured
+THEN THE SYSTEM SHALL default to smtp_user as the sender address.
+
+# FR12.4
+WHEN a pipeline failure or load error occurs
+THE SYSTEM SHALL send an email with [CRITICAL] subject prefix.
+
+# FR12.5
+WHEN a DQ check fails
+THE SYSTEM SHALL send an email with [WARNING] subject prefix.
+
+# FR12.6
+WHEN schema drift is detected
+THE SYSTEM SHALL send an email with [INFO] subject prefix
+(or [CRITICAL] for type_changed per FR9.5).
+
+# FR12.7
+IF the alerts section is not configured in feather.yaml
+THEN THE SYSTEM SHALL skip alerting entirely (no-op, no error).
+```
+
+#### Acceptance Criteria
+
+**AC-FR12.a:** Given a `feather.yaml` with no `alerts` section, when a pipeline failure occurs, then no SMTP connection is attempted and the failure is only logged locally.
+
+**AC-FR12.b:** Given a configured `alerts` section, when a DQ check fails for table `sales_invoice`, then an email is sent with subject `[WARNING] feather-etl: DQ failure — sales_invoice` (or similar format containing severity, tool name, and table).
 
 ### FR13: Retry and Error Handling
 
-**FR13.1** On failure: record run, increment `retry_count`, compute `retry_after` using linear backoff, do NOT update watermark, send `[CRITICAL]` email alert (if configured).
+Retry state lives in `_watermarks` — the table that is already read at every run start — so there is no extra join or lookup. When a table fails, the pipeline records the failure, increments the retry counter, computes a backoff window, and moves on to the next table. Other tables are never affected by one table's failure. The backoff window prevents a persistently failing table from hammering the source system on every scheduled run.
 
 > **Decision: linear backoff, base 15 minutes, cap 2 hours.**
 > Formula: `retry_after = now + min(retry_count × 15 minutes, 120 minutes)`
 > After 1 failure: wait 15 min. After 2: 30 min. After 3: 45 min. Capped at 120 min from failure 8 onwards.
 > Exponential backoff was rejected — a backoff that reaches 8–16 hours defeats the purpose of a scheduled pipeline. Linear keeps the retry window predictable and within the operator's scheduling expectations. At cap, a persistent failure alerts every ~4 scheduled runs rather than going silent.
 
-**FR13.2** Skip table if `current_time < retry_after`. Record status `skipped` in `_runs` with `error_message` referencing the original failure.
+#### Requirements
 
-**FR13.3** Reset `retry_count` to 0 and clear `retry_after` on any successful run.
+```
+# FR13.1
+WHEN a table extraction or load fails
+THE SYSTEM SHALL record the run as failure, increment retry_count,
+compute retry_after using linear backoff, leave watermark unchanged,
+and send a [CRITICAL] email alert (if configured).
 
-**FR13.4** Individual table failures do not prevent other tables from running.
+# FR13.2
+THE SYSTEM SHALL compute retry_after as:
+now + min(retry_count × 15 minutes, 120 minutes).
+
+# FR13.3
+WHILE current_time < retry_after for a table
+THE SYSTEM SHALL skip that table
+AND record status "skipped" in _runs with error_message referencing the original failure.
+
+# FR13.4
+WHEN a table runs successfully after previous failures
+THE SYSTEM SHALL reset retry_count to 0 and clear retry_after.
+
+# FR13.5
+WHEN one table fails
+THE SYSTEM SHALL continue running all other configured tables
+(per-table isolation).
+```
+
+#### Acceptance Criteria
+
+**AC-FR13.a:** Given a table with 2 consecutive failures (`retry_count: 2`), when the backoff is computed, then `retry_after = now + 30 minutes` (2 × 15 min).
+
+**AC-FR13.b:** Given a table in backoff (`retry_after` is 20 minutes from now), when `feather run` executes, then the table is skipped with status `skipped` and the error message references the original failure — while all other tables run normally.
+
+**AC-FR13.c:** Given a table with `retry_count: 10` (past cap), when backoff is computed, then `retry_after = now + 120 minutes` (capped, not 150).
 
 ---
 
