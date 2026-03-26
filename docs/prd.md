@@ -1,6 +1,6 @@
 # feather-etl: Product Requirements Document
 
-**Version:** 1.7
+**Version:** 1.8
 **Date:** 2026-03-26
 **Status:** Draft
 
@@ -14,6 +14,7 @@
 | 1.5 | Product vision updated to reflect multi-client deployment product, not solo-operator tool; "What It Replaces" reframed for client deployments; Why section expanded for target audience; UC8/UC10 trimmed to use-case summaries; research.md context note and product vision updated to match |
 | 1.6 | feather-etl defined as package-only (no client config in this repo); client projects are separate GitHub repos per client; canonical client project layout defined; feather init wizard added (scaffolding + interactive + --non-interactive agent mode); --json output contract added to all CLI commands; FR11.12-15 EARS added; F10a (feather init) and F10b (--json mode) added to feature list; init_wizard.py added to module breakdown; NFR2 code size updated |
 | 1.7 | Feature list rewritten as vertical slices (V1–V18) replacing horizontal layer phases; Slices 1–3 fully specified with scope tables, CLI commands, end-to-end tests, and explicit "not in this slice" boundaries; Slices 4–18 indicative; Testing strategy rewritten around per-slice coverage using real client DuckDB as primary test source |
+| 1.8 | feather init split: scaffolding (directory structure, template feather.yaml, pyproject.toml, .gitignore, .env.example) moved to Slice 1; interactive wizard (prompts, discovery-driven table selection, silver stubs, --non-interactive agent mode) stays in Slice 17; onboarding flow documented in Slice 1 |
 
 ---
 
@@ -1688,10 +1689,13 @@ The first three slices are fully specified and ready for implementation. Slices 
 | DuckDB destination | Schema creation (bronze, silver, gold, _quarantine). Full strategy swap pattern. `_etl_loaded_at` + `_etl_run_id` metadata columns. |
 | State DB | `_state_meta` (schema version v1), `_watermarks`, `_runs`. Init on `feather setup`. Write watermark + run record after successful load. |
 | Pipeline | `run_table()` — full strategy: validate → extract → load → update state. `run_all()`. |
-| CLI | `feather validate`, `feather discover`, `feather setup`, `feather run`, `feather status` |
+| CLI | `feather init` (scaffold only), `feather validate`, `feather discover`, `feather setup`, `feather run`, `feather status` |
 
 **CLI commands delivered:**
 ```bash
+feather init        # scaffold new client project: directory structure, feather.yaml
+                    # template, pyproject.toml, .gitignore, .env.example
+                    # no source connection — operator fills in details, then discovers
 feather validate    # validate config, write feather_validation.json, print summary
 feather discover    # connect to source, list tables + columns + inferred types
 feather setup       # init state DB, create bronze/silver/gold/_quarantine schemas
@@ -1699,18 +1703,33 @@ feather run         # extract all configured tables → bronze.*
 feather status      # show last run per table: status, rows loaded, timestamp
 ```
 
-**End-to-end test:**
-```
-source: client.duckdb (existing extracted client data)
-  feather discover  → lists available tables ✓
-  feather setup     → state DB created, schemas created ✓
-  feather run       → all configured tables extracted → bronze.* ✓
-  feather status    → shows success, row counts ✓
-  query bronze.sales_invoice in feather_data.duckdb → data present ✓
-  feather run again → re-extracts (change detection not yet implemented) ✓
+**Typical onboarding flow using Slice 1:**
+```bash
+mkdir client-abc && cd client-abc
+feather init                  # scaffold project with template feather.yaml
+# edit feather.yaml — fill in source path, table names
+feather validate              # confirm config is valid before connecting
+feather discover              # see what tables + columns exist in the source
+# edit feather.yaml — confirm table names, add primary_key etc.
+feather setup                 # init state DB and schemas
+feather run                   # pull all tables → bronze.*
+feather status                # confirm what landed
 ```
 
-**Not in this slice:** Change detection, incremental strategy, append strategy, column_map, column selection, transforms, DQ checks, scheduling, SQL Server, alerting, `feather history`, `feather run --table`, `feather run --tier`.
+**End-to-end test:**
+```
+  feather init               → project scaffolded, template feather.yaml created ✓
+  # edit feather.yaml — set source.path to client.duckdb, add table names
+  feather validate           → config valid, feather_validation.json written ✓
+  feather discover           → lists tables + columns from client.duckdb ✓
+  feather setup              → state DB created, schemas created ✓
+  feather run                → all configured tables extracted → bronze.* ✓
+  feather status             → shows success, row counts, timestamps ✓
+  query bronze.sales_invoice → data present in feather_data.duckdb ✓
+  feather run again          → re-extracts (change detection not yet in this slice) ✓
+```
+
+**Not in this slice:** Change detection, incremental strategy, append strategy, column_map, column selection, transforms, DQ checks, scheduling, SQL Server, alerting, `feather history`, `feather run --table`, `feather run --tier`. `feather init` wizard (interactive prompts, discovery-driven table selection, silver stub generation, `--non-interactive` agent mode) — deferred to Slice 17.
 
 ---
 
@@ -1790,7 +1809,7 @@ source: client.duckdb with ModifiedDate column
 | V14 | Retry + backoff | Failure tracking, linear backoff formula, skip in backoff window |
 | V15 | Scheduling | APScheduler, human-readable presets, tier resolution, `feather schedule` |
 | V16 | Boundary deduplication | PK hashing at watermark boundary, dedup on next run |
-| V17 | `feather init` wizard | Scaffolding, discover-driven setup, `--non-interactive` agent mode |
+| V17 | `feather init` wizard | Interactive prompts, discovery-driven table selection, auto-generated table YAML + silver stubs, `--non-interactive` agent mode (scaffolding already in Slice 1) |
 | V18 | `--json` output + structured logging | NDJSON for all commands, JSONL log file, quarantine schema |
 
 ---
@@ -1810,7 +1829,9 @@ Secondary: small hand-crafted CSV/DuckDB files for edge-case tests (empty tables
 ### Per-slice test coverage
 
 **Slice 1 tests:**
+- `feather init` creates expected directory structure and template `feather.yaml`
 - `feather validate` passes on valid config, fails with specific error on invalid config
+- `feather validate` writes `feather_validation.json` alongside `feather.yaml`
 - `feather discover` lists tables and columns from DuckDB file source
 - `feather setup` creates state DB and all four schemas
 - `feather run` extracts all configured tables into bronze, records run in `_runs`
