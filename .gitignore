@@ -1,0 +1,4 @@
+.worktrees/
+.DS_Store
+.nvmrc
+repomix-output.xml
