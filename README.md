@@ -86,52 +86,31 @@ All three strategies are idempotent — safe to re-run after partial failures.
 uv add feather-etl
 ```
 
-Each client lives in its own GitHub repository, scaffolded with `feather init`. The operator (or an LLM agent guided by a human) runs the wizard once per client:
-
-```
-feather init
-  → asks: client name, source type, connection details
-  → connects to source, discovers available tables
-  → asks: which tables to include
-  → generates: feather.yaml, silver transform stubs, .gitignore, pyproject.toml
-  → runs: feather validate to confirm everything is wired correctly
-  → prints: next steps
-```
-
-For LLM agent-driven onboarding, the wizard runs fully non-interactive:
+Each client lives in its own GitHub repository, scaffolded with `feather init`:
 
 ```bash
-feather init \
-  --non-interactive \
-  --name client-abc \
-  --source sqlserver \
-  --connection-string "${SQL_SERVER_CONNECTION_STRING}" \
-  --json   # machine-readable output
+feather init client-abc
+# → creates client-abc/ with feather.yaml, pyproject.toml, .gitignore, .env.example
+# → creates transforms/silver/, transforms/gold/, tables/, extracts/ directories
 ```
 
 ## CLI
 
 ```bash
 # New client setup
-feather init                           # interactive wizard — scaffold + discover + validate
-feather init --non-interactive --json  # agent-driven, machine-readable output
+feather init client-abc                # scaffold a new client project directory
 
-# Day-to-day operations
-feather setup                          # init state DB, create schemas, apply transforms
-feather run                            # run all tables
-feather run --table sales_invoice      # run one table
-feather run --tier hot                 # run all hot-tier tables
-feather status                         # watermarks + last run status per table
-feather history                        # run history
-feather history --table sales_invoice  # run history for one table
-feather schedule                       # start APScheduler daemon
-
-# Diagnostic
+# Configuration
 feather validate                       # validate config, resolve paths — no execution
 feather discover                       # list all tables in the configured source
+
+# Pipeline operations
+feather setup                          # preview and init state DB + schemas (optional — run creates them automatically)
+feather run                            # run all tables
+feather status                         # last run status per table (all-time history)
 ```
 
-All commands accept `--config PATH` (default: `feather.yaml`) and `--json` for machine-readable NDJSON output.
+All commands accept `--config PATH` (default: `feather.yaml`).
 
 ## Client Project Layout
 

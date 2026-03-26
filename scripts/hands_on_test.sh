@@ -64,12 +64,12 @@ S1="$WORK_DIR/s1"
 code=$("$FEATHER" init "$S1" > /dev/null 2>&1; echo $?) || true
 [[ "$code" != "0" ]] && check "init on non-empty dir exits non-zero" ok || check "init on non-empty dir exits non-zero" fail
 
-# init with "." as name → pyproject name becomes "" — must cd into the dir first
+# init with "." as name → should use directory name, not empty string
 S1B="$WORK_DIR/s1b" && mkdir "$S1B"
 (cd "$S1B" && "$FEATHER" init . > /dev/null 2>&1)
 grep -q 'name = ""' "$S1B/pyproject.toml" \
-    && check "init '.' produces empty project name (known UX issue)" ok \
-    || check "init '.' produces empty project name (known UX issue)" fail
+    && check "init '.' uses directory name in pyproject.toml" fail \
+    || check "init '.' uses directory name in pyproject.toml" ok
 
 echo ""
 
@@ -160,7 +160,7 @@ code=$("$FEATHER" validate --config "$S3/bad_strategy.yaml" > /dev/null 2>&1; ec
     && check "validate rejects invalid strategy" ok \
     || check "validate rejects invalid strategy" fail
 
-# unimplemented source type accepted by validate (known bug BUG-2)
+# unimplemented source type rejected by validate (BUG-2 fixed)
 cat > "$S3/csv_source.yaml" << 'YAML'
 source:
   type: csv
@@ -174,12 +174,11 @@ tables:
     strategy: full
 YAML
 code=$("$FEATHER" validate --config "$S3/csv_source.yaml" > /dev/null 2>&1; echo $?) || true
-# currently exits 0 (BUG-2) — this check documents the current wrong behaviour
-[[ "$code" == "0" ]] \
-    && check "BUG-2: validate accepts csv (unimplemented) — exits 0 (should be non-zero)" ok \
-    || check "BUG-2: validate accepts csv (unimplemented) — exits 0 (should be non-zero)" fail
+[[ "$code" != "0" ]] \
+    && check "validate rejects unimplemented source type (csv)" ok \
+    || check "validate rejects unimplemented source type (csv)" fail
 
-# target_table without schema prefix accepted by validate (known BUG-7)
+# target_table without schema prefix rejected by validate (BUG-7 fixed)
 cat > "$S3/no_schema_target.yaml" << 'YAML'
 source:
   type: duckdb
@@ -192,12 +191,12 @@ tables:
     target_table: no_schema_table
     strategy: full
 YAML
-out=$("$FEATHER" validate --config "$S3/no_schema_target.yaml" 2>&1)
-echo "$out" | grep -q "Config valid" \
-    && check "BUG-7: validate accepts target_table with no schema prefix (should fail)" ok \
-    || check "BUG-7: validate accepts target_table with no schema prefix (should fail)" fail
+code=$("$FEATHER" validate --config "$S3/no_schema_target.yaml" > /dev/null 2>&1; echo $?) || true
+[[ "$code" != "0" ]] \
+    && check "validate rejects target_table without schema prefix" ok \
+    || check "validate rejects target_table without schema prefix" fail
 
-# hyphenated table name accepted by validate (known BUG-7)
+# hyphenated table name rejected by validate (BUG-7 fixed)
 cat > "$S3/hyphen_target.yaml" << 'YAML'
 source:
   type: duckdb
@@ -210,10 +209,10 @@ tables:
     target_table: bronze.my-table
     strategy: full
 YAML
-out=$("$FEATHER" validate --config "$S3/hyphen_target.yaml" 2>&1)
-echo "$out" | grep -q "Config valid" \
-    && check "BUG-7: validate accepts hyphenated target_table (should fail)" ok \
-    || check "BUG-7: validate accepts hyphenated target_table (should fail)" fail
+code=$("$FEATHER" validate --config "$S3/hyphen_target.yaml" > /dev/null 2>&1; echo $?) || true
+[[ "$code" != "0" ]] \
+    && check "validate rejects hyphenated target_table" ok \
+    || check "validate rejects hyphenated target_table" fail
 
 echo ""
 
@@ -315,7 +314,7 @@ tables:
     strategy: full
 YAML
 
-out=$("$FEATHER" run --config "$S6/feather.yaml" 2>&1)
+out=$("$FEATHER" run --config "$S6/feather.yaml" 2>&1) || true
 echo "$out" | grep -q "good_table: success" \
     && check "good table succeeds despite bad table" ok \
     || check "good table succeeds despite bad table" fail
@@ -326,11 +325,11 @@ echo "$out" | grep -q "1/2 tables succeeded" \
     && check "summary shows 1/2" ok \
     || check "summary shows 1/2" fail
 
-# BUG-5: exit code is 0 on partial failure (known bug)
+# exit code is non-zero on partial failure (BUG-5 fixed)
 code=$("$FEATHER" run --config "$S6/feather.yaml" > /dev/null 2>&1; echo $?) || true
-[[ "$code" == "0" ]] \
-    && check "BUG-5: exit code 0 on partial failure (should be 1)" ok \
-    || check "BUG-5: exit code 0 on partial failure (should be 1)" fail
+[[ "$code" != "0" ]] \
+    && check "exit code non-zero on partial failure" ok \
+    || check "exit code non-zero on partial failure" fail
 
 # error is stored in state DB
 python3 -c "
@@ -565,20 +564,20 @@ echo "$out" | grep -q "orders" \
 echo ""
 
 # ---------------------------------------------------------------------------
-# S13 — BUG-3: missing feather.yaml gives unhandled FileNotFoundError traceback
+# S13 — missing feather.yaml shows friendly error (BUG-3 fixed)
 # ---------------------------------------------------------------------------
-yellow "--- S13: BUG-3 missing feather.yaml ---"
+yellow "--- S13: missing feather.yaml ---"
 out=$(cd "$WORK_DIR" && "$FEATHER" validate 2>&1) || true
-echo "$out" | grep -q "FileNotFoundError" \
-    && check "BUG-3: missing feather.yaml shows raw FileNotFoundError traceback (should show friendly message)" ok \
-    || check "BUG-3: missing feather.yaml shows raw FileNotFoundError traceback (should show friendly message)" fail
+echo "$out" | grep -q "Config file not found" \
+    && check "missing feather.yaml shows friendly error message" ok \
+    || check "missing feather.yaml shows friendly error message" fail
 
 echo ""
 
 # ---------------------------------------------------------------------------
-# S14 — BUG-1: error message duplicated (stderr + stdout)
+# S14 — error message appears only on stdout, not duplicated (BUG-1 fixed)
 # ---------------------------------------------------------------------------
-yellow "--- S14: BUG-1 duplicate error output ---"
+yellow "--- S14: error output not duplicated ---"
 S14="$WORK_DIR/s14" && mkdir "$S14"
 cp "$FIXTURE_DIR/sample_erp.duckdb" "$S14/source.duckdb"
 cat > "$S14/feather.yaml" << 'YAML'
@@ -594,19 +593,19 @@ tables:
     strategy: full
 YAML
 
-stdout_lines=$("$FEATHER" run --config "$S14/feather.yaml" 2>/dev/null | grep -c "NOSUCH" || true)
-stderr_lines=$("$FEATHER" run --config "$S14/feather.yaml" 2>&1 1>/dev/null | grep -c "NOSUCH" || true)
-# both > 0 → duplicate
-[[ "$stdout_lines" -gt 0 && "$stderr_lines" -gt 0 ]] \
-    && check "BUG-1: error appears on both stdout and stderr (duplicate)" ok \
-    || check "BUG-1: error appears on both stdout and stderr (duplicate)" fail
+stdout_lines=$({ "$FEATHER" run --config "$S14/feather.yaml" 2>/dev/null || true; } | grep -c "NOSUCH" || true)
+stderr_lines=$({ "$FEATHER" run --config "$S14/feather.yaml" 2>&1 1>/dev/null || true; } | grep -c "NOSUCH" || true)
+# error should appear on stdout only, not on stderr
+[[ "$stdout_lines" -gt 0 && "$stderr_lines" == 0 ]] \
+    && check "error appears on stdout only (not duplicated on stderr)" ok \
+    || check "error appears on stdout only (not duplicated on stderr)" fail
 
 echo ""
 
 # ---------------------------------------------------------------------------
-# S15 — BUG-2: csv source type passes validate but crashes on run
+# S15 — unimplemented source type rejected at validate (BUG-2 fixed)
 # ---------------------------------------------------------------------------
-yellow "--- S15: BUG-2 unimplemented source type ---"
+yellow "--- S15: unimplemented source type rejected at validate ---"
 S15="$WORK_DIR/s15" && mkdir "$S15"
 touch "$S15/source.csv"
 cat > "$S15/feather.yaml" << 'YAML'
@@ -622,18 +621,17 @@ tables:
     strategy: full
 YAML
 validate_code=$("$FEATHER" validate --config "$S15/feather.yaml" > /dev/null 2>&1; echo $?) || true
-run_code=$("$FEATHER" run --config "$S15/feather.yaml" > /dev/null 2>&1; echo $?) || true
-# validate passes (0), run fails (non-zero) → gap
-[[ "$validate_code" == "0" && "$run_code" != "0" ]] \
-    && check "BUG-2: csv validate=0 but run non-zero (gap between validation and runtime)" ok \
-    || check "BUG-2: csv validate=0 but run non-zero (gap between validation and runtime)" fail
+# validate now catches unimplemented source types — both validate and run fail
+[[ "$validate_code" != "0" ]] \
+    && check "csv source type rejected at validate time" ok \
+    || check "csv source type rejected at validate time" fail
 
 echo ""
 
 # ---------------------------------------------------------------------------
-# S16 — BUG-7: hyphenated table name crashes run, not caught by validate
+# S16 — hyphenated target_table rejected at validate (BUG-7 fixed)
 # ---------------------------------------------------------------------------
-yellow "--- S16: BUG-7 hyphenated target_table name ---"
+yellow "--- S16: hyphenated target_table rejected at validate ---"
 S16="$WORK_DIR/s16" && mkdir "$S16"
 cp "$FIXTURE_DIR/sample_erp.duckdb" "$S16/source.duckdb"
 cat > "$S16/feather.yaml" << 'YAML'
@@ -649,10 +647,9 @@ tables:
     strategy: full
 YAML
 validate_code=$("$FEATHER" validate --config "$S16/feather.yaml" > /dev/null 2>&1; echo $?) || true
-run_code=$("$FEATHER" run --config "$S16/feather.yaml" > /dev/null 2>&1; echo $?) || true
-[[ "$validate_code" == "0" && "$run_code" == "0" ]] \
-    && check "BUG-7: hyphen in target_table: validate=0, run=0 (run silently fails per-table but exits 0)" ok \
-    || check "BUG-7: hyphen in target_table: validate=0, run=0" fail
+[[ "$validate_code" != "0" ]] \
+    && check "hyphenated target_table rejected at validate" ok \
+    || check "hyphenated target_table rejected at validate" fail
 
 echo ""
 

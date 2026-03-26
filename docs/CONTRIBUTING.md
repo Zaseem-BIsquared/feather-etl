@@ -150,4 +150,4 @@ python scripts/create_sample_erp_fixture.py
 
 | File | Slice | Status |
 |---|---|---|
-| [docs/reviews/2026-03-26-slice1-review.md](reviews/2026-03-26-slice1-review.md) | 1 | OPEN |
+| [docs/reviews/2026-03-26-slice1-review.md](reviews/2026-03-26-slice1-review.md) | 1 | RESOLVED — see [fixes plan](plans/2026-03-26-slice1-fixes.md) |

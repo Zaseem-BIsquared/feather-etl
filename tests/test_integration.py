@@ -452,20 +452,16 @@ class TestTablesDirectoryMerge:
 
 
 # ---------------------------------------------------------------------------
-# Known bugs — these tests DOCUMENT current (broken) behaviour.
-# When the bug is fixed, invert the assertion and remove the BUG label.
+# Validation guards — graduated from TestKnownBugs after fixes
 # ---------------------------------------------------------------------------
 
-class TestKnownBugs:
+class TestValidationGuards:
+    """Tests that validate catches invalid config before runtime.
+    Graduated from TestKnownBugs after BUG-2, BUG-3, BUG-7 fixes."""
 
-    # BUG-2 ----------------------------------------------------------------
-    def test_BUG2_csv_source_type_passes_validate(self, tmp_path):
-        """BUG-2: load_config() accepts source type 'csv' even though only 'duckdb'
-        is implemented.  After the fix, this should raise ValueError.
-
-        Note: _write_config() always emits type=duckdb, so we write the YAML
-        manually here to control the source type field.
-        """
+    def test_csv_source_type_rejected_at_validate(self, tmp_path):
+        """Unimplemented source types are rejected by load_config().
+        (Graduated from BUG-2: previously accepted csv, crashed at run.)"""
         from feather.config import load_config
 
         csv_file = tmp_path / "source.csv"
@@ -477,36 +473,12 @@ class TestKnownBugs:
             "tables": [{"name": "t", "source_table": "main.t",
                         "target_table": "bronze.t", "strategy": "full"}],
         }))
-        # Currently does NOT raise — documents the bug
-        cfg = load_config(config_path)
-        assert cfg.source.type == "csv"   # remove/invert this after fix
+        with pytest.raises(ValueError, match="Unsupported source type"):
+            load_config(config_path)
 
-    def test_BUG2_csv_source_raises_at_run_not_validate(self, tmp_path):
-        """BUG-2: An unimplemented source type passes validate but causes an
-        UNHANDLED ValueError at run time (raised before run_table's try/except,
-        so it is NOT captured in RunResult — it propagates to the caller).
-        After fix: either validate should reject it, or run_table should catch it."""
-        from feather.config import load_config
-        from feather.pipeline import run_all
-
-        csv_file = tmp_path / "source.csv"
-        csv_file.write_text("id,name\n1,foo\n")
-        config_path = tmp_path / "feather.yaml"
-        config_path.write_text(yaml.dump({
-            "source": {"type": "csv", "path": str(csv_file)},
-            "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [{"name": "t", "source_table": "main.t",
-                        "target_table": "bronze.t", "strategy": "full"}],
-        }))
-        cfg = load_config(config_path)
-        # run_all raises uncaught ValueError — NOT per-table isolation (documents the bug)
-        with pytest.raises(ValueError, match="not implemented"):
-            run_all(cfg, config_path)
-
-    # BUG-3 ----------------------------------------------------------------
-    def test_BUG3_missing_source_section_raises_keyerror(self, tmp_path):
-        """BUG-3: A feather.yaml missing the 'source' key raises a raw KeyError
-        instead of a friendly ValueError.  After fix, should raise ValueError."""
+    def test_missing_source_section_raises_valueerror(self, tmp_path):
+        """Missing 'source' section raises ValueError with a clear message.
+        (Graduated from BUG-3: previously raised raw KeyError.)"""
         from feather.config import load_config
 
         config_path = tmp_path / "feather.yaml"
@@ -514,12 +486,12 @@ class TestKnownBugs:
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [],
         }))
-        # Currently raises KeyError, not ValueError — documents the bug
-        with pytest.raises(KeyError):      # change to ValueError after fix
+        with pytest.raises(ValueError, match="Missing required config section"):
             load_config(config_path)
 
-    def test_BUG3_missing_strategy_field_raises_keyerror(self, sample_erp_db, tmp_path):
-        """BUG-3: A table entry missing 'strategy' raises KeyError, not ValueError."""
+    def test_missing_strategy_field_raises_valueerror(self, sample_erp_db, tmp_path):
+        """Missing required table fields raise ValueError with field name.
+        (Graduated from BUG-3/BUG-4: previously raised raw KeyError.)"""
         from feather.config import load_config
 
         cfg_dict = {
@@ -530,14 +502,48 @@ class TestKnownBugs:
         }
         config_path = tmp_path / "feather.yaml"
         config_path.write_text(yaml.dump(cfg_dict))
-        with pytest.raises(KeyError):      # change to ValueError after fix
+        with pytest.raises(ValueError, match="missing required field"):
             load_config(config_path)
 
-    # BUG-5 ----------------------------------------------------------------
-    def test_BUG5_run_all_returns_normally_on_partial_failure(self, sample_erp_db, tmp_path):
-        """BUG-5: run_all() returns normally (no exception) even when all tables fail.
-        The CLI exits 0.  After fix, either run_all() should raise or the CLI
-        should call sys.exit(1)."""
+    def test_target_table_requires_schema_prefix(self, sample_erp_db, tmp_path):
+        """target_table without schema prefix (e.g. 'my_table') is rejected.
+        (Graduated from BUG-7: previously passed validate, crashed at runtime.)"""
+        from feather.config import load_config
+
+        config = _write_config(
+            tmp_path,
+            sample_erp_db,
+            [{"name": "t", "source_table": "erp.orders",
+              "target_table": "no_schema_table", "strategy": "full"}],
+        )
+        with pytest.raises(ValueError, match="must include a schema prefix"):
+            load_config(config)
+
+    def test_hyphenated_target_table_rejected(self, sample_erp_db, tmp_path):
+        """Hyphens in target_table are caught at validate time.
+        (Graduated from BUG-7: previously passed validate, crashed at runtime.)"""
+        from feather.config import load_config
+
+        config = _write_config(
+            tmp_path,
+            sample_erp_db,
+            [{"name": "my-table", "source_table": "erp.orders",
+              "target_table": "bronze.my-table", "strategy": "full"}],
+        )
+        with pytest.raises(ValueError, match="invalid characters"):
+            load_config(config)
+
+
+# ---------------------------------------------------------------------------
+# Error isolation (additional graduated tests)
+# ---------------------------------------------------------------------------
+
+class TestPipelineReturnsOnFailure:
+    """run_all() returns RunResult list (no exception) even when tables fail.
+    The CLI layer is responsible for exit codes.
+    (Graduated from BUG-5: CLI now exits 1 on failure.)"""
+
+    def test_run_all_returns_results_on_total_failure(self, sample_erp_db, tmp_path):
         from feather.config import load_config
         from feather.pipeline import run_all
 
@@ -547,65 +553,24 @@ class TestKnownBugs:
             [{"name": "bad", "source_table": "erp.NOSUCH", "target_table": "bronze.bad", "strategy": "full"}],
         )
         cfg = load_config(config)
-        # Currently does NOT raise — documents the bug
         results = run_all(cfg, config)
-        assert results[0].status == "failure"   # remove/invert after fix
-
-    # BUG-7 ----------------------------------------------------------------
-    def test_BUG7_target_table_without_schema_prefix_passes_validate(self, sample_erp_db, tmp_path):
-        """BUG-7: target_table with no schema prefix (e.g. 'my_table' not 'bronze.my_table')
-        passes load_config() but crashes at runtime with IndexError.  After fix,
-        load_config() should raise ValueError."""
-        from feather.config import load_config
-
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
-            [{"name": "t", "source_table": "erp.orders",
-              "target_table": "no_schema_table", "strategy": "full"}],
-        )
-        # Currently does NOT raise — documents the bug
-        cfg = load_config(config)
-        assert cfg.tables[0].target_table == "no_schema_table"  # invert after fix
-
-    def test_BUG7_target_table_without_schema_crashes_at_load(self, sample_erp_db, tmp_path):
-        """BUG-7: The IndexError surfaces at load time, not validate time."""
-        from feather.config import load_config
-        from feather.pipeline import run_all
-
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
-            [{"name": "t", "source_table": "erp.orders",
-              "target_table": "no_schema_table", "strategy": "full"}],
-        )
-        cfg = load_config(config)
-        results = run_all(cfg, config)
-        # Currently surfaces as a per-table failure (IndexError) — documents the bug
+        assert len(results) == 1
         assert results[0].status == "failure"
-        assert "list index out of range" in (results[0].error_message or "")
 
-    def test_BUG7_hyphenated_target_table_crashes_at_load(self, sample_erp_db, tmp_path):
-        """BUG-7: Hyphens in target_table are not quoted, causing SQL parse error."""
-        from feather.config import load_config
-        from feather.pipeline import run_all
 
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
-            [{"name": "my-table", "source_table": "erp.orders",
-              "target_table": "bronze.my-table", "strategy": "full"}],
-        )
-        cfg = load_config(config)
-        results = run_all(cfg, config)
-        assert results[0].status == "failure"
-        assert "syntax error" in (results[0].error_message or "").lower()
+# ---------------------------------------------------------------------------
+# Known bugs — remaining issues not yet fixed
+# ---------------------------------------------------------------------------
 
-    # BUG-8 (strategy mismatch) --------------------------------------------
-    def test_BUG8_incremental_strategy_silently_does_full_load(self, sample_erp_db, tmp_path):
-        """BUG-8 / M-6: strategy='incremental' passes validate and silently does a
-        full load instead of raising NotImplementedError.  After fix, run should
-        raise or warn that incremental is not yet implemented."""
+class TestKnownBugs:
+
+    # M-6 (strategy dispatch) — deferred to Slice 2
+    def test_M6_incremental_strategy_silently_does_full_load(self, sample_erp_db, tmp_path):
+        """M-6: strategy='incremental' (with timestamp_column) silently does a
+        full load instead of incremental extraction.  The validation gap (BUG-8:
+        incremental without timestamp_column) is now fixed.  This test documents
+        the remaining issue: strategy dispatch is not implemented yet.
+        After fix (Slice 2): run should perform actual incremental extraction."""
         from feather.config import load_config
         from feather.pipeline import run_all
 
@@ -618,12 +583,9 @@ class TestKnownBugs:
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
-        # Currently succeeds (full load performed silently) — documents the bug
+        # Currently succeeds (full load performed silently) — strategy dispatch deferred
         assert results[0].status == "success"
-        # Verify it actually loaded everything (full load, not incremental)
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
         count = con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0]
         con.close()
-        assert count == 5   # all 5 rows loaded — remove/invert after incremental is real
-
-    # C-2 (IndexError on unqualified table) already covered by BUG-7 tests above.
+        assert count == 5   # all 5 rows loaded — full load, not incremental

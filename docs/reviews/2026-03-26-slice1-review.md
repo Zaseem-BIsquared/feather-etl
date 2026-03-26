@@ -4,7 +4,7 @@ Created: 2026-03-26
 Slice: 1 (foundation)
 Plan: [docs/plans/2026-03-26-slice1-foundation.md](../plans/2026-03-26-slice1-foundation.md)
 Commit: 869a372
-Status: OPEN — fixes not yet started
+Status: RESOLVED — see docs/plans/2026-03-26-slice1-fixes.md
 
 ---
 
