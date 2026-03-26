@@ -1,6 +1,6 @@
 # feather-etl: Product Requirements Document
 
-**Version:** 1.6
+**Version:** 1.7
 **Date:** 2026-03-26
 **Status:** Draft
 
@@ -13,6 +13,7 @@
 | 1.4 | Out-of-scope section added (Section 3); NFR3 performance targets made concrete (file size + hardware baseline); NFR8 security added (credential redaction, file permissions, plain-text warning); NFR9 reliability added (state DB recovery, scheduler resilience); UC8 backfill, UC9 validate dry run, UC10 state recovery added; feather validate CLI command added to FR11 and F10 |
 | 1.5 | Product vision updated to reflect multi-client deployment product, not solo-operator tool; "What It Replaces" reframed for client deployments; Why section expanded for target audience; UC8/UC10 trimmed to use-case summaries; research.md context note and product vision updated to match |
 | 1.6 | feather-etl defined as package-only (no client config in this repo); client projects are separate GitHub repos per client; canonical client project layout defined; feather init wizard added (scaffolding + interactive + --non-interactive agent mode); --json output contract added to all CLI commands; FR11.12-15 EARS added; F10a (feather init) and F10b (--json mode) added to feature list; init_wizard.py added to module breakdown; NFR2 code size updated |
+| 1.7 | Feature list rewritten as vertical slices (V1–V18) replacing horizontal layer phases; Slices 1–3 fully specified with scope tables, CLI commands, end-to-end tests, and explicit "not in this slice" boundaries; Slices 4–18 indicative; Testing strategy rewritten around per-slice coverage using real client DuckDB as primary test source |
 
 ---
 
@@ -1663,120 +1664,198 @@ FROM bronze.sales_invoice
 
 ## 8. Feature List for Implementation
 
-Features ordered by dependency. Each feature is a self-contained unit suitable for `/spec` implementation.
+Features are organised as **vertical slices** — each slice delivers a working, end-to-end testable capability. After Slice 1 you have a running tool. Every slice after adds one capability to a system that already works.
 
-### Phase 1: Foundation
+The first three slices are fully specified and ready for implementation. Slices 4–18 are indicative — scope and order will be refined as we complete each preceding slice.
 
-| # | Feature | Description | Depends On |
-|---|---------|-------------|-----------|
-| F1 | Project scaffold | uv project, pyproject.toml, directory structure, all 7 deps | — |
-| F2 | Configuration | YAML parsing, env vars, validation, source type handling, typed dataclasses | F1 |
-| F3 | State management | State DB init, watermark CRUD (including file mtime/hash fields), run recording | F1 |
-| F4 | Source/Destination protocols | Source Protocol, Destination Protocol, ChangeResult, StreamSchema dataclasses, source registry | F1 |
-| F5 | FileSource base + CSV source | FileSource base class (mtime+hash detection, DuckDB reader, incremental filter), CsvSource implementation | F2, F4 |
-| F6 | Additional file sources | DuckDBFileSource, SqliteSource, JsonSource, ExcelSource | F5 |
-| F7 | DatabaseSource base + SQL Server | DatabaseSource base class (cursor→Arrow, checksum detection), SqlServerSource (pyodbc, CHECKSUM_AGG) | F2, F4 |
-| F8 | DuckDB destination | DuckDBDestination: schema creation, swap pattern, partition overwrite, append (insert-only), metadata columns, column_map | F2, F4 |
-| F9 | Core pipeline | `run_table()` wiring source + destination + state. `run_all()`. | F2, F3, F4, F5, F7, F8 |
-| F10 | CLI (basic) | `feather setup`, `feather run`, `feather status`, `feather validate`, `feather discover` | F9 |
-| F10a | `feather init` wizard | Project scaffolding, interactive + `--non-interactive` mode, discover-driven table selection, silver stub generation, validate on completion | F2, F4, F10 |
-| F10b | `--json` output mode | Machine-readable NDJSON output for all commands — LLM agent interface | F10 |
+---
 
-### Phase 2: Observability
+### Slice 1: Local bronze extraction (onboarding)
 
-| # | Feature | Description | Depends On |
-|---|---------|-------------|-----------|
-| F11 | Data quality checks | Declarative DQ (not_null, unique, row_count), results to `_dq_results` | F9 |
-| F12 | Schema drift detection | Schema comparison via source.get_schema(), snapshots, change classification | F3, F5, F7 |
-| F13 | Alerting | SMTP email (smtplib), [CRITICAL]/[WARNING]/[INFO] severities, no-op if unconfigured | F11, F12 |
-| F14 | Run history CLI | `feather history` command with filtering | F3, F10 |
+**Delivers:** An operator points feather-etl at any file-based source (DuckDB file, SQLite, or CSV), discovers what tables are available, configures the ones they want, and pulls them into a local bronze DuckDB. Full strategy only, all columns, no transforms. This is the dev cache use case — bronze as a local working copy of the client's ERP, so all subsequent work happens locally without hitting the source again.
 
-### Phase 3: Transforms and Remote Sync
+**Test source:** Real client data already extracted into a local DuckDB file. No mocking needed.
 
-| # | Feature | Description | Depends On |
-|---|---------|-------------|-----------|
-| F15 | Silver views | Transform SQL files, `string.Template` substitution, view creation | F8 |
-| F16 | Gold transforms | Gold as view (default) or materialized table (-- materialized: true), topological ordering, rebuild materialized tables after load | F15 |
-| F17 | Remote sync (MotherDuck) | Optional ATTACH + push gold tables via destination.sync_to_remote() | F16 |
+**What gets built:**
 
-### Phase 4: Scheduling
+| Component | Scope for this slice |
+|-----------|---------------------|
+| Project scaffold | `pyproject.toml`, uv, `src/feather/` directory structure, all 7 deps installed |
+| Config | Parse `feather.yaml` + `tables/` directory. File-based sources only (duckdb, sqlite, csv). `strategy: full` only. Path resolution against config file location. Env var substitution. Typed dataclasses. |
+| Validation guard | All FR2.9 rules for file sources. Runs automatically at start of every command. Writes `feather_validation.json` alongside `feather.yaml`. Exits non-zero on failure. |
+| Source Protocol | `Source` Protocol, `StreamSchema`, `ChangeResult` dataclasses. Source registry. |
+| File sources | `FileSource` base class. `DuckDBFileSource` (ATTACH), `SqliteSource` (sqlite_scan), `CsvSource` (read_csv). All implement `discover()` and `extract()`. Full strategy only — no change detection yet. |
+| DuckDB destination | Schema creation (bronze, silver, gold, _quarantine). Full strategy swap pattern. `_etl_loaded_at` + `_etl_run_id` metadata columns. |
+| State DB | `_state_meta` (schema version v1), `_watermarks`, `_runs`. Init on `feather setup`. Write watermark + run record after successful load. |
+| Pipeline | `run_table()` — full strategy: validate → extract → load → update state. `run_all()`. |
+| CLI | `feather validate`, `feather discover`, `feather setup`, `feather run`, `feather status` |
 
-| # | Feature | Description | Depends On |
-|---|---------|-------------|-----------|
-| F18 | Schedule resolution | Human-readable presets, tier shortcuts, CronTrigger mapping | F2 |
-| F19 | APScheduler integration | SQLite job store, per-table jobs, coalesce, max_instances | F9, F18 |
-| F20 | `feather schedule` command | Daemon mode | F19, F10 |
-| F21 | `feather run --tier` | Tier-based one-shot for OS cron | F9, F18 |
+**CLI commands delivered:**
+```bash
+feather validate    # validate config, write feather_validation.json, print summary
+feather discover    # connect to source, list tables + columns + inferred types
+feather setup       # init state DB, create bronze/silver/gold/_quarantine schemas
+feather run         # extract all configured tables → bronze.*
+feather status      # show last run per table: status, rows loaded, timestamp
+```
 
-### Phase 5: Hardening
+**End-to-end test:**
+```
+source: client.duckdb (existing extracted client data)
+  feather discover  → lists available tables ✓
+  feather setup     → state DB created, schemas created ✓
+  feather run       → all configured tables extracted → bronze.* ✓
+  feather status    → shows success, row counts ✓
+  query bronze.sales_invoice in feather_data.duckdb → data present ✓
+  feather run again → re-extracts (change detection not yet implemented) ✓
+```
 
-| # | Feature | Description | Depends On |
-|---|---------|-------------|-----------|
-| F22 | Retry with backoff | Failure tracking, linear backoff, auto-reset | F3, F9 |
-| F23 | Boundary deduplication | PK hashing at watermark boundary, dedup on next run | F5, F9 |
-| F24 | Structured logging | JSONL handler, console handler, table-prefixed messages | F9 |
-| F25 | Quarantine | Route DQ-failing rows to `_quarantine` schema | F8, F11 |
+**Not in this slice:** Change detection, incremental strategy, append strategy, column_map, column selection, transforms, DQ checks, scheduling, SQL Server, alerting, `feather history`, `feather run --table`, `feather run --tier`.
+
+---
+
+### Slice 2: Skip unchanged files (change detection)
+
+**Delivers:** A second `feather run` on an unchanged source file skips extraction entirely and records `skipped`. Only re-extracts when the file actually changed. Saves time and avoids unnecessary writes during iterative development.
+
+**What gets built:**
+
+| Component | Scope for this slice |
+|-----------|---------------------|
+| FileSource base | Add `detect_changes()` — check `os.path.getmtime()` vs `_watermarks.last_file_mtime`. If mtime changed, compute `hashlib.md5` and compare to `_watermarks.last_file_hash`. Return `ChangeResult`. |
+| State | Populate `last_file_mtime` and `last_file_hash` in `_watermarks` after each successful load (columns already exist from Slice 1, now populated). |
+| Pipeline | Call `detect_changes()` before extract. If unchanged: record `status: skipped` in `_runs`, return early. |
+
+**No changes to:** CLI, config, destination, state schema, source protocol interface.
+
+**End-to-end test:**
+```
+feather run         → status: success, rows loaded ✓
+feather run again   → status: skipped (file unchanged) ✓
+  modify source file
+feather run again   → status: success, rows re-loaded ✓
+  touch file (mtime updated, content identical)
+feather run again   → status: skipped (hash unchanged) ✓
+```
+
+**Not in this slice:** Incremental strategy, column_map, SQL Server change detection (CHECKSUM_AGG + COUNT).
+
+---
+
+### Slice 3: Incremental extraction
+
+**Delivers:** Tables with `strategy: incremental` and a `timestamp_column` extract only rows newer than the last successful run's watermark. The watermark advances after each successful load. An optional `filter` field applies a source-side WHERE clause on top of the watermark filter. This is the core value for hot ERP tables (sales invoices, POS transactions) where full refresh multiple times a day is unacceptable.
+
+**What gets built:**
+
+| Component | Scope for this slice |
+|-----------|---------------------|
+| Config | `strategy: incremental` + `timestamp_column` now valid. `filter` field optional. `overlap_window_minutes` global default (default: 2). Validation: incremental requires `timestamp_column`. |
+| FileSource base | Add `extract()` watermark path — when `watermark_value` passed, apply `WHERE {timestamp_column} >= '{effective_watermark}' [AND {filter}] ORDER BY {timestamp_column}` to the DuckDB reader query. |
+| DuckDB destination | Add `load_incremental()` — partition overwrite: `DELETE FROM {target} WHERE {timestamp_column} >= {min_timestamp_in_batch}`, then `INSERT`. |
+| State | Populate `last_value` in `_watermarks` after successful incremental load — set to `MAX(timestamp_column)` from loaded batch. |
+| Pipeline | Read watermark. Compute effective watermark = `last_value - overlap_window_minutes`. Pass to extract. Call `load_incremental()` instead of `load_full()`. |
+
+**No changes to:** CLI, change detection, state schema, source protocol interface.
+
+**End-to-end test:**
+```
+source: client.duckdb with ModifiedDate column
+  feather run       → all rows extracted, watermark = MAX(ModifiedDate) ✓
+  feather run again → 0 new rows (source unchanged), watermark unchanged ✓
+  add rows to source with new ModifiedDate
+  feather run again → only new rows extracted (+overlap window), watermark advances ✓
+  feather run again → 0 new rows, watermark unchanged ✓
+  verify: with filter "STATUS <> 1", filtered rows never appear in bronze ✓
+```
+
+**Not in this slice:** Boundary deduplication (PK hashing at watermark edge — later slice), append strategy, column_map, SQL Server incremental.
+
+---
+
+### Slices 4–18 (indicative — will be refined after Slice 3)
+
+| Slice | Delivers | Key additions |
+|-------|----------|---------------|
+| V4 | Column selection + silver-direct | `column_map` in config, PyArrow zero-copy rename, `target_table: silver.*` default for SMB clients |
+| V5 | `feather run --table`, `feather history` | Single-table runs, run history CLI |
+| V6 | Additional file sources | SqliteSource (already partially built in V1), JsonSource, ExcelSource |
+| V7 | SQL Server source | DatabaseSource base, pyodbc, CHECKSUM_AGG + COUNT change detection, mocked tests |
+| V8 | Silver/gold transforms | SQL files as views, `-- depends_on`, `-- materialized: true`, topological ordering |
+| V9 | DQ checks | Declarative not_null/unique/row_count, `_dq_results`, pipeline continues on failure |
+| V10 | Schema drift detection | Schema snapshots, added/removed/type_changed classification, handling per FR4.9 |
+| V11 | SMTP alerting | `[CRITICAL]`/`[WARNING]`/`[INFO]` email, no-op if unconfigured |
+| V12 | Append strategy | Insert-only load, compliance/audit trail pattern |
+| V13 | MotherDuck sync | ATTACH + push gold tables, sync after gold rebuild |
+| V14 | Retry + backoff | Failure tracking, linear backoff formula, skip in backoff window |
+| V15 | Scheduling | APScheduler, human-readable presets, tier resolution, `feather schedule` |
+| V16 | Boundary deduplication | PK hashing at watermark boundary, dedup on next run |
+| V17 | `feather init` wizard | Scaffolding, discover-driven setup, `--non-interactive` agent mode |
+| V18 | `--json` output + structured logging | NDJSON for all commands, JSONL log file, quarantine schema |
 
 ---
 
 ## 9. Testing Strategy
 
-### Test Layers
+### Philosophy
 
-**Layer 1: File-based end-to-end tests (no mocking)**
+Every slice ends with a passing end-to-end test before the next slice begins. Tests use the real client DuckDB file as the primary source — no mocking needed for file-based sources. SQL Server and MotherDuck are the only sources that require mocking (added in V7 and V13 respectively).
 
-The core pipeline is fully testable with file-based sources — no external servers needed:
+### Test source
 
-```
-test_data/
-├── sales_invoice.csv       # hot table with timestamps
-├── customers.csv           # cold table, full refresh
-├── employees.csv           # cold table with column_map
-├── source.duckdb           # DuckDB file source
-└── source.sqlite           # SQLite file source
-```
+Primary test source: existing client data already extracted into a local DuckDB file (`tests/fixtures/client.duckdb`). This is real ERP data — realistic column names, data types, row counts, and timestamp patterns. Using real data means the test catches real-world edge cases (NULL timestamps, mixed date formats, encoding issues) that synthetic data misses.
 
-Tests create a `feather.yaml` pointing to these files, run the full pipeline, and verify:
-- Silver tables populated correctly in output DuckDB (silver-direct config, no bronze)
-- Bronze tables populated correctly when configured (bronze-cache config)
-- State updated (watermarks, run history)
-- DQ checks executed and results recorded
-- Schema drift detected when test files are modified
-- Gold tables rebuilt after load
-- Second run skips unchanged files (mtime + hash)
-- Incremental run picks up only new rows
+Secondary: small hand-crafted CSV/DuckDB files for edge-case tests (empty tables, schema drift, column_map, filter behaviour).
 
-**Layer 2: SQL Server tests (mocked connectivity)**
+### Per-slice test coverage
 
-SQL Server extraction tests mock `pyodbc.connect()` and cursor behavior to test:
-- Query construction (WHERE clause, ORDER BY, SET NOCOUNT ON)
-- Chunked Arrow conversion from cursor rows
-- CHECKSUM_AGG change detection logic
-- Incremental watermark filtering
+**Slice 1 tests:**
+- `feather validate` passes on valid config, fails with specific error on invalid config
+- `feather discover` lists tables and columns from DuckDB file source
+- `feather setup` creates state DB and all four schemas
+- `feather run` extracts all configured tables into bronze, records run in `_runs`
+- `feather status` displays correct row counts and timestamps
+- Second `feather run` re-extracts (change detection not yet implemented)
+- `feather_validation.json` written alongside `feather.yaml` after every command
 
-**Layer 3: MotherDuck sync tests (mocked ATTACH)**
+**Slice 2 tests:**
+- Second run on unchanged DuckDB file → `status: skipped`
+- Run after file content changes → `status: success`
+- Run after file is touched (mtime updated, content identical) → `status: skipped`
+- `_watermarks.last_file_mtime` and `last_file_hash` populated after first success
 
-Mock DuckDB ATTACH for MotherDuck to test gold table sync logic.
+**Slice 3 tests:**
+- First incremental run extracts all rows, watermark = MAX(timestamp_column)
+- Second run with no new source rows → 0 rows extracted, watermark unchanged
+- Run after new rows added → only new rows + overlap window extracted
+- Overlap window arithmetic: stored watermark `T`, effective watermark = `T - 2 min`
+- `filter` field: rows matching filter never appear in destination
+- `_watermarks.last_value` advances correctly after each successful run
 
-**Layer 4: Integration tests (real servers, manual)**
-
-Run manually against real SQL Server and MotherDuck in dev environment. Not automated in CI.
-
-### Test Fixtures
+### Test fixtures
 
 ```python
 @pytest.fixture
-def test_data_dir(tmp_path):
-    """Create test CSV/DuckDB files in a temp directory."""
+def client_db(tmp_path) -> Path:
+    """Copy test client DuckDB to tmp_path so tests don't modify the fixture."""
 
 @pytest.fixture
-def test_config(test_data_dir, tmp_path):
-    """Generate feather.yaml pointing to test data."""
+def config(client_db, tmp_path) -> Path:
+    """Write a feather.yaml pointing at client_db, return path."""
 
 @pytest.fixture
-def duckdb_con():
-    """Fresh in-memory DuckDB connection."""
+def runner(config) -> CliRunner:
+    """Typer test runner with config path set."""
 ```
+
+### Layers (added as slices are built)
+
+| Layer | When added | Approach |
+|-------|-----------|----------|
+| File-based E2E | Slices 1–3 | Real DuckDB file, no mocking |
+| SQL Server | Slice 7 | Mock `pyodbc.connect()` and cursor |
+| MotherDuck | Slice 13 | Mock DuckDB ATTACH |
+| Real servers | Any time | Manual, not in CI |
 
 ---
 
