@@ -139,7 +139,7 @@ class TestConfigValidation:
         cfg = _minimal_config(tmp_path)
         cfg["source"]["type"] = "mongodb"
         config_file = _write_config(tmp_path, cfg)
-        with pytest.raises(ValueError, match="source type"):
+        with pytest.raises(ValueError, match="Unsupported source type"):
             load_config(config_file)
 
     def test_missing_source_path_for_file_source(self, tmp_path: Path):
@@ -205,3 +205,133 @@ class TestEnvVarEdgeCases:
         result = load_config(config_file)
         assert result.defaults.overlap_window_minutes == 5
         assert result.defaults.batch_size == 50000
+
+    def test_unresolved_env_var_gives_clear_error(self, tmp_path: Path):
+        """UX-4: Unset env vars should show which variable is missing."""
+        from feather.config import load_config
+
+        db = tmp_path / "source.duckdb"
+        db.touch()
+        cfg = {
+            "source": {"type": "duckdb", "path": str(db)},
+            "destination": {"path": "${MISSING_DEST_PATH}"},
+            "tables": [
+                {"name": "t", "source_table": "main.t",
+                 "target_table": "bronze.t", "strategy": "full"},
+            ],
+        }
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="MISSING_DEST_PATH"):
+            load_config(config_file)
+
+
+class TestConfigValidationExtended:
+    def test_csv_source_type_rejected(self, tmp_path: Path):
+        """BUG-2: Source types not in SOURCE_REGISTRY should be rejected at validate."""
+        from feather.config import load_config
+
+        csv_file = tmp_path / "source.csv"
+        csv_file.write_text("id,name\n1,foo\n")
+        cfg = {
+            "source": {"type": "csv", "path": str(csv_file)},
+            "destination": {"path": str(tmp_path / "data.duckdb")},
+            "tables": [
+                {"name": "t", "source_table": "main.t",
+                 "target_table": "bronze.t", "strategy": "full"},
+            ],
+        }
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="Unsupported source type"):
+            load_config(config_file)
+
+    def test_missing_table_field_gives_friendly_error(self, tmp_path: Path):
+        """BUG-4: Missing required table fields should raise ValueError, not KeyError."""
+        from feather.config import load_config
+
+        db = tmp_path / "source.duckdb"
+        db.touch()
+        cfg = {
+            "source": {"type": "duckdb", "path": str(db)},
+            "destination": {"path": str(tmp_path / "data.duckdb")},
+            "tables": [
+                {"name": "t", "source_table": "main.t",
+                 "target_table": "bronze.t"},  # strategy missing
+            ],
+        }
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="missing required field"):
+            load_config(config_file)
+
+    def test_missing_source_section_gives_friendly_error(self, tmp_path: Path):
+        """Missing 'source' section should raise ValueError, not KeyError."""
+        from feather.config import load_config
+
+        cfg = {
+            "destination": {"path": str(tmp_path / "data.duckdb")},
+            "tables": [],
+        }
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="Missing required config section"):
+            load_config(config_file)
+
+    def test_destination_parent_must_exist(self, tmp_path: Path):
+        """BUG-6: Non-existent destination parent should fail at validate."""
+        from feather.config import load_config
+
+        db = tmp_path / "source.duckdb"
+        db.touch()
+        cfg = {
+            "source": {"type": "duckdb", "path": str(db)},
+            "destination": {"path": str(tmp_path / "nonexistent" / "sub" / "data.duckdb")},
+            "tables": [
+                {"name": "t", "source_table": "main.t",
+                 "target_table": "bronze.t", "strategy": "full"},
+            ],
+        }
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="Destination directory does not exist"):
+            load_config(config_file)
+
+    def test_hyphenated_target_table_rejected(self, tmp_path: Path):
+        """BUG-7: Hyphens in target table names should be caught at validate."""
+        from feather.config import load_config
+
+        db = tmp_path / "source.duckdb"
+        db.touch()
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["target_table"] = "bronze.my-hyphenated-table"
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="invalid characters"):
+            load_config(config_file)
+
+    def test_target_table_requires_schema_prefix(self, tmp_path: Path):
+        """BUG-7: target_table without schema prefix should be rejected."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["target_table"] = "no_schema_table"
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="must include a schema prefix"):
+            load_config(config_file)
+
+    def test_incremental_requires_timestamp_column(self, tmp_path: Path):
+        """UX-8: incremental strategy without timestamp_column should be rejected."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["strategy"] = "incremental"
+        # No timestamp_column
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="timestamp_column"):
+            load_config(config_file)
+
+    def test_incremental_with_timestamp_column_passes(self, tmp_path: Path):
+        """incremental + timestamp_column should be accepted."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["strategy"] = "incremental"
+        cfg["tables"][0]["timestamp_column"] = "modified_date"
+        config_file = _write_config(tmp_path, cfg)
+        result = load_config(config_file)
+        assert result.tables[0].strategy == "incremental"

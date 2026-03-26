@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
-VALID_SOURCE_TYPES = {"duckdb", "sqlite", "csv", "excel", "json", "sqlserver"}
 FILE_SOURCE_TYPES = {"duckdb", "sqlite", "csv", "excel", "json"}
 VALID_STRATEGIES = {"full", "incremental", "append"}
 VALID_SCHEMA_PREFIXES = {"bronze", "silver", "gold"}
+_SQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+_UNRESOLVED_ENV_RE = re.compile(r"\$\{([^}]+)\}")
 
 
 @dataclass
@@ -83,23 +85,28 @@ def _resolve_path(config_dir: Path, raw: str) -> Path:
 
 def _parse_tables(raw_tables: list[dict], config: dict) -> list[TableConfig]:
     tables = []
-    for t in raw_tables:
-        target = t.get("target_table", f"silver.{t['name']}")
-        tables.append(
-            TableConfig(
-                name=t["name"],
-                source_table=t["source_table"],
-                strategy=t["strategy"],
-                target_table=target,
-                primary_key=t.get("primary_key"),
-                timestamp_column=t.get("timestamp_column"),
-                checksum_columns=t.get("checksum_columns"),
-                filter=t.get("filter"),
-                quality_checks=t.get("quality_checks"),
-                column_map=t.get("column_map"),
-                schedule=t.get("schedule"),
+    for i, t in enumerate(raw_tables):
+        try:
+            target = t.get("target_table", f"silver.{t['name']}")
+            tables.append(
+                TableConfig(
+                    name=t["name"],
+                    source_table=t["source_table"],
+                    strategy=t["strategy"],
+                    target_table=target,
+                    primary_key=t.get("primary_key"),
+                    timestamp_column=t.get("timestamp_column"),
+                    checksum_columns=t.get("checksum_columns"),
+                    filter=t.get("filter"),
+                    quality_checks=t.get("quality_checks"),
+                    column_map=t.get("column_map"),
+                    schedule=t.get("schedule"),
+                )
             )
-        )
+        except KeyError as e:
+            raise ValueError(
+                f"Table entry {i + 1} missing required field: {e}"
+            ) from None
     return tables
 
 
@@ -121,12 +128,14 @@ def _merge_tables_dir(config_dir: Path, tables: list[dict]) -> list[dict]:
 
 def _validate(config: FeatherConfig) -> list[str]:
     """Validate config, return list of error messages."""
+    from feather.sources.registry import SOURCE_REGISTRY
+
     errors: list[str] = []
 
-    if config.source.type not in VALID_SOURCE_TYPES:
+    if config.source.type not in SOURCE_REGISTRY:
         errors.append(
             f"Unsupported source type '{config.source.type}'. "
-            f"Valid: {sorted(VALID_SOURCE_TYPES)}"
+            f"Supported: {sorted(SOURCE_REGISTRY)}"
         )
 
     if config.source.type in FILE_SOURCE_TYPES and config.source.path:
@@ -134,6 +143,11 @@ def _validate(config: FeatherConfig) -> list[str]:
             errors.append(
                 f"Source path does not exist: {config.source.path}"
             )
+
+    if not config.destination.path.parent.exists():
+        errors.append(
+            f"Destination directory does not exist: {config.destination.path.parent}"
+        )
 
     for table in config.tables:
         if table.strategy not in VALID_STRATEGIES:
@@ -143,13 +157,48 @@ def _validate(config: FeatherConfig) -> list[str]:
             )
 
         if "." in table.target_table:
-            schema_prefix = table.target_table.split(".")[0]
+            schema_prefix, table_part = table.target_table.split(".", 1)
             if schema_prefix not in VALID_SCHEMA_PREFIXES:
                 errors.append(
                     f"Table '{table.name}': target_table schema '{schema_prefix}' "
                     f"must be one of {sorted(VALID_SCHEMA_PREFIXES)}"
                 )
+            if not _SQL_IDENTIFIER_RE.match(table_part):
+                errors.append(
+                    f"Table '{table.name}': target name '{table_part}' contains "
+                    f"invalid characters. Use letters, digits, and underscores only."
+                )
+        else:
+            errors.append(
+                f"Table '{table.name}': target_table '{table.target_table}' "
+                f"must include a schema prefix (e.g., bronze.{table.target_table})"
+            )
 
+        if table.strategy == "incremental" and not table.timestamp_column:
+            errors.append(
+                f"Table '{table.name}': strategy 'incremental' requires "
+                f"a timestamp_column."
+            )
+
+    return errors
+
+
+def _check_unresolved_env_vars(data: dict | list | str, path: str = "") -> list[str]:
+    """Check for unresolved ${VAR} patterns after env var expansion."""
+    errors: list[str] = []
+    if isinstance(data, dict):
+        for k, v in data.items():
+            errors.extend(_check_unresolved_env_vars(v, f"{path}.{k}" if path else k))
+    elif isinstance(data, list):
+        for i, v in enumerate(data):
+            errors.extend(_check_unresolved_env_vars(v, f"{path}[{i}]"))
+    elif isinstance(data, str):
+        match = _UNRESOLVED_ENV_RE.search(data)
+        if match:
+            errors.append(
+                f"Unresolved environment variable ${{{match.group(1)}}} "
+                f"in '{path}'. Set the variable or remove it from config."
+            )
     return errors
 
 
@@ -158,6 +207,14 @@ def load_config(config_path: Path) -> FeatherConfig:
     config_dir = config_path.parent.resolve()
     raw = yaml.safe_load(config_path.read_text())
     raw = _resolve_yaml_env_vars(raw)
+
+    env_errors = _check_unresolved_env_vars(raw)
+    if env_errors:
+        raise ValueError("; ".join(env_errors))
+
+    for key in ("source", "destination"):
+        if key not in raw:
+            raise ValueError(f"Missing required config section: '{key}'")
 
     source_raw = raw["source"]
     source = SourceConfig(

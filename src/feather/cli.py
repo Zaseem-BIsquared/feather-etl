@@ -17,9 +17,12 @@ def _load_and_validate(config_path: Path):
         cfg = load_config(config_path)
         write_validation_json(config_path, cfg)
         return cfg
-    except ValueError as e:
-        write_validation_json(config_path, None, errors=[str(e)])
-        typer.echo(f"Validation failed: {e}", err=True)
+    except (ValueError, FileNotFoundError) as e:
+        if isinstance(e, FileNotFoundError):
+            typer.echo(f"Config file not found: {config_path}", err=True)
+        else:
+            write_validation_json(config_path, None, errors=[str(e)])
+            typer.echo(f"Validation failed: {e}", err=True)
         raise typer.Exit(code=1)
 
 
@@ -28,13 +31,18 @@ def init(project_name: str) -> None:
     """Scaffold a new client project."""
     from feather.init_wizard import scaffold_project
 
-    project_path = Path(project_name)
-    if project_path.exists() and any(project_path.iterdir()):
-        typer.echo(f"Directory '{project_name}' already exists and is not empty.", err=True)
-        raise typer.Exit(code=1)
+    project_path = Path(project_name).resolve()
+    if project_path.exists():
+        non_hidden = [f for f in project_path.iterdir() if not f.name.startswith(".")]
+        if non_hidden:
+            typer.echo(
+                f"Directory '{project_name}' already exists and is not empty.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
 
     created = scaffold_project(project_path)
-    typer.echo(f"Project scaffolded at {project_path.resolve()}")
+    typer.echo(f"Project scaffolded at {project_path}")
     for f in created:
         typer.echo(f"  {f}")
 
@@ -46,6 +54,7 @@ def validate(config: Path = typer.Option("feather.yaml", "--config")) -> None:
     typer.echo(f"Config valid: {len(cfg.tables)} table(s)")
     typer.echo(f"  Source: {cfg.source.type} ({cfg.source.path})")
     typer.echo(f"  Destination: {cfg.destination.path}")
+    typer.echo(f"  State: {cfg.config_dir / 'feather_state.duckdb'}")
     for t in cfg.tables:
         typer.echo(f"  Table: {t.name} → {t.target_table} ({t.strategy})")
 
@@ -73,7 +82,7 @@ def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
 
 @app.command()
 def setup(config: Path = typer.Option("feather.yaml", "--config")) -> None:
-    """Initialize state DB and create schemas in data DB."""
+    """Preview and initialize state DB and schemas. Optional — feather run creates them automatically."""
     from feather.destinations.duckdb import DuckDBDestination
     from feather.state import StateManager
 
@@ -106,6 +115,9 @@ def run(config: Path = typer.Option("feather.yaml", "--config")) -> None:
     successes = sum(1 for r in results if r.status == "success")
     typer.echo(f"\n{successes}/{len(results)} tables succeeded.")
 
+    if successes < len(results):
+        raise typer.Exit(code=1)
+
 
 @app.command()
 def status(config: Path = typer.Option("feather.yaml", "--config")) -> None:
@@ -133,3 +145,8 @@ def status(config: Path = typer.Option("feather.yaml", "--config")) -> None:
             f"{row['table_name']:<30} {row['status']:<12} "
             f"{row.get('rows_loaded', '-'):<10} {row.get('ended_at', '-')}"
         )
+        if row["status"] == "failure" and row.get("error_message"):
+            error = str(row["error_message"])
+            if len(error) > 80:
+                error = error[:77] + "..."
+            typer.echo(f"  Error: {error}")

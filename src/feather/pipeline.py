@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,8 +10,6 @@ from feather.config import FeatherConfig, TableConfig, write_validation_json
 from feather.destinations.duckdb import DuckDBDestination
 from feather.sources.registry import create_source
 from feather.state import StateManager
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -67,7 +64,6 @@ def run_table(
     except Exception as e:
         ended_at = datetime.now(timezone.utc)
         error_msg = str(e)
-        logger.error("Table %s failed: %s", table.name, error_msg)
         state.record_run(
             run_id=run_id,
             table_name=table.name,

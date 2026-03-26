@@ -203,10 +203,11 @@ class StateManager:
         con.close()
 
     def get_status(self) -> list[dict[str, object]]:
-        """Return last run per table."""
+        """Return last run per table (all-time history, not filtered by current config)."""
         con = self._connect()
         rows = con.execute("""
-            SELECT r.table_name, r.status, r.rows_loaded, r.ended_at, r.run_id
+            SELECT r.table_name, r.status, r.rows_loaded, r.ended_at, r.run_id,
+                   r.error_message
             FROM _runs r
             INNER JOIN (
                 SELECT table_name, MAX(started_at) as max_started
