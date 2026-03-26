@@ -1,7 +1,14 @@
 # feather-etl Research Report
 
 **Date:** 2026-03-25
-**Purpose:** Research existing ETL tools and patterns to inform the design of feather-etl — a lightweight, config-driven ETL framework replacing dlt + sqlmesh + Dagster.
+**Last updated:** 2026-03-26
+**Purpose:** Research existing ETL tools and patterns to inform the design of feather-etl — a config-driven ETL platform for deploying data pipelines across multiple clients with heterogeneous ERP source systems.
+
+> **Context note (added 2026-03-26):** This research was originally scoped for a single Indian client on SQL Server. The product vision has since expanded: feather-etl is a multi-client deployment platform targeting Indian SMBs (SAP B1, SQL Server, custom ERPs) with a long-term path to enterprise clients (SAP S4 HANA, compliance requirements). The research findings remain valid — the patterns borrowed from dlt, Singer, and ingestr apply equally at multi-client scale. The framing differences to keep in mind:
+> - "One client, one config" → "Many clients, each with their own `feather.yaml` and transform library"
+> - "Solo developer" → "Small team: operator(s) deploying, client-side analysts doing last-mile customisation guided by LLM agents"
+> - "Replace dlt+SQLMesh+Dagster for my use case" → "Build a deployable product that is someone else's entire data platform"
+> - The connector and canonical transform library (v2) is the product's long-term moat — reusable silver mappings for SAP B1, SAP S4 HANA, and common Indian ERPs across all clients
 
 ---
 
@@ -9,21 +16,22 @@
 
 The following prompt was used across multiple research agents. It can be reused with any LLM for further research.
 
-> I'm building a custom, lightweight Python ETL tool called **feather-etl** to replace a stack of dlt + sqlmesh + Dagster, which is overkill for my use case.
+> I'm building **feather-etl** — a config-driven Python ETL platform for deploying data pipelines across multiple clients with heterogeneous ERP source systems. The initial use case that motivated the design was replacing a stack of dlt + sqlmesh + Dagster for a single Indian client, but the product is designed for multi-client deployment from the start.
 >
-> **Current setup being replaced:**
-> - Python dlt extracts from SQL Server → MotherDuck (DuckDB cloud)
-> - SQLMesh transforms bronze → silver (column renames, filters) → gold (header+detail joins)
-> - Dagster orchestrates on a schedule
-> - Rill Data connects to MotherDuck for dashboards
+> **Initial reference deployment (informed design decisions):**
+> - Python dlt extracting from SQL Server → MotherDuck (DuckDB cloud)
+> - SQLMesh transforming bronze → silver → gold
+> - Dagster orchestrating on a schedule
+> - Rill Data connecting to MotherDuck for dashboards
 >
-> **Source system constraints:**
-> - Microsoft SQL Server (ERP database, read-only — owned by ERP vendor)
-> - Cannot enable CDC, Change Tracking, or modify schema
+> **Target client profile (primary market):**
+> - Indian SMBs on SQL Server, SAP B1, or custom Indian ERPs
+> - Source DB is read-only (ERP vendor-owned), no CDC, no Change Tracking
 > - Can create views on the source DB
-> - ~20-25 tables of interest out of ~296 total
-> - Largest table ~700K rows, most tables under 50K
-> - Indian client — cost-sensitive, full loads multiple times/day not acceptable
+> - 15-30 tables of interest per client out of hundreds
+> - Largest tables ~700K rows, most tables under 50K
+> - Cost-sensitive — full loads multiple times/day not acceptable
+> - No existing data team — feather-etl is their entire data platform
 >
 > **Two table categories with different strategies:**
 >
@@ -70,9 +78,11 @@ The following prompt was used across multiple research agents. It can be reused 
 > 7. How to structure SQL transforms without a framework — plain `.sql` files with variable substitution?
 > 8. Any other lightweight ETL tools or patterns worth borrowing from
 >
-> **NOT in scope:** CDC, streaming, complex DAGs, plugin systems, multi-destination support, enterprise observability.
+> **NOT in scope for v1:** CDC, streaming, complex DAGs, multi-destination support, enterprise observability, LLM agent interface.
 >
-> **Goal:** Identify the best patterns from existing tools and combine them into the simplest possible architecture that handles: configurable per-table extraction, simple SQL transforms, MotherDuck loading, and enough logging to debug issues.
+> **v1 goal:** Identify the best patterns from existing tools and build the simplest possible architecture that handles configurable per-table extraction, simple SQL transforms, MotherDuck loading, and enough observability to debug issues across multiple client deployments.
+>
+> **v2 direction (shapes v1 architecture decisions):** A connector and canonical transform library (`feather-connectors`) providing pre-built extraction configs and silver transform mappings for common ERP systems (SAP B1, SAP S4 HANA, common Indian ERPs). The v1 Source Protocol and Destination Protocol are explicitly designed as the plugin interface for v2 connectors.
 
 ---
 
@@ -450,11 +460,11 @@ Simple three-tier approach:
 
 | Severity | Trigger | Channel |
 |----------|---------|---------|
-| Critical | Pipeline failure, zero rows | Slack webhook |
-| Warning | Row count anomaly, DQ failure, schema change | Slack or log |
-| Info | Successful completion | Log only |
+| `[CRITICAL]` | Pipeline failure, load error, type cast quarantine | SMTP email |
+| `[WARNING]` | DQ check failure, row count anomaly, schema drift | SMTP email |
+| `[INFO]` | Successful completion | Log only |
 
-Slack webhook is the simplest — one HTTP POST, no extra infra.
+SMTP email via Python stdlib `smtplib` — zero extra dependency, works for every client without requiring Slack or PagerDuty account setup. Indian SMB operators universally have email; not all use Slack.
 
 ---
 
@@ -462,20 +472,28 @@ Slack webhook is the simplest — one HTTP POST, no extra infra.
 
 ### Architecture
 
+One deployment per client. Each client has their own `feather.yaml`, their own local DuckDB, their own MotherDuck database.
+
 ```
-SQL Server (pyodbc)
+Source ERP (per client)
+  SQL Server / SAP B1 / SAP S4 HANA / custom Indian ERP
     │
     ├── Hot tables ──→ incremental extract (timestamp watermark) ──→ PyArrow
     │                                                                   │
     └── Cold tables ──→ CHECKSUM_AGG check ──→ full refresh if changed ─┘
                                                                         │
-                                                              DuckDB (zero-copy)
+                                                   Local DuckDB (zero-copy, free compute)
+                                                   ├── bronze (optional: dev cache or compliance)
+                                                   ├── silver (canonical mapping layer — 10 of 150 cols)
+                                                   └── gold  (client-specific, dashboard-ready)
                                                                         │
-                                                         Transform (plain SQL)
+                                                              MotherDuck (ATTACH — gold only)
                                                                         │
-                                                              MotherDuck (ATTACH)
-                                                                        │
-                                                                   Rill Data
+                                                                   Rill Data / BI tools
+
+Across clients:
+  Same feather-etl package, different feather.yaml per client
+  v2: shared feather-connectors library provides canonical silver mappings per ERP system
 ```
 
 ### Extraction — pyodbc + PyArrow
@@ -501,22 +519,25 @@ Tables for watermarks, run history, and DQ results. Load ID on every data row fo
 
 ### Logging — Structured JSON + DuckDB
 
-Python logging with JSON formatter to NDJSON file. Run history in DuckDB table. Slack webhook for critical alerts.
+Python logging with JSON formatter to NDJSON file. Run history in DuckDB table. SMTP email for critical alerts (Python stdlib `smtplib` — no extra dependency, works for every client without Slack/PagerDuty account setup).
 
 ### Config — YAML
 
 Human-readable, per-table configuration with schedule presets (`hot`, `cold`, `daily`, `weekly`).
 
-### Dependencies (6 total)
+### Dependencies (7 total)
 
 | Package | Purpose |
 |---------|---------|
-| `pyodbc` | SQL Server connectivity |
+| `pyodbc` | SQL Server / SAP B1 connectivity |
 | `pyarrow` | Zero-copy data transfer |
 | `duckdb` | Local processing + MotherDuck |
 | `apscheduler` | Per-table scheduling |
 | `pyyaml` | Config parsing |
-| `requests` | Slack alerts |
+| `typer` | CLI interface |
+| `openpyxl` | Excel `.xls` fallback (DuckDB `excel` extension handles `.xlsx` natively) |
+
+Alerting uses Python stdlib `smtplib` — no extra dependency.
 
 ### Patterns Borrowed
 
@@ -527,9 +548,11 @@ Human-readable, per-table configuration with schedule presets (`hot`, `cold`, `d
 | PipelineWise | FastSync (bulk Arrow path for full refreshes) |
 | Bruin | Config-in-comments inspiration for SQL files |
 
-### Explicitly NOT Included
+### Explicitly NOT Included in v1
 
-CDC, streaming, complex DAGs, plugin systems, multi-destination support, enterprise observability, schema evolution with variant columns, nested data flattening.
+CDC, streaming, complex DAGs, multi-destination support (beyond local DuckDB + MotherDuck), enterprise observability, schema evolution with variant columns, nested data flattening, LLM agent interface, role-based access control.
+
+**Planned for v2:** Connector and canonical transform library (`feather-connectors`). The v1 Source/Destination Protocol is the plugin interface — new ERP connectors implement the Protocol and register in the source registry. No v1 code changes needed.
 
 ---
 
@@ -813,7 +836,7 @@ A protocol standard for Arrow-native database extraction — zero-copy from SQL 
 
 `ROWVERSION` (formerly `TIMESTAMP` data type) is a monotonically increasing binary value that SQL Server **automatically updates** on every row insert or modify. Unlike application-level `ModifiedDate` columns (which depend on the ERP application to update them correctly), `ROWVERSION` is engine-level and immune to application bugs.
 
-**Open question:** Do any Icube ERP tables have a `ROWVERSION` column? If so, it's the most reliable incremental watermark available — better than `ModifiedDate`.
+**Open question per client deployment:** Do source ERP tables have a `ROWVERSION` column? If so, it is the most reliable incremental watermark available — better than application-level `ModifiedDate` columns which depend on the ERP application to update them correctly. Check during client onboarding and prefer `ROWVERSION` where available.
 
 ### Quarantine Pattern for Data Quality
 

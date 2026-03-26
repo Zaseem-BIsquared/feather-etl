@@ -1,6 +1,6 @@
 # feather-etl: Product Requirements Document
 
-**Version:** 1.4
+**Version:** 1.5
 **Date:** 2026-03-26
 **Status:** Draft
 
@@ -11,6 +11,7 @@
 | 1.2 | NFR updates, connector interface design |
 | 1.3 | Excel reader corrected (read_xlsx + openpyxl); Slack replaced with SMTP email; bronze made optional; append strategy added; silver redefined as canonical mapping layer; connector/transform library roadmap added; schema drift behavior (Option B) defined; product scope clarified for multi-client deployment |
 | 1.4 | Out-of-scope section added (Section 3); NFR3 performance targets made concrete (file size + hardware baseline); NFR8 security added (credential redaction, file permissions, plain-text warning); NFR9 reliability added (state DB recovery, scheduler resilience); UC8 backfill, UC9 validate dry run, UC10 state recovery added; feather validate CLI command added to FR11 and F10 |
+| 1.5 | Product vision updated to reflect multi-client deployment product, not solo-operator tool; "What It Replaces" reframed for client deployments; Why section expanded for target audience; UC8/UC10 trimmed to use-case summaries; research.md context note and product vision updated to match |
 
 ---
 
@@ -24,19 +25,21 @@ The core package works entirely with file-based sources (DuckDB, SQLite, CSV, Ex
 
 feather-etl is designed to be deployed across many clients, each with their own source systems and schemas. It is the entire data platform for small-to-medium clients who have no existing data infrastructure, and a lightweight extraction layer for larger clients who already have their own bronze/raw layer.
 
-### What It Replaces
+### What It Replaces (per client deployment)
 
-A stack of three heavyweight frameworks:
+For clients who have no existing data platform, feather-etl is their entire stack — replacing what would otherwise require three heavyweight frameworks:
 
-| Current Tool | What It Does | feather-etl Equivalent |
-|-------------|-------------|----------------------|
-| Python dlt | Extract from sources | `extract.py` — multi-source extraction |
-| SQLMesh | Bronze → Silver → Gold SQL transforms | `.sql` files + `load.py` |
-| Dagster | Orchestration and scheduling | `scheduler.py` + `cli.py` |
+| Tool (if used) | What It Does | feather-etl Equivalent |
+|----------------|-------------|----------------------|
+| Python dlt | Extract from sources | Source connectors via `Source` Protocol |
+| SQLMesh / dbt | Bronze → Silver → Gold transforms | `.sql` files executed in local DuckDB |
+| Dagster / Airflow | Orchestration and scheduling | `scheduler.py` + `cli.py` (APScheduler) |
+
+For clients who already have a data platform (enterprise tier), feather-etl is a lightweight extraction and local transform layer — not a replacement for their existing stack.
 
 ### Why
 
-The current stack introduces a "complexity tax": hundreds of transitive dependencies, proprietary paradigms, fragmented configuration, and a steep learning curve. feather-etl replaces all three with a single Python package (~1000 LOC core) using standard Python and SQL patterns.
+The complexity tax of enterprise ETL frameworks (hundreds of transitive dependencies, proprietary paradigms, steep learning curve) makes them unsuitable for Indian SMBs who need a working data pipeline, not a data engineering career. feather-etl is a single Python package (~1,200 LOC core) using standard Python and SQL patterns — deployable by a small team, configurable by a non-engineer with LLM guidance, and understandable by anyone who can read YAML and SQL.
 
 ### Design Philosophy
 
@@ -82,13 +85,13 @@ Operator adds a table entry to `feather.yaml`, optionally adds silver/gold SQL. 
 Source system changes columns. feather-etl detects drift via schema snapshot comparison, logs it, sends an email alert. Added columns are loaded automatically. Removed columns are loaded as NULL. Type changes attempt a cast; failures are quarantined with a critical alert.
 
 **UC8: Backfill / Re-extraction**
-A DQ issue is found in historical data, or a silver transform bug is discovered that requires re-deriving data from an earlier point. Operator resets the watermark for a table directly in `feather_state.duckdb` (`UPDATE _watermarks SET last_value = '2024-01-01' WHERE table_name = 'sales_invoice'`), then runs `feather run --table sales_invoice`. The pipeline re-extracts from the reset watermark. For `append` strategy tables, the operator also truncates or drops the target table before resetting the watermark. There is no CLI command for this in v1 — it is a manual state DB operation. `feather backfill` is deferred (see Section 3 out-of-scope).
+A DQ issue or transform bug requires re-deriving data from an earlier point. Operator resets a table's watermark in `feather_state.duckdb` and re-runs `feather run --table X`. Pipeline re-extracts from the reset point. In v1 this is a manual state DB operation — `feather backfill` is deferred (see Section 3).
 
 **UC9: Config Validation (Dry Run)**
 Operator has edited `feather.yaml` to add a new table or change schedules and wants to verify the config is valid before running. Runs `feather validate` — the system parses and validates the config, resolves all paths, checks that source files exist (for file-based sources), and prints a summary of what would run without executing anything. Exits with code 0 on success, non-zero with specific error messages on failure.
 
 **UC10: State DB Recovery**
-The `feather_state.duckdb` file is lost or corrupted (disk failure, accidental deletion). Operator runs `feather setup` — the system recreates the state DB from scratch with empty tables. All watermarks are lost; the next `feather run` treats every table as a first run and performs full re-extraction. For `incremental` tables this means re-extracting all history from the source; for `append` tables the operator should manually truncate the target table before running to avoid duplicates. The operator is informed of the reset via a `[WARNING]` log.
+The `feather_state.duckdb` file is lost or corrupted. Operator runs `feather setup` — state DB is recreated from scratch, all watermarks are lost, next run re-extracts from scratch. Operator is warned via `[WARNING]` log. For `append` strategy tables, the operator should manually truncate the target table before re-running to avoid duplicates.
 
 ---
 
