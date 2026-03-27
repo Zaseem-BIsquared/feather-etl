@@ -160,11 +160,11 @@ code=$("$FEATHER" validate --config "$S3/bad_strategy.yaml" > /dev/null 2>&1; ec
     && check "validate rejects invalid strategy" ok \
     || check "validate rejects invalid strategy" fail
 
-# unimplemented source type rejected by validate (BUG-2 fixed)
-cat > "$S3/csv_source.yaml" << 'YAML'
+# unimplemented source type rejected by validate
+cat > "$S3/excel_source.yaml" << 'YAML'
 source:
-  type: csv
-  path: ./source.duckdb
+  type: excel
+  path: ./source.xlsx
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -173,10 +173,10 @@ tables:
     target_table: bronze.t
     strategy: full
 YAML
-code=$("$FEATHER" validate --config "$S3/csv_source.yaml" > /dev/null 2>&1; echo $?) || true
+code=$("$FEATHER" validate --config "$S3/excel_source.yaml" > /dev/null 2>&1; echo $?) || true
 [[ "$code" != "0" ]] \
-    && check "validate rejects unimplemented source type (csv)" ok \
-    || check "validate rejects unimplemented source type (csv)" fail
+    && check "validate rejects unimplemented source type (excel)" ok \
+    || check "validate rejects unimplemented source type (excel)" fail
 
 # target_table without schema prefix rejected by validate (BUG-7 fixed)
 cat > "$S3/no_schema_target.yaml" << 'YAML'
@@ -603,12 +603,55 @@ stderr_lines=$({ "$FEATHER" run --config "$S14/feather.yaml" 2>&1 1>/dev/null ||
 echo ""
 
 # ---------------------------------------------------------------------------
-# S15 — unimplemented source type rejected at validate (BUG-2 fixed)
+# S15 — CSV source: validate, discover, run
 # ---------------------------------------------------------------------------
-yellow "--- S15: unimplemented source type rejected at validate ---"
+yellow "--- S15: CSV source validate + discover + run ---"
 S15="$WORK_DIR/s15" && mkdir "$S15"
-touch "$S15/source.csv"
-cat > "$S15/feather.yaml" << 'YAML'
+cp -r "$FIXTURE_DIR/csv_data" "$S15/csv_data"
+cat > "$S15/feather.yaml" << YAML
+source:
+  type: csv
+  path: ./csv_data
+destination:
+  path: ./feather_data.duckdb
+tables:
+  - name: orders
+    source_table: orders.csv
+    target_table: bronze.orders
+    strategy: full
+  - name: customers
+    source_table: customers.csv
+    target_table: bronze.customers
+    strategy: full
+  - name: products
+    source_table: products.csv
+    target_table: bronze.products
+    strategy: full
+YAML
+validate_out=$("$FEATHER" validate --config "$S15/feather.yaml" 2>&1) || true
+echo "$validate_out" | grep -q "3 table" \
+    && check "csv validate succeeds with 3 tables" ok \
+    || check "csv validate succeeds with 3 tables" fail
+
+discover_out=$("$FEATHER" discover --config "$S15/feather.yaml" 2>&1) || true
+echo "$discover_out" | grep -q "orders.csv" \
+    && check "csv discover finds orders.csv" ok \
+    || check "csv discover finds orders.csv" fail
+
+run_out=$("$FEATHER" run --config "$S15/feather.yaml" 2>&1) || true
+echo "$run_out" | grep -q "3/3" \
+    && check "csv run: 3/3 tables succeed" ok \
+    || check "csv run: 3/3 tables succeed" fail
+
+echo ""
+
+# ---------------------------------------------------------------------------
+# S16a — CSV validation: file path instead of directory rejected
+# ---------------------------------------------------------------------------
+yellow "--- S16a: CSV rejects file path (not directory) ---"
+S16A="$WORK_DIR/s16a" && mkdir "$S16A"
+touch "$S16A/source.csv"
+cat > "$S16A/feather.yaml" << 'YAML'
 source:
   type: csv
   path: ./source.csv
@@ -616,25 +659,67 @@ destination:
   path: ./feather_data.duckdb
 tables:
   - name: data
-    source_table: main.data
+    source_table: data.csv
     target_table: bronze.data
     strategy: full
 YAML
-validate_code=$("$FEATHER" validate --config "$S15/feather.yaml" > /dev/null 2>&1; echo $?) || true
-# validate now catches unimplemented source types — both validate and run fail
+validate_code=$("$FEATHER" validate --config "$S16A/feather.yaml" > /dev/null 2>&1; echo $?) || true
 [[ "$validate_code" != "0" ]] \
-    && check "csv source type rejected at validate time" ok \
-    || check "csv source type rejected at validate time" fail
+    && check "csv rejects file path (not directory)" ok \
+    || check "csv rejects file path (not directory)" fail
 
 echo ""
 
 # ---------------------------------------------------------------------------
-# S16 — hyphenated target_table rejected at validate (BUG-7 fixed)
+# S17 — SQLite source: validate, discover, run
 # ---------------------------------------------------------------------------
-yellow "--- S16: hyphenated target_table rejected at validate ---"
-S16="$WORK_DIR/s16" && mkdir "$S16"
-cp "$FIXTURE_DIR/sample_erp.duckdb" "$S16/source.duckdb"
-cat > "$S16/feather.yaml" << 'YAML'
+yellow "--- S17: SQLite source validate + discover + run ---"
+S17="$WORK_DIR/s17" && mkdir "$S17"
+cp "$FIXTURE_DIR/sample_erp.sqlite" "$S17/source.sqlite"
+cat > "$S17/feather.yaml" << YAML
+source:
+  type: sqlite
+  path: ./source.sqlite
+destination:
+  path: ./feather_data.duckdb
+tables:
+  - name: orders
+    source_table: orders
+    target_table: bronze.orders
+    strategy: full
+  - name: customers
+    source_table: customers
+    target_table: bronze.customers
+    strategy: full
+  - name: products
+    source_table: products
+    target_table: bronze.products
+    strategy: full
+YAML
+validate_out=$("$FEATHER" validate --config "$S17/feather.yaml" 2>&1) || true
+echo "$validate_out" | grep -q "3 table" \
+    && check "sqlite validate succeeds with 3 tables" ok \
+    || check "sqlite validate succeeds with 3 tables" fail
+
+discover_out=$("$FEATHER" discover --config "$S17/feather.yaml" 2>&1) || true
+echo "$discover_out" | grep -q "orders" \
+    && check "sqlite discover finds orders table" ok \
+    || check "sqlite discover finds orders table" fail
+
+run_out=$("$FEATHER" run --config "$S17/feather.yaml" 2>&1) || true
+echo "$run_out" | grep -q "3/3" \
+    && check "sqlite run: 3/3 tables succeed" ok \
+    || check "sqlite run: 3/3 tables succeed" fail
+
+echo ""
+
+# ---------------------------------------------------------------------------
+# S18 — hyphenated target_table rejected at validate (BUG-7 fixed)
+# ---------------------------------------------------------------------------
+yellow "--- S18: hyphenated target_table rejected at validate ---"
+S18="$WORK_DIR/s18" && mkdir "$S18"
+cp "$FIXTURE_DIR/sample_erp.duckdb" "$S18/source.duckdb"
+cat > "$S18/feather.yaml" << 'YAML'
 source:
   type: duckdb
   path: ./source.duckdb
@@ -646,7 +731,7 @@ tables:
     target_table: bronze.my-table
     strategy: full
 YAML
-validate_code=$("$FEATHER" validate --config "$S16/feather.yaml" > /dev/null 2>&1; echo $?) || true
+validate_code=$("$FEATHER" validate --config "$S18/feather.yaml" > /dev/null 2>&1; echo $?) || true
 [[ "$validate_code" != "0" ]] \
     && check "hyphenated target_table rejected at validate" ok \
     || check "hyphenated target_table rejected at validate" fail

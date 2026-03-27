@@ -1,6 +1,5 @@
 """Tests for feather CLI commands."""
 
-import json
 import shutil
 from pathlib import Path
 

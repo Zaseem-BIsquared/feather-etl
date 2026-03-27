@@ -459,9 +459,26 @@ class TestValidationGuards:
     """Tests that validate catches invalid config before runtime.
     Graduated from TestKnownBugs after BUG-2, BUG-3, BUG-7 fixes."""
 
-    def test_csv_source_type_rejected_at_validate(self, tmp_path):
-        """Unimplemented source types are rejected by load_config().
-        (Graduated from BUG-2: previously accepted csv, crashed at run.)"""
+    def test_csv_source_validates_with_valid_directory(self, tmp_path):
+        """CSV source type with a valid directory passes validation.
+        (Graduated from BUG-2: csv is now a registered source type.)"""
+        from feather.config import load_config
+
+        csv_dir = tmp_path / "csv_data"
+        csv_dir.mkdir()
+        (csv_dir / "orders.csv").write_text("id,name\n1,foo\n")
+        config_path = tmp_path / "feather.yaml"
+        config_path.write_text(yaml.dump({
+            "source": {"type": "csv", "path": str(csv_dir)},
+            "destination": {"path": str(tmp_path / "data.duckdb")},
+            "tables": [{"name": "t", "source_table": "orders.csv",
+                        "target_table": "bronze.t", "strategy": "full"}],
+        }))
+        cfg = load_config(config_path)
+        assert cfg.source.type == "csv"
+
+    def test_csv_source_rejects_file_path(self, tmp_path):
+        """CSV source path must be a directory, not a file."""
         from feather.config import load_config
 
         csv_file = tmp_path / "source.csv"
@@ -470,10 +487,24 @@ class TestValidationGuards:
         config_path.write_text(yaml.dump({
             "source": {"type": "csv", "path": str(csv_file)},
             "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [{"name": "t", "source_table": "main.t",
+            "tables": [{"name": "t", "source_table": "orders.csv",
                         "target_table": "bronze.t", "strategy": "full"}],
         }))
-        with pytest.raises(ValueError, match="Unsupported source type"):
+        with pytest.raises(ValueError, match="CSV source path must be a directory"):
+            load_config(config_path)
+
+    def test_csv_source_rejects_nonexistent_path(self, tmp_path):
+        """CSV source path that doesn't exist at all fails validation."""
+        from feather.config import load_config
+
+        config_path = tmp_path / "feather.yaml"
+        config_path.write_text(yaml.dump({
+            "source": {"type": "csv", "path": str(tmp_path / "no_such_dir")},
+            "destination": {"path": str(tmp_path / "data.duckdb")},
+            "tables": [{"name": "t", "source_table": "orders.csv",
+                        "target_table": "bronze.t", "strategy": "full"}],
+        }))
+        with pytest.raises(ValueError, match="CSV source path must be a directory"):
             load_config(config_path)
 
     def test_missing_source_section_raises_valueerror(self, tmp_path):
@@ -589,3 +620,181 @@ class TestKnownBugs:
         count = con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0]
         con.close()
         assert count == 5   # all 5 rows loaded — full load, not incremental
+
+
+# ---------------------------------------------------------------------------
+# CSV source — full pipeline integration
+# ---------------------------------------------------------------------------
+
+def _write_csv_config(tmp_path: Path, csv_dir: Path, tables: list[dict]) -> Path:
+    cfg = {
+        "source": {"type": "csv", "path": str(csv_dir)},
+        "destination": {"path": str(tmp_path / "feather_data.duckdb")},
+        "tables": tables,
+    }
+    p = tmp_path / "feather.yaml"
+    p.write_text(yaml.dump(cfg, default_flow_style=False))
+    return p
+
+
+def _write_sqlite_config(tmp_path: Path, sqlite_path: Path, tables: list[dict]) -> Path:
+    cfg = {
+        "source": {"type": "sqlite", "path": str(sqlite_path)},
+        "destination": {"path": str(tmp_path / "feather_data.duckdb")},
+        "tables": tables,
+    }
+    p = tmp_path / "feather.yaml"
+    p.write_text(yaml.dump(cfg, default_flow_style=False))
+    return p
+
+
+class TestCsvFullPipeline:
+    """Full pipeline run using CSV source."""
+
+    CSV_TABLES = [
+        {"name": "orders",    "source_table": "orders.csv",    "target_table": "bronze.orders",    "strategy": "full"},
+        {"name": "customers", "source_table": "customers.csv", "target_table": "bronze.customers", "strategy": "full"},
+        {"name": "products",  "source_table": "products.csv",  "target_table": "bronze.products",  "strategy": "full"},
+    ]
+
+    @pytest.fixture
+    def csv_data_dir(self, tmp_path) -> Path:
+        src = Path(__file__).parent / "fixtures" / "csv_data"
+        dst = tmp_path / "csv_data"
+        shutil.copytree(src, dst)
+        return dst
+
+    @pytest.fixture
+    def config(self, csv_data_dir, tmp_path) -> Path:
+        return _write_csv_config(tmp_path, csv_data_dir, self.CSV_TABLES)
+
+    def test_run_all_succeeds(self, config):
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        cfg = load_config(config)
+        results = run_all(cfg, config)
+        assert all(r.status == "success" for r in results)
+        assert {r.table_name for r in results} == {"orders", "customers", "products"}
+
+    def test_row_counts_in_bronze(self, config):
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        cfg = load_config(config)
+        run_all(cfg, config)
+
+        con = duckdb.connect(str(cfg.destination.path), read_only=True)
+        assert con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0] == 5
+        assert con.execute("SELECT COUNT(*) FROM bronze.customers").fetchone()[0] == 4
+        assert con.execute("SELECT COUNT(*) FROM bronze.products").fetchone()[0] == 3
+        con.close()
+
+    def test_null_passthrough(self, config):
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        cfg = load_config(config)
+        run_all(cfg, config)
+
+        con = duckdb.connect(str(cfg.destination.path), read_only=True)
+        row = con.execute(
+            "SELECT stock_qty FROM bronze.products WHERE product_name = 'Service Pack'"
+        ).fetchone()
+        con.close()
+        assert row is not None
+        assert row[0] is None
+
+    def test_etl_metadata_columns(self, config):
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        cfg = load_config(config)
+        run_all(cfg, config)
+
+        con = duckdb.connect(str(cfg.destination.path), read_only=True)
+        cols = {r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'bronze' AND table_name = 'orders'"
+        ).fetchall()}
+        con.close()
+        assert "_etl_loaded_at" in cols
+        assert "_etl_run_id" in cols
+
+
+# ---------------------------------------------------------------------------
+# SQLite source — full pipeline integration
+# ---------------------------------------------------------------------------
+
+class TestSqliteFullPipeline:
+    """Full pipeline run using SQLite source."""
+
+    SQLITE_TABLES = [
+        {"name": "orders",    "source_table": "orders",    "target_table": "bronze.orders",    "strategy": "full"},
+        {"name": "customers", "source_table": "customers", "target_table": "bronze.customers", "strategy": "full"},
+        {"name": "products",  "source_table": "products",  "target_table": "bronze.products",  "strategy": "full"},
+    ]
+
+    @pytest.fixture
+    def sqlite_db(self, tmp_path) -> Path:
+        src = Path(__file__).parent / "fixtures" / "sample_erp.sqlite"
+        dst = tmp_path / "sample_erp.sqlite"
+        shutil.copy2(src, dst)
+        return dst
+
+    @pytest.fixture
+    def config(self, sqlite_db, tmp_path) -> Path:
+        return _write_sqlite_config(tmp_path, sqlite_db, self.SQLITE_TABLES)
+
+    def test_run_all_succeeds(self, config):
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        cfg = load_config(config)
+        results = run_all(cfg, config)
+        assert all(r.status == "success" for r in results)
+        assert {r.table_name for r in results} == {"orders", "customers", "products"}
+
+    def test_row_counts_in_bronze(self, config):
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        cfg = load_config(config)
+        run_all(cfg, config)
+
+        con = duckdb.connect(str(cfg.destination.path), read_only=True)
+        assert con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0] == 5
+        assert con.execute("SELECT COUNT(*) FROM bronze.customers").fetchone()[0] == 4
+        assert con.execute("SELECT COUNT(*) FROM bronze.products").fetchone()[0] == 3
+        con.close()
+
+    def test_null_passthrough(self, config):
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        cfg = load_config(config)
+        run_all(cfg, config)
+
+        con = duckdb.connect(str(cfg.destination.path), read_only=True)
+        row = con.execute(
+            "SELECT stock_qty FROM bronze.products WHERE product_name = 'Service Pack'"
+        ).fetchone()
+        con.close()
+        assert row is not None
+        assert row[0] is None
+
+    def test_etl_metadata_columns(self, config):
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        cfg = load_config(config)
+        run_all(cfg, config)
+
+        con = duckdb.connect(str(cfg.destination.path), read_only=True)
+        cols = {r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'bronze' AND table_name = 'orders'"
+        ).fetchall()}
+        con.close()
+        assert "_etl_loaded_at" in cols
+        assert "_etl_run_id" in cols

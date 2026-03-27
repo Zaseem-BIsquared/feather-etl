@@ -226,14 +226,12 @@ class TestEnvVarEdgeCases:
 
 
 class TestConfigValidationExtended:
-    def test_csv_source_type_rejected(self, tmp_path: Path):
-        """BUG-2: Source types not in SOURCE_REGISTRY should be rejected at validate."""
+    def test_unregistered_source_type_rejected(self, tmp_path: Path):
+        """Source types not in SOURCE_REGISTRY should be rejected at validate."""
         from feather.config import load_config
 
-        csv_file = tmp_path / "source.csv"
-        csv_file.write_text("id,name\n1,foo\n")
         cfg = {
-            "source": {"type": "csv", "path": str(csv_file)},
+            "source": {"type": "excel", "path": str(tmp_path / "data.xlsx")},
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [
                 {"name": "t", "source_table": "main.t",

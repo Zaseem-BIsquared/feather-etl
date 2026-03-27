@@ -6,10 +6,14 @@ from typing import Any
 
 from feather.config import SourceConfig
 from feather.sources import Source
+from feather.sources.csv import CsvSource
 from feather.sources.duckdb_file import DuckDBFileSource
+from feather.sources.sqlite import SqliteSource
 
 SOURCE_REGISTRY: dict[str, type[Any]] = {
     "duckdb": DuckDBFileSource,
+    "csv": CsvSource,
+    "sqlite": SqliteSource,
 }
 
 

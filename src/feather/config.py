@@ -139,7 +139,12 @@ def _validate(config: FeatherConfig) -> list[str]:
         )
 
     if config.source.type in FILE_SOURCE_TYPES and config.source.path:
-        if not config.source.path.exists():
+        if config.source.type == "csv":
+            if not config.source.path.is_dir():
+                errors.append(
+                    f"CSV source path must be a directory: {config.source.path}"
+                )
+        elif not config.source.path.exists():
             errors.append(
                 f"Source path does not exist: {config.source.path}"
             )

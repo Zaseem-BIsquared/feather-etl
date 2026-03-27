@@ -7,14 +7,15 @@ from pathlib import Path
 import duckdb
 import pyarrow as pa
 
-from feather.sources import ChangeResult, StreamSchema
+from feather.sources import StreamSchema
+from feather.sources.file_source import FileSource
 
 
-class DuckDBFileSource:
+class DuckDBFileSource(FileSource):
     """Source that reads tables from a DuckDB file using ATTACH."""
 
     def __init__(self, path: Path) -> None:
-        self.path = path
+        super().__init__(path)
 
     def _connect_direct(self) -> duckdb.DuckDBPyConnection:
         """Connect directly to the source DB (read-only) for metadata queries."""
@@ -79,12 +80,6 @@ class DuckDBFileSource:
         result = con.execute(query).arrow().read_all()
         con.close()
         return result
-
-    def detect_changes(
-        self, table: str, last_state: dict[str, object] | None = None
-    ) -> ChangeResult:
-        # Slice 1: no change detection — always extract
-        return ChangeResult(changed=True, reason="first_run")
 
     def get_schema(self, table: str) -> list[tuple[str, str]]:
         con = self._connect_direct()
