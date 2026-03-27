@@ -141,6 +141,8 @@ class StateManager:
         table_name: str,
         strategy: str,
         last_run_at: datetime | None = None,
+        last_file_mtime: float | None = None,
+        last_file_hash: str | None = None,
         **kwargs: object,
     ) -> None:
         if last_run_at is None:
@@ -151,15 +153,17 @@ class StateManager:
         ).fetchone()[0]
         if existing:
             con.execute(
-                "UPDATE _watermarks SET strategy = ?, last_run_at = ? "
+                "UPDATE _watermarks SET strategy = ?, last_run_at = ?, "
+                "last_file_mtime = ?, last_file_hash = ? "
                 "WHERE table_name = ?",
-                [strategy, last_run_at, table_name],
+                [strategy, last_run_at, last_file_mtime, last_file_hash, table_name],
             )
         else:
             con.execute(
-                "INSERT INTO _watermarks (table_name, strategy, last_run_at) "
-                "VALUES (?, ?, ?)",
-                [table_name, strategy, last_run_at],
+                "INSERT INTO _watermarks "
+                "(table_name, strategy, last_run_at, last_file_mtime, last_file_hash) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [table_name, strategy, last_run_at, last_file_mtime, last_file_hash],
             )
         con.close()
 

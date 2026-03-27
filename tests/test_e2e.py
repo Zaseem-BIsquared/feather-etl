@@ -81,7 +81,7 @@ def test_full_onboarding_flow(tmp_path: Path):
     # --- 6. feather run ---
     result = runner.invoke(app, ["run", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
-    assert "3/3 tables succeeded" in result.output
+    assert "3/3 tables extracted" in result.output
 
     # Verify bronze tables exist with correct data
     data_db = str(project_dir / "feather_data.duckdb")
@@ -112,10 +112,11 @@ def test_full_onboarding_flow(tmp_path: Path):
     assert "inventory_group" in result.output
     assert "success" in result.output
 
-    # --- 8. Second feather run (re-extracts, no change detection) ---
+    # --- 8. Second feather run (change detection → skip unchanged) ---
     result = runner.invoke(app, ["run", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
-    assert "3/3 tables succeeded" in result.output
+    assert "skipped (unchanged)" in result.output
+    assert "3 skipped" in result.output
 
     # Verify feather_validation.json was written
     assert vj_path.exists()

@@ -23,7 +23,7 @@ class ChangeResult:
     """Result of change detection check."""
 
     changed: bool
-    reason: str  # "mtime_changed", "hash_changed", "first_run", "unchanged"
+    reason: str  # "first_run", "hash_changed", "unchanged"
     metadata: dict[str, object] = field(default_factory=dict)
 
 

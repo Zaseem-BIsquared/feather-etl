@@ -131,6 +131,56 @@ class TestWatermarks:
         assert count == 1
 
 
+    def test_write_watermark_with_mtime_and_hash(self, tmp_path: Path):
+        from feather.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        sm.write_watermark(
+            "test_table",
+            strategy="full",
+            last_file_mtime=1234567890.5,
+            last_file_hash="abc123def456",
+        )
+        wm = sm.read_watermark("test_table")
+        assert wm["last_file_mtime"] == 1234567890.5
+        assert wm["last_file_hash"] == "abc123def456"
+
+    def test_write_watermark_update_preserves_mtime_hash(self, tmp_path: Path):
+        from feather.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        sm.write_watermark(
+            "test_table",
+            strategy="full",
+            last_file_mtime=100.0,
+            last_file_hash="hash1",
+        )
+        sm.write_watermark(
+            "test_table",
+            strategy="full",
+            last_file_mtime=200.0,
+            last_file_hash="hash2",
+        )
+        wm = sm.read_watermark("test_table")
+        assert wm["last_file_mtime"] == 200.0
+        assert wm["last_file_hash"] == "hash2"
+
+    def test_write_watermark_without_mtime_hash_stays_null(self, tmp_path: Path):
+        from feather.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        sm.write_watermark("test_table", strategy="full")
+        wm = sm.read_watermark("test_table")
+        assert wm["last_file_mtime"] is None
+        assert wm["last_file_hash"] is None
+
+
 class TestRuns:
     def test_record_and_get_status(self, tmp_path: Path):
         from feather.state import StateManager

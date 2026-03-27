@@ -243,7 +243,7 @@ yellow "--- S5: feather setup / run / status ---"
     || check "setup creates feather_state.duckdb" fail
 
 out=$("$FEATHER" run --config "$S2/feather.yaml" 2>&1)
-echo "$out" | grep -q "3/3 tables succeeded" \
+echo "$out" | grep -q "3/3 tables extracted" \
     && check "run: 3/3 tables succeed" ok \
     || check "run: 3/3 tables succeed" fail
 
@@ -275,19 +275,19 @@ con.close()
     && check "_etl_loaded_at and _etl_run_id metadata columns present" ok \
     || check "_etl_loaded_at and _etl_run_id metadata columns present" fail
 
-# run again (idempotency)
+# run again (idempotency — change detection skips unchanged)
 out=$("$FEATHER" run --config "$S2/feather.yaml" 2>&1)
-echo "$out" | grep -q "3/3 tables succeeded" \
-    && check "second run (idempotency): 3/3 succeed" ok \
-    || check "second run (idempotency): 3/3 succeed" fail
+echo "$out" | grep -q "3 skipped" \
+    && check "second run (idempotency): all tables skipped (unchanged)" ok \
+    || check "second run (idempotency): all tables skipped (unchanged)" fail
 
 out=$("$FEATHER" status --config "$S2/feather.yaml" 2>&1)
 echo "$out" | grep -q "sales_invoice" \
     && check "status shows sales_invoice" ok \
     || check "status shows sales_invoice" fail
-echo "$out" | grep -q "success" \
-    && check "status shows success" ok \
-    || check "status shows success" fail
+echo "$out" | grep -q "skipped" \
+    && check "status shows skipped (after idempotent re-run)" ok \
+    || check "status shows skipped (after idempotent re-run)" fail
 
 echo ""
 
@@ -321,7 +321,7 @@ echo "$out" | grep -q "good_table: success" \
 echo "$out" | grep -q "bad_table: failure" \
     && check "bad table shows failure" ok \
     || check "bad table shows failure" fail
-echo "$out" | grep -q "1/2 tables succeeded" \
+echo "$out" | grep -q "1/2 tables extracted" \
     && check "summary shows 1/2" ok \
     || check "summary shows 1/2" fail
 
@@ -397,7 +397,7 @@ tables:
 YAML
 
 out=$("$FEATHER" run --config "$S8/feather.yaml" 2>&1)
-echo "$out" | grep -q "3/3 tables succeeded" \
+echo "$out" | grep -q "3/3 tables extracted" \
     && check "sample_erp: 3/3 tables succeed" ok \
     || check "sample_erp: 3/3 tables succeed" fail
 
@@ -461,7 +461,7 @@ echo "$out" | grep -q "Config valid: 2 table" \
     || check "tables/ dir merge: 2 tables discovered" fail
 
 out=$("$FEATHER" run --config "$S9/feather.yaml" 2>&1)
-echo "$out" | grep -q "2/2 tables succeeded" \
+echo "$out" | grep -q "2/2 tables extracted" \
     && check "tables/ dir merge: 2/2 run succeeds" ok \
     || check "tables/ dir merge: 2/2 run succeeds" fail
 
@@ -472,7 +472,9 @@ echo ""
 # ---------------------------------------------------------------------------
 yellow "--- S10: --config path resolution from different CWD ---"
 out=$(cd /tmp && "$FEATHER" run --config "$S8/feather.yaml" 2>&1)
-echo "$out" | grep -q "3/3 tables succeeded" \
+# S8 already ran, so change detection skips — just verify exit code 0
+code=$(cd /tmp && "$FEATHER" run --config "$S8/feather.yaml" > /dev/null 2>&1; echo $?) || true
+[[ "$code" == "0" ]] \
     && check "--config absolute path from different CWD works" ok \
     || check "--config absolute path from different CWD works" fail
 
@@ -735,6 +737,61 @@ validate_code=$("$FEATHER" validate --config "$S18/feather.yaml" > /dev/null 2>&
 [[ "$validate_code" != "0" ]] \
     && check "hyphenated target_table rejected at validate" ok \
     || check "hyphenated target_table rejected at validate" fail
+
+# ---------------------------------------------------------------------------
+# S19–S22 — Change detection (Slice 2)
+# ---------------------------------------------------------------------------
+yellow "--- S19-S22: Change detection (skip unchanged files) ---"
+S19="$WORK_DIR/s19" && mkdir "$S19"
+cp "$FIXTURE_DIR/sample_erp.duckdb" "$S19/source.duckdb"
+cat > "$S19/feather.yaml" << 'YAML'
+source:
+  type: duckdb
+  path: ./source.duckdb
+destination:
+  path: ./feather_data.duckdb
+tables:
+  - name: orders
+    source_table: erp.orders
+    target_table: bronze.orders
+    strategy: full
+YAML
+
+# S19: First run → success
+out=$("$FEATHER" run --config "$S19/feather.yaml" 2>&1) || true
+echo "$out" | grep -q "orders: success" \
+    && check "S19: first run extracts successfully" ok \
+    || check "S19: first run extracts successfully" fail
+
+# S20: Second run (unchanged) → skipped
+out=$("$FEATHER" run --config "$S19/feather.yaml" 2>&1) || true
+echo "$out" | grep -q "skipped (unchanged)" \
+    && check "S20: second run skips unchanged file" ok \
+    || check "S20: second run skips unchanged file" fail
+code=$("$FEATHER" run --config "$S19/feather.yaml" > /dev/null 2>&1; echo $?) || true
+[[ "$code" == "0" ]] \
+    && check "S20: skipped run exits with code 0" ok \
+    || check "S20: skipped run exits with code 0" fail
+
+# S21: Modify source → re-extracts
+.venv/bin/python -c "
+import duckdb
+con = duckdb.connect('$S19/source.duckdb')
+con.execute(\"INSERT INTO erp.orders (order_id, customer_id, order_date, total_amount, status) VALUES (99, 99, '2026-01-01', 999.99, 'new')\")
+con.close()
+"
+out=$("$FEATHER" run --config "$S19/feather.yaml" 2>&1) || true
+echo "$out" | grep -q "orders: success" \
+    && check "S21: modified source re-extracts" ok \
+    || check "S21: modified source re-extracts" fail
+
+# S22: Touch source (mtime changes, content identical) → skipped
+sleep 0.1
+touch "$S19/source.duckdb"
+out=$("$FEATHER" run --config "$S19/feather.yaml" 2>&1) || true
+echo "$out" | grep -q "skipped (unchanged)" \
+    && check "S22: touched file skipped (hash unchanged)" ok \
+    || check "S22: touched file skipped (hash unchanged)" fail
 
 echo ""
 

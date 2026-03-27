@@ -39,13 +39,49 @@ def run_table(
 
     source = create_source(config.source)
 
+    # Change detection: check if source file changed since last run
+    wm = state.read_watermark(table.name)
+    change = source.detect_changes(table.source_table, last_state=wm)
+
     started_at = datetime.now(timezone.utc)
+
+    if not change.changed:
+        ended_at = datetime.now(timezone.utc)
+        state.record_run(
+            run_id=run_id,
+            table_name=table.name,
+            started_at=started_at,
+            ended_at=ended_at,
+            status="skipped",
+        )
+        # Touch scenario: mtime changed but hash identical — update watermark
+        # so next run skips re-hashing
+        if change.metadata:
+            state.write_watermark(
+                table.name,
+                strategy=table.strategy,
+                last_run_at=ended_at,
+                last_file_mtime=change.metadata.get("file_mtime"),
+                last_file_hash=change.metadata.get("file_hash"),
+            )
+        return RunResult(
+            table_name=table.name,
+            run_id=run_id,
+            status="skipped",
+        )
+
     try:
         data = source.extract(table.source_table)
         rows_loaded = dest.load_full(table.target_table, data, run_id)
 
         ended_at = datetime.now(timezone.utc)
-        state.write_watermark(table.name, strategy=table.strategy, last_run_at=ended_at)
+        state.write_watermark(
+            table.name,
+            strategy=table.strategy,
+            last_run_at=ended_at,
+            last_file_mtime=change.metadata.get("file_mtime"),
+            last_file_hash=change.metadata.get("file_hash"),
+        )
         state.record_run(
             run_id=run_id,
             table_name=table.name,

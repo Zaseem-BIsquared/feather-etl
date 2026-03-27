@@ -17,6 +17,10 @@ class CsvSource(FileSource):
     def __init__(self, path: Path) -> None:
         super().__init__(path)
 
+    def _source_path_for_table(self, table: str) -> Path:
+        """CSV: each table is a separate file in the directory."""
+        return self.path / table
+
     def check(self) -> bool:
         return self.path.is_dir()
 

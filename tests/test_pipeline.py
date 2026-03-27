@@ -123,7 +123,35 @@ class TestRunAll:
         vj = json.loads(vj_path.read_text())
         assert vj["valid"] is True
 
-    def test_second_run_reextracts(self, setup_env: tuple[Path, Path]):
+    def test_first_run_always_extracts(self, setup_env: tuple[Path, Path]):
+        """First run with no prior watermark always extracts."""
+        from feather.config import load_config
+        from feather.pipeline import run_table
+
+        config_path, tmp_path = setup_env
+        cfg = load_config(config_path)
+        result = run_table(cfg, cfg.tables[0], tmp_path)
+        assert result.status == "success"
+        assert result.rows_loaded > 0
+
+    def test_watermark_populated_after_success(self, setup_env: tuple[Path, Path]):
+        """After successful run, watermark has mtime and hash."""
+        from feather.config import load_config
+        from feather.pipeline import run_table
+        from feather.state import StateManager
+
+        config_path, tmp_path = setup_env
+        cfg = load_config(config_path)
+        run_table(cfg, cfg.tables[0], tmp_path)
+
+        sm = StateManager(tmp_path / "feather_state.duckdb")
+        wm = sm.read_watermark("inventory_group")
+        assert wm is not None
+        assert wm["last_file_mtime"] is not None
+        assert wm["last_file_hash"] is not None
+
+    def test_second_run_skips_unchanged(self, setup_env: tuple[Path, Path]):
+        """Second run on unchanged source → all tables skipped."""
         from feather.config import load_config
         from feather.pipeline import run_all
 
@@ -132,4 +160,84 @@ class TestRunAll:
 
         run_all(cfg, config_path)
         results2 = run_all(cfg, config_path)
+        assert all(r.status == "skipped" for r in results2)
+
+    def test_modified_source_reextracts(self, setup_env: tuple[Path, Path]):
+        """Modify source file → next run extracts again."""
+        import time
+
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        config_path, tmp_path = setup_env
+        cfg = load_config(config_path)
+
+        run_all(cfg, config_path)
+
+        # Modify source: add a row to change content and hash
+        time.sleep(0.05)  # ensure mtime differs on coarse-resolution filesystems
+        source_db = tmp_path / "client.duckdb"
+        con = duckdb.connect(str(source_db))
+        con.execute(
+            "INSERT INTO icube.InventoryGroup "
+            "SELECT * FROM icube.InventoryGroup LIMIT 1"
+        )
+        con.close()
+
+        results2 = run_all(cfg, config_path)
         assert all(r.status == "success" for r in results2)
+
+    def test_touch_source_skips(self, setup_env: tuple[Path, Path]):
+        """Touch source file (mtime changes, content identical) → skipped."""
+        import os
+        import time
+
+        from feather.config import load_config
+        from feather.pipeline import run_all
+
+        config_path, tmp_path = setup_env
+        cfg = load_config(config_path)
+
+        run_all(cfg, config_path)
+
+        # Touch: update mtime without changing content
+        time.sleep(0.05)
+        os.utime(tmp_path / "client.duckdb", None)
+
+        results2 = run_all(cfg, config_path)
+        assert all(r.status == "skipped" for r in results2)
+
+    def test_skipped_run_recorded_in_state(self, setup_env: tuple[Path, Path]):
+        """Skipped runs are recorded in _runs table."""
+        from feather.config import load_config
+        from feather.pipeline import run_all
+        from feather.state import StateManager
+
+        config_path, tmp_path = setup_env
+        cfg = load_config(config_path)
+
+        run_all(cfg, config_path)
+        run_all(cfg, config_path)
+
+        sm = StateManager(tmp_path / "feather_state.duckdb")
+        status = sm.get_status()
+        # get_status returns last run per table — should be "skipped"
+        assert all(s["status"] == "skipped" for s in status)
+
+    def test_failed_extraction_doesnt_update_watermark(self, setup_env: tuple[Path, Path]):
+        """Failed extraction should not populate mtime/hash in watermark."""
+        from feather.config import load_config
+        from feather.pipeline import run_table
+        from feather.state import StateManager
+
+        config_path, tmp_path = setup_env
+        cfg = load_config(config_path)
+        # Point to nonexistent table to trigger failure
+        cfg.tables[0].source_table = "icube.NONEXISTENT"
+
+        run_table(cfg, cfg.tables[0], tmp_path)
+
+        sm = StateManager(tmp_path / "feather_state.duckdb")
+        wm = sm.read_watermark("inventory_group")
+        # No watermark written for failed run
+        assert wm is None

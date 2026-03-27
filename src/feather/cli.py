@@ -109,13 +109,21 @@ def run(config: Path = typer.Option("feather.yaml", "--config")) -> None:
     for r in results:
         if r.status == "success":
             typer.echo(f"  {r.table_name}: {r.status} ({r.rows_loaded} rows)")
+        elif r.status == "skipped":
+            typer.echo(f"  {r.table_name}: skipped (unchanged)")
         else:
             typer.echo(f"  {r.table_name}: {r.status} — {r.error_message}")
 
     successes = sum(1 for r in results if r.status == "success")
-    typer.echo(f"\n{successes}/{len(results)} tables succeeded.")
+    skipped = sum(1 for r in results if r.status == "skipped")
+    failures = sum(1 for r in results if r.status == "failure")
 
-    if successes < len(results):
+    parts = [f"{successes}/{len(results)} tables extracted"]
+    if skipped:
+        parts.append(f"{skipped} skipped")
+    typer.echo(f"\n{', '.join(parts)}.")
+
+    if failures > 0:
         raise typer.Exit(code=1)
 
 

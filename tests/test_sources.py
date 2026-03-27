@@ -54,7 +54,7 @@ class TestFileSource:
         source = FileSource(path=tmp_path / "nope")
         assert source.check() is False
 
-    def test_detect_changes_always_changed(self, tmp_path: Path):
+    def test_detect_changes_first_run(self, tmp_path: Path):
         from feather.sources.file_source import FileSource
 
         existing = tmp_path / "somefile"
@@ -63,6 +63,106 @@ class TestFileSource:
         result = source.detect_changes("any_table")
         assert result.changed is True
         assert result.reason == "first_run"
+        assert "file_mtime" in result.metadata
+        assert "file_hash" in result.metadata
+
+    def test_detect_changes_unchanged(self, tmp_path: Path):
+        """File untouched between runs → changed=False, empty metadata."""
+        import os
+
+        from feather.sources.file_source import FileSource
+
+        f = tmp_path / "somefile"
+        f.write_text("data")
+        source = FileSource(path=f)
+
+        # Simulate a prior successful run by building last_state
+        mtime = os.path.getmtime(f)
+        first = source.detect_changes("any_table")
+        last_state = {
+            "last_file_mtime": mtime,
+            "last_file_hash": first.metadata["file_hash"],
+        }
+
+        result = source.detect_changes("any_table", last_state=last_state)
+        assert result.changed is False
+        assert result.reason == "unchanged"
+        assert result.metadata == {}
+
+    def test_detect_changes_touch_scenario(self, tmp_path: Path):
+        """Mtime changes but content identical → changed=False, metadata populated."""
+        import os
+        import time
+
+        from feather.sources.file_source import FileSource
+
+        f = tmp_path / "somefile"
+        f.write_text("data")
+        source = FileSource(path=f)
+
+        first = source.detect_changes("any_table")
+        last_state = {
+            "last_file_mtime": first.metadata["file_mtime"],
+            "last_file_hash": first.metadata["file_hash"],
+        }
+
+        # Touch: update mtime without changing content
+        time.sleep(0.05)
+        os.utime(f, None)
+
+        result = source.detect_changes("any_table", last_state=last_state)
+        assert result.changed is False
+        assert result.reason == "unchanged"
+        # Metadata populated so pipeline can update watermark mtime
+        assert "file_mtime" in result.metadata
+        assert result.metadata["file_mtime"] != last_state["last_file_mtime"]
+        assert result.metadata["file_hash"] == last_state["last_file_hash"]
+
+    def test_detect_changes_content_changed(self, tmp_path: Path):
+        """File content changes → changed=True, reason=hash_changed."""
+        from feather.sources.file_source import FileSource
+
+        f = tmp_path / "somefile"
+        f.write_text("original")
+        source = FileSource(path=f)
+
+        first = source.detect_changes("any_table")
+        last_state = {
+            "last_file_mtime": first.metadata["file_mtime"],
+            "last_file_hash": first.metadata["file_hash"],
+        }
+
+        f.write_text("modified")
+
+        result = source.detect_changes("any_table", last_state=last_state)
+        assert result.changed is True
+        assert result.reason == "hash_changed"
+        assert "file_mtime" in result.metadata
+        assert result.metadata["file_hash"] != last_state["last_file_hash"]
+
+    def test_detect_changes_partial_state_null_mtime(self, tmp_path: Path):
+        """Watermark exists but mtime is NULL (Slice 1 legacy) → treat as first run."""
+        from feather.sources.file_source import FileSource
+
+        f = tmp_path / "somefile"
+        f.write_text("data")
+        source = FileSource(path=f)
+
+        last_state = {"last_file_mtime": None, "last_file_hash": None}
+        result = source.detect_changes("any_table", last_state=last_state)
+        assert result.changed is True
+        assert result.reason == "first_run"
+        assert "file_mtime" in result.metadata
+        assert "file_hash" in result.metadata
+
+    def test_source_path_for_table_returns_self_path(self, tmp_path: Path):
+        """Base FileSource returns self.path (whole file)."""
+        from feather.sources.file_source import FileSource
+
+        f = tmp_path / "db.duckdb"
+        f.write_text("data")
+        source = FileSource(path=f)
+        assert source._source_path_for_table("any_table") == f
 
     def test_path_stored(self, tmp_path: Path):
         from feather.sources.file_source import FileSource
@@ -138,13 +238,22 @@ class TestDuckDBFileSource:
         col_names = [c[0] for c in schema]
         assert len(col_names) > 0
 
-    def test_detect_changes_always_true(self, client_db: Path):
+    def test_detect_changes_first_run(self, client_db: Path):
         from feather.sources.duckdb_file import DuckDBFileSource
 
         source = DuckDBFileSource(path=client_db)
         result = source.detect_changes("icube.SALESINVOICE")
         assert result.changed is True
         assert result.reason == "first_run"
+        assert "file_mtime" in result.metadata
+        assert "file_hash" in result.metadata
+
+    def test_source_path_for_table_returns_file_path(self, client_db: Path):
+        """DuckDB source uses the single .duckdb file for all tables."""
+        from feather.sources.duckdb_file import DuckDBFileSource
+
+        source = DuckDBFileSource(path=client_db)
+        assert source._source_path_for_table("icube.SALESINVOICE") == client_db
 
     def test_check_corrupt_file_returns_false(self, tmp_path: Path):
         from feather.sources.duckdb_file import DuckDBFileSource
@@ -246,13 +355,22 @@ class TestCsvSource:
         assert "order_id" in col_names
         assert len(col_names) > 0
 
-    def test_detect_changes_always_true(self, csv_dir: Path):
+    def test_detect_changes_first_run(self, csv_dir: Path):
         from feather.sources.csv import CsvSource
 
         source = CsvSource(path=csv_dir)
         result = source.detect_changes("orders.csv")
         assert result.changed is True
         assert result.reason == "first_run"
+        assert "file_mtime" in result.metadata
+        assert "file_hash" in result.metadata
+
+    def test_source_path_for_table_per_file(self, csv_dir: Path):
+        """CSV source resolves per-file: path/orders.csv, not the directory."""
+        from feather.sources.csv import CsvSource
+
+        source = CsvSource(path=csv_dir)
+        assert source._source_path_for_table("orders.csv") == csv_dir / "orders.csv"
 
 
 class TestSqliteSource:
@@ -346,13 +464,22 @@ class TestSqliteSource:
         assert "order_id" in col_names
         assert len(col_names) > 0
 
-    def test_detect_changes_always_true(self, sqlite_db: Path):
+    def test_detect_changes_first_run(self, sqlite_db: Path):
         from feather.sources.sqlite import SqliteSource
 
         source = SqliteSource(path=sqlite_db)
         result = source.detect_changes("orders")
         assert result.changed is True
         assert result.reason == "first_run"
+        assert "file_mtime" in result.metadata
+        assert "file_hash" in result.metadata
+
+    def test_source_path_for_table_returns_file_path(self, sqlite_db: Path):
+        """SQLite source uses the single .sqlite file for all tables."""
+        from feather.sources.sqlite import SqliteSource
+
+        source = SqliteSource(path=sqlite_db)
+        assert source._source_path_for_table("orders") == sqlite_db
 
 
 class TestSourceRegistry:
