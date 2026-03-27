@@ -145,13 +145,17 @@ def _validate(config: FeatherConfig) -> list[str]:
                     f"CSV source path must be a directory: {config.source.path}"
                 )
         elif not config.source.path.exists():
-            errors.append(
-                f"Source path does not exist: {config.source.path}"
-            )
+            errors.append(f"Source path does not exist: {config.source.path}")
 
     if not config.destination.path.parent.exists():
         errors.append(
             f"Destination directory does not exist: {config.destination.path.parent}"
+        )
+
+    if config.defaults.overlap_window_minutes < 0:
+        errors.append(
+            f"overlap_window_minutes must be >= 0, "
+            f"got {config.defaults.overlap_window_minutes}"
         )
 
     for table in config.tables:
@@ -184,6 +188,34 @@ def _validate(config: FeatherConfig) -> list[str]:
                 f"Table '{table.name}': strategy 'incremental' requires "
                 f"a timestamp_column."
             )
+
+        # Source-type-aware source_table validation (R-1)
+        if config.source.type == "duckdb":
+            # DuckDB: must be schema.table with valid SQL identifiers
+            if "." not in table.source_table:
+                errors.append(
+                    f"Table '{table.name}': source_table '{table.source_table}' "
+                    f"must be in schema.table format for DuckDB sources."
+                )
+            else:
+                st_schema, st_table = table.source_table.split(".", 1)
+                if not _SQL_IDENTIFIER_RE.match(
+                    st_schema
+                ) or not _SQL_IDENTIFIER_RE.match(st_table):
+                    errors.append(
+                        f"Table '{table.name}': source_table '{table.source_table}' "
+                        f"contains invalid identifier characters. "
+                        f"Use letters, digits, and underscores only."
+                    )
+        elif config.source.type == "sqlite":
+            # SQLite: plain table name, valid identifier
+            if not _SQL_IDENTIFIER_RE.match(table.source_table):
+                errors.append(
+                    f"Table '{table.name}': source_table '{table.source_table}' "
+                    f"contains invalid identifier characters. "
+                    f"Use letters, digits, and underscores only."
+                )
+        # CSV/other file types: filename validation — no SQL injection risk
 
     return errors
 
@@ -224,7 +256,9 @@ def load_config(config_path: Path) -> FeatherConfig:
     source_raw = raw["source"]
     source = SourceConfig(
         type=source_raw["type"],
-        path=_resolve_path(config_dir, source_raw["path"]) if "path" in source_raw else None,
+        path=_resolve_path(config_dir, source_raw["path"])
+        if "path" in source_raw
+        else None,
         connection_string=source_raw.get("connection_string"),
     )
 
@@ -272,7 +306,9 @@ def write_validation_json(
         "errors": errors,
         "tables_count": len(config.tables) if config else 0,
         "resolved_paths": {
-            "source": str(config.source.path) if config and config.source.path else None,
+            "source": str(config.source.path)
+            if config and config.source.path
+            else None,
             "destination": str(config.destination.path) if config else None,
             "config_dir": str(config.config_dir) if config else None,
         }

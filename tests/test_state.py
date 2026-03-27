@@ -62,7 +62,6 @@ class TestStateInit:
         con.close()
         assert count == 1
 
-
     def test_downgrade_protection(self, tmp_path: Path):
         from feather.state import StateManager
 
@@ -130,7 +129,6 @@ class TestWatermarks:
         con.close()
         assert count == 1
 
-
     def test_write_watermark_with_mtime_and_hash(self, tmp_path: Path):
         from feather.state import StateManager
 
@@ -179,6 +177,134 @@ class TestWatermarks:
         wm = sm.read_watermark("test_table")
         assert wm["last_file_mtime"] is None
         assert wm["last_file_hash"] is None
+
+    def test_write_watermark_preserves_last_value_on_update(self, tmp_path: Path):
+        """H-1: write_watermark() without last_value must preserve existing last_value."""
+        from feather.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        # First write: set last_value
+        sm.write_watermark(
+            "test_table",
+            strategy="incremental",
+            last_value="2026-03-01T00:00:00",
+            last_file_mtime=100.0,
+            last_file_hash="hash1",
+        )
+        wm = sm.read_watermark("test_table")
+        assert wm["last_value"] == "2026-03-01T00:00:00"
+
+        # Second write: touch-skip path — no last_value provided
+        sm.write_watermark(
+            "test_table",
+            strategy="incremental",
+            last_file_mtime=200.0,
+            last_file_hash="hash1",
+        )
+        wm = sm.read_watermark("test_table")
+        # last_value must survive — not be nulled
+        assert wm["last_value"] == "2026-03-01T00:00:00"
+
+    def test_write_watermark_updates_last_value_when_provided(self, tmp_path: Path):
+        """H-1: write_watermark() with explicit last_value should update it."""
+        from feather.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        sm.write_watermark(
+            "test_table",
+            strategy="incremental",
+            last_value="2026-03-01T00:00:00",
+        )
+        sm.write_watermark(
+            "test_table",
+            strategy="incremental",
+            last_value="2026-03-15T00:00:00",
+        )
+        wm = sm.read_watermark("test_table")
+        assert wm["last_value"] == "2026-03-15T00:00:00"
+
+
+class TestConnectionCleanup:
+    """M-2: DB connections must be closed even on exception paths."""
+
+    def test_read_watermark_closes_on_error(self, tmp_path: Path):
+        from unittest.mock import MagicMock
+
+        from feather.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        mock_con = MagicMock()
+        mock_con.execute.side_effect = RuntimeError("db error")
+        sm._connect = lambda: mock_con
+
+        with pytest.raises(RuntimeError, match="db error"):
+            sm.read_watermark("test")
+
+        mock_con.close.assert_called_once()
+
+    def test_write_watermark_closes_on_error(self, tmp_path: Path):
+        from unittest.mock import MagicMock
+
+        from feather.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        mock_con = MagicMock()
+        mock_con.execute.side_effect = RuntimeError("db error")
+        sm._connect = lambda: mock_con
+
+        with pytest.raises(RuntimeError, match="db error"):
+            sm.write_watermark("test", strategy="full")
+
+        mock_con.close.assert_called_once()
+
+    def test_record_run_closes_on_error(self, tmp_path: Path):
+        from unittest.mock import MagicMock
+
+        from feather.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        mock_con = MagicMock()
+        mock_con.execute.side_effect = RuntimeError("db error")
+        sm._connect = lambda: mock_con
+
+        now = datetime.now(timezone.utc)
+        with pytest.raises(RuntimeError, match="db error"):
+            sm.record_run(
+                run_id="r1",
+                table_name="t1",
+                started_at=now,
+                ended_at=now,
+                status="success",
+            )
+
+        mock_con.close.assert_called_once()
+
+    def test_get_status_closes_on_error(self, tmp_path: Path):
+        from unittest.mock import MagicMock
+
+        from feather.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        mock_con = MagicMock()
+        mock_con.execute.side_effect = RuntimeError("db error")
+        sm._connect = lambda: mock_con
+
+        with pytest.raises(RuntimeError, match="db error"):
+            sm.get_status()
+
+        mock_con.close.assert_called_once()
 
 
 class TestRuns:

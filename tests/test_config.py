@@ -216,8 +216,12 @@ class TestEnvVarEdgeCases:
             "source": {"type": "duckdb", "path": str(db)},
             "destination": {"path": "${MISSING_DEST_PATH}"},
             "tables": [
-                {"name": "t", "source_table": "main.t",
-                 "target_table": "bronze.t", "strategy": "full"},
+                {
+                    "name": "t",
+                    "source_table": "main.t",
+                    "target_table": "bronze.t",
+                    "strategy": "full",
+                },
             ],
         }
         config_file = _write_config(tmp_path, cfg)
@@ -234,8 +238,12 @@ class TestConfigValidationExtended:
             "source": {"type": "excel", "path": str(tmp_path / "data.xlsx")},
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [
-                {"name": "t", "source_table": "main.t",
-                 "target_table": "bronze.t", "strategy": "full"},
+                {
+                    "name": "t",
+                    "source_table": "main.t",
+                    "target_table": "bronze.t",
+                    "strategy": "full",
+                },
             ],
         }
         config_file = _write_config(tmp_path, cfg)
@@ -252,8 +260,11 @@ class TestConfigValidationExtended:
             "source": {"type": "duckdb", "path": str(db)},
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [
-                {"name": "t", "source_table": "main.t",
-                 "target_table": "bronze.t"},  # strategy missing
+                {
+                    "name": "t",
+                    "source_table": "main.t",
+                    "target_table": "bronze.t",
+                },  # strategy missing
             ],
         }
         config_file = _write_config(tmp_path, cfg)
@@ -280,10 +291,16 @@ class TestConfigValidationExtended:
         db.touch()
         cfg = {
             "source": {"type": "duckdb", "path": str(db)},
-            "destination": {"path": str(tmp_path / "nonexistent" / "sub" / "data.duckdb")},
+            "destination": {
+                "path": str(tmp_path / "nonexistent" / "sub" / "data.duckdb")
+            },
             "tables": [
-                {"name": "t", "source_table": "main.t",
-                 "target_table": "bronze.t", "strategy": "full"},
+                {
+                    "name": "t",
+                    "source_table": "main.t",
+                    "target_table": "bronze.t",
+                    "strategy": "full",
+                },
             ],
         }
         config_file = _write_config(tmp_path, cfg)
@@ -333,3 +350,97 @@ class TestConfigValidationExtended:
         config_file = _write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.tables[0].strategy == "incremental"
+
+    def test_negative_overlap_window_rejected(self, tmp_path: Path):
+        """H-2: negative overlap_window_minutes must be rejected."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["defaults"] = {"overlap_window_minutes": -5}
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="overlap_window_minutes"):
+            load_config(config_file)
+
+    def test_zero_overlap_window_accepted(self, tmp_path: Path):
+        """H-2: overlap_window_minutes = 0 is valid."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["defaults"] = {"overlap_window_minutes": 0}
+        config_file = _write_config(tmp_path, cfg)
+        result = load_config(config_file)
+        assert result.defaults.overlap_window_minutes == 0
+
+    def test_source_table_with_semicolon_rejected(self, tmp_path: Path):
+        """M-1: source_table containing semicolons must be rejected."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["source_table"] = "main.test; DROP TABLE foo"
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="source_table.*invalid"):
+            load_config(config_file)
+
+    def test_source_table_with_comment_rejected(self, tmp_path: Path):
+        """M-1: source_table containing SQL comments must be rejected."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["source_table"] = "main.test--comment"
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="source_table.*invalid"):
+            load_config(config_file)
+
+    def test_valid_source_table_formats_accepted(self, tmp_path: Path):
+        """M-1: legitimate source_table formats should pass validation."""
+        from feather.config import load_config
+
+        # schema.table format (DuckDB)
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["source_table"] = "erp.SalesInvoice"
+        config_file = _write_config(tmp_path, cfg)
+        result = load_config(config_file)
+        assert result.tables[0].source_table == "erp.SalesInvoice"
+
+    def test_csv_source_table_filename_accepted(self, tmp_path: Path):
+        """M-1: CSV source_table (filename) should pass validation."""
+        from feather.config import load_config
+
+        csv_dir = tmp_path / "csv_data"
+        csv_dir.mkdir()
+        cfg = _minimal_config(tmp_path)
+        cfg["source"] = {"type": "csv", "path": str(csv_dir)}
+        cfg["tables"][0]["source_table"] = "orders.csv"
+        config_file = _write_config(tmp_path, cfg)
+        result = load_config(config_file)
+        assert result.tables[0].source_table == "orders.csv"
+
+    def test_duckdb_source_table_without_schema_rejected(self, tmp_path: Path):
+        """R-1: DuckDB source_table must be schema.table format."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["source_table"] = "just_a_table"
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="source_table.*schema\\.table"):
+            load_config(config_file)
+
+    def test_duckdb_source_table_with_spaces_rejected(self, tmp_path: Path):
+        """R-1: DuckDB source_table with spaces in identifiers must be rejected."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["source_table"] = "erp.Sales Invoice"
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="source_table.*invalid"):
+            load_config(config_file)
+
+    def test_duckdb_source_table_with_parens_rejected(self, tmp_path: Path):
+        """R-1: DuckDB source_table with parentheses must be rejected."""
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["source_table"] = "erp.test()"
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="source_table.*invalid"):
+            load_config(config_file)

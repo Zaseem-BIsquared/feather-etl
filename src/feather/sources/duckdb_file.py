@@ -76,7 +76,8 @@ class DuckDBFileSource(FileSource):
         watermark_value: str | None = None,
     ) -> pa.Table:
         con = self._connect_attached()
-        query = f"SELECT * FROM source_db.{table}"
+        schema, tbl = table.split(".", 1)
+        query = f'SELECT * FROM source_db."{schema}"."{tbl}"'
         result = con.execute(query).arrow().read_all()
         con.close()
         return result

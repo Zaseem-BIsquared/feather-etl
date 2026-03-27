@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from feather.config import FeatherConfig, TableConfig, write_validation_json
+from feather.config import FeatherConfig, TableConfig
 from feather.destinations.duckdb import DuckDBDestination
 from feather.sources.registry import create_source
 from feather.state import StateManager
@@ -120,9 +120,7 @@ def run_all(
     config: FeatherConfig,
     config_path: Path,
 ) -> list[RunResult]:
-    """Run all configured tables. Writes validation JSON before starting."""
-    write_validation_json(config_path, config)
-
+    """Run all configured tables."""
     working_dir = config.config_dir
     results: list[RunResult] = []
     for table in config.tables:

@@ -1,6 +1,5 @@
 """Tests for feather.pipeline module."""
 
-import json
 from pathlib import Path
 
 import duckdb
@@ -110,18 +109,22 @@ class TestRunAll:
         assert statuses["inventory_group"] == "failure"
         assert statuses["customer_master"] == "success"
 
-    def test_writes_validation_json(self, setup_env: tuple[Path, Path]):
+    def test_run_all_does_not_write_validation_json(self, setup_env: tuple[Path, Path]):
+        """L-1: run_all() should NOT write validation JSON — CLI owns that."""
         from feather.config import load_config
         from feather.pipeline import run_all
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
+
+        # Remove any pre-existing validation file
+        vj_path = config_path.parent / "feather_validation.json"
+        vj_path.unlink(missing_ok=True)
+
         run_all(cfg, config_path)
 
-        vj_path = config_path.parent / "feather_validation.json"
-        assert vj_path.exists()
-        vj = json.loads(vj_path.read_text())
-        assert vj["valid"] is True
+        # run_all should NOT create validation JSON
+        assert not vj_path.exists()
 
     def test_first_run_always_extracts(self, setup_env: tuple[Path, Path]):
         """First run with no prior watermark always extracts."""
@@ -224,7 +227,9 @@ class TestRunAll:
         # get_status returns last run per table — should be "skipped"
         assert all(s["status"] == "skipped" for s in status)
 
-    def test_failed_extraction_doesnt_update_watermark(self, setup_env: tuple[Path, Path]):
+    def test_failed_extraction_doesnt_update_watermark(
+        self, setup_env: tuple[Path, Path]
+    ):
         """Failed extraction should not populate mtime/hash in watermark."""
         from feather.config import load_config
         from feather.pipeline import run_table
