@@ -14,7 +14,28 @@ from feather.destinations.duckdb import DuckDBDestination
 from feather.sources.registry import create_source
 from feather.state import StateManager
 
+import pyarrow as pa
+
 logger = logging.getLogger(__name__)
+
+
+def _resolve_target(table: TableConfig, mode: str) -> str:
+    """Derive effective target from mode unless explicitly set."""
+    if table.target_table:
+        return table.target_table
+    if mode == "prod":
+        return f"silver.{table.name}"
+    return f"bronze.{table.name}"
+
+
+def _apply_column_map(data: pa.Table, column_map: dict[str, str]) -> pa.Table:
+    """Select and rename columns per column_map. Returns new table with only mapped columns."""
+    source_cols = list(column_map.keys())
+    # Select only the mapped columns
+    data = data.select(source_cols)
+    # Rename: build new names in order
+    new_names = [column_map[c] for c in data.column_names]
+    return data.rename_columns(new_names)
 
 
 @dataclass
@@ -43,6 +64,14 @@ def run_table(
     dest.setup_schemas()
 
     source = create_source(config.source)
+    effective_target = _resolve_target(table, config.mode)
+
+    # Prod mode with column_map: extract only mapped columns
+    prod_columns = (
+        list(table.column_map.keys())
+        if config.mode == "prod" and table.column_map
+        else None
+    )
 
     # Change detection: check if source file changed since last run
     wm = state.read_watermark(table.name)
@@ -91,10 +120,15 @@ def run_table(
 
             data = source.extract(
                 table.source_table,
+                columns=prod_columns,
                 filter=table.filter,
                 watermark_column=table.timestamp_column,
                 watermark_value=effective_wm_str,
             )
+            if config.mode == "test" and config.defaults.row_limit:
+                data = data.slice(0, config.defaults.row_limit)
+            if config.mode == "prod" and table.column_map:
+                data = _apply_column_map(data, table.column_map)
 
             if data.num_rows == 0:
                 ended_at = datetime.now(timezone.utc)
@@ -126,15 +160,19 @@ def run_table(
                 )
 
             rows_loaded = dest.load_incremental(
-                table.target_table, data, run_id, table.timestamp_column
+                effective_target, data, run_id, table.timestamp_column
             )
         else:
             # Full strategy, or first incremental run (no watermark yet)
             if is_incremental and table.filter:
-                data = source.extract(table.source_table, filter=table.filter)
+                data = source.extract(table.source_table, columns=prod_columns, filter=table.filter)
             else:
-                data = source.extract(table.source_table)
-            rows_loaded = dest.load_full(table.target_table, data, run_id)
+                data = source.extract(table.source_table, columns=prod_columns)
+            if config.mode == "test" and config.defaults.row_limit:
+                data = data.slice(0, config.defaults.row_limit)
+            if config.mode == "prod" and table.column_map:
+                data = _apply_column_map(data, table.column_map)
+            rows_loaded = dest.load_full(effective_target, data, run_id)
 
         # Compute new watermark value for incremental tables
         new_last_value = None
@@ -208,13 +246,14 @@ def run_all(
         result = run_table(config, table, working_dir)
         results.append(result)
 
-    # Rebuild materialized gold tables after extraction
+    # Post-extraction transforms (mode-dependent)
     any_success = any(r.status == "success" for r in results)
     if any_success:
         try:
             from feather.transforms import (
                 build_execution_order,
                 discover_transforms,
+                execute_transforms,
                 rebuild_materialized_gold,
             )
 
@@ -224,14 +263,17 @@ def run_all(
                 dest = DuckDBDestination(path=config.destination.path)
                 con = dest._connect()
                 try:
-                    # First execute all transforms (views need to exist for gold)
-                    from feather.transforms import execute_transforms
-
-                    execute_transforms(con, ordered)
-                    rebuild_results = rebuild_materialized_gold(con, ordered)
-                    if rebuild_results:
+                    if config.mode == "prod":
+                        # Prod: create all as views first (gold needs silver),
+                        # then rebuild gold as materialized tables
+                        execute_transforms(con, ordered)
+                        rebuild_results = rebuild_materialized_gold(con, ordered)
                         count = sum(1 for r in rebuild_results if r.status == "success")
-                        logger.info("Rebuilt %d materialized gold table(s)", count)
+                        if count:
+                            logger.info("Rebuilt %d materialized gold table(s)", count)
+                    else:
+                        # Dev/test: create everything as views (force_views)
+                        execute_transforms(con, ordered, force_views=True)
                 finally:
                     con.close()
         except Exception as e:

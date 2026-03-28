@@ -9,12 +9,12 @@ import typer
 app = typer.Typer(name="feather", help="feather-etl: config-driven ETL")
 
 
-def _load_and_validate(config_path: Path):
+def _load_and_validate(config_path: Path, mode_override: str | None = None):
     """Load config, validate, write validation JSON. Raises on failure."""
     from feather.config import load_config, write_validation_json
 
     try:
-        cfg = load_config(config_path)
+        cfg = load_config(config_path, mode_override=mode_override)
         write_validation_json(config_path, cfg)
         return cfg
     except (ValueError, FileNotFoundError) as e:
@@ -81,12 +81,16 @@ def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
 
 
 @app.command()
-def setup(config: Path = typer.Option("feather.yaml", "--config")) -> None:
+def setup(
+    config: Path = typer.Option("feather.yaml", "--config"),
+    mode: str | None = typer.Option(None, "--mode"),
+) -> None:
     """Preview and initialize state DB and schemas. Optional — feather run creates them automatically."""
     from feather.destinations.duckdb import DuckDBDestination
     from feather.state import StateManager
 
-    cfg = _load_and_validate(config)
+    cfg = _load_and_validate(config, mode_override=mode)
+    typer.echo(f"Mode: {cfg.mode}")
 
     state_path = cfg.config_dir / "feather_state.duckdb"
     sm = StateManager(state_path)
@@ -109,7 +113,14 @@ def setup(config: Path = typer.Option("feather.yaml", "--config")) -> None:
         ordered = build_execution_order(transforms)
         con = dest._connect()
         try:
-            results = execute_transforms(con, ordered)
+            if cfg.mode == "prod":
+                # Prod: skip silver transforms (silver populated by extraction),
+                # create gold as materialized tables
+                gold_only = [t for t in ordered if t.schema == "gold"]
+                results = execute_transforms(con, gold_only)
+            else:
+                # Dev/test: create everything as views
+                results = execute_transforms(con, ordered, force_views=True)
         finally:
             con.close()
 
@@ -141,11 +152,15 @@ def setup(config: Path = typer.Option("feather.yaml", "--config")) -> None:
 
 
 @app.command()
-def run(config: Path = typer.Option("feather.yaml", "--config")) -> None:
+def run(
+    config: Path = typer.Option("feather.yaml", "--config"),
+    mode: str | None = typer.Option(None, "--mode"),
+) -> None:
     """Extract all configured tables."""
     from feather.pipeline import run_all
 
-    cfg = _load_and_validate(config)
+    cfg = _load_and_validate(config, mode_override=mode)
+    typer.echo(f"Mode: {cfg.mode}")
     results = run_all(cfg, config)
 
     for r in results:

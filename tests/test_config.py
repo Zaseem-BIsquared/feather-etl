@@ -82,7 +82,7 @@ class TestConfigParsing:
         del cfg["tables"][0]["target_table"]
         config_file = _write_config(tmp_path, cfg)
         result = load_config(config_file)
-        assert result.tables[0].target_table == "silver.test_table"
+        assert result.tables[0].target_table == ""  # mode-derived at runtime
 
     def test_tables_directory_merge(self, tmp_path: Path):
         from feather.config import load_config

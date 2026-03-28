@@ -75,7 +75,8 @@ class SqliteSource(FileSource):
     ) -> pa.Table:
         con = self._connect()
         try:
-            query = f"SELECT * FROM sqlite_scan('{self.path}', '{table}')"
+            col_sql = ", ".join(f'"{c}"' for c in columns) if columns else "*"
+            query = f"SELECT {col_sql} FROM sqlite_scan('{self.path}', '{table}')"
             query += self._build_where_clause(watermark_column, watermark_value, filter)
             result = con.execute(query).arrow().read_all()
         finally:

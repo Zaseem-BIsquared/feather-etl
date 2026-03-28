@@ -58,7 +58,8 @@ class CsvSource(FileSource):
         con = duckdb.connect(":memory:")
         file_path = str(self.path / table)
         try:
-            query = f"SELECT * FROM read_csv('{file_path}')"
+            col_sql = ", ".join(f'"{c}"' for c in columns) if columns else "*"
+            query = f"SELECT {col_sql} FROM read_csv('{file_path}')"
             query += self._build_where_clause(watermark_column, watermark_value, filter)
             result = con.execute(query).arrow().read_all()
         finally:

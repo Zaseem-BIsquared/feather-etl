@@ -14,6 +14,7 @@ import yaml
 FILE_SOURCE_TYPES = {"duckdb", "sqlite", "csv", "excel", "json"}
 VALID_STRATEGIES = {"full", "incremental", "append"}
 VALID_SCHEMA_PREFIXES = {"bronze", "silver", "gold"}
+VALID_MODES = {"dev", "prod", "test"}
 _SQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _UNRESOLVED_ENV_RE = re.compile(r"\$\{([^}]+)\}")
 
@@ -34,6 +35,7 @@ class DestinationConfig:
 class DefaultsConfig:
     overlap_window_minutes: int = 2
     batch_size: int = 120_000
+    row_limit: int | None = None
 
 
 @dataclass
@@ -58,6 +60,7 @@ class FeatherConfig:
     tables: list[TableConfig]
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
     config_dir: Path = field(default_factory=lambda: Path("."))
+    mode: str = "dev"
 
 
 def _resolve_env_vars(text: str) -> str:
@@ -87,7 +90,7 @@ def _parse_tables(raw_tables: list[dict], config: dict) -> list[TableConfig]:
     tables = []
     for i, t in enumerate(raw_tables):
         try:
-            target = t.get("target_table", f"silver.{t['name']}")
+            target = t.get("target_table", "")
             tables.append(
                 TableConfig(
                     name=t["name"],
@@ -173,23 +176,25 @@ def _validate(config: FeatherConfig) -> list[str]:
                 f"Valid: {sorted(VALID_STRATEGIES)}"
             )
 
-        if "." in table.target_table:
-            schema_prefix, table_part = table.target_table.split(".", 1)
-            if schema_prefix not in VALID_SCHEMA_PREFIXES:
+        if table.target_table:  # explicit target — validate schema prefix
+            if "." in table.target_table:
+                schema_prefix, table_part = table.target_table.split(".", 1)
+                if schema_prefix not in VALID_SCHEMA_PREFIXES:
+                    errors.append(
+                        f"Table '{table.name}': target_table schema '{schema_prefix}' "
+                        f"must be one of {sorted(VALID_SCHEMA_PREFIXES)}"
+                    )
+                if not _SQL_IDENTIFIER_RE.match(table_part):
+                    errors.append(
+                        f"Table '{table.name}': target name '{table_part}' contains "
+                        f"invalid characters. Use letters, digits, and underscores only."
+                    )
+            else:
                 errors.append(
-                    f"Table '{table.name}': target_table schema '{schema_prefix}' "
-                    f"must be one of {sorted(VALID_SCHEMA_PREFIXES)}"
+                    f"Table '{table.name}': target_table '{table.target_table}' "
+                    f"must include a schema prefix (e.g., bronze.{table.target_table})"
                 )
-            if not _SQL_IDENTIFIER_RE.match(table_part):
-                errors.append(
-                    f"Table '{table.name}': target name '{table_part}' contains "
-                    f"invalid characters. Use letters, digits, and underscores only."
-                )
-        else:
-            errors.append(
-                f"Table '{table.name}': target_table '{table.target_table}' "
-                f"must include a schema prefix (e.g., bronze.{table.target_table})"
-            )
+        # empty target_table is valid — mode derives it at runtime
 
         if table.strategy == "incremental" and not table.timestamp_column:
             errors.append(
@@ -247,8 +252,13 @@ def _check_unresolved_env_vars(data: dict | list | str, path: str = "") -> list[
     return errors
 
 
-def load_config(config_path: Path) -> FeatherConfig:
-    """Load and validate feather.yaml, raising ValueError on invalid config."""
+def load_config(
+    config_path: Path, mode_override: str | None = None
+) -> FeatherConfig:
+    """Load and validate feather.yaml, raising ValueError on invalid config.
+
+    Mode resolution: mode_override (CLI) > FEATHER_MODE env var > YAML mode > default "dev".
+    """
     config_dir = config_path.parent.resolve()
     raw = yaml.safe_load(config_path.read_text())
     raw = _resolve_yaml_env_vars(raw)
@@ -278,7 +288,27 @@ def load_config(config_path: Path) -> FeatherConfig:
     defaults = DefaultsConfig(
         overlap_window_minutes=defaults_raw.get("overlap_window_minutes", 2),
         batch_size=defaults_raw.get("batch_size", 120_000),
+        row_limit=defaults_raw.get("row_limit"),
     )
+
+    # Mode resolution: CLI > env var > YAML > default "dev"
+    yaml_mode = raw.get("mode", "dev")
+    env_mode = os.environ.get("FEATHER_MODE")
+    if mode_override:
+        mode = mode_override
+        mode_source = "--mode flag"
+    elif env_mode:
+        mode = env_mode
+        mode_source = "FEATHER_MODE env var"
+    else:
+        mode = yaml_mode
+        mode_source = "YAML config"
+
+    if mode not in VALID_MODES:
+        raise ValueError(
+            f"Invalid mode '{mode}' (from {mode_source}). "
+            f"Valid: {sorted(VALID_MODES)}"
+        )
 
     raw_tables = raw.get("tables", [])
     raw_tables = _merge_tables_dir(config_dir, raw_tables)
@@ -290,6 +320,7 @@ def load_config(config_path: Path) -> FeatherConfig:
         tables=tables,
         defaults=defaults,
         config_dir=config_dir,
+        mode=mode,
     )
 
     errors = _validate(config)

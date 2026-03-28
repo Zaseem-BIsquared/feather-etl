@@ -146,12 +146,13 @@ def execute_transforms(
     con: duckdb.DuckDBPyConnection,
     transforms: list[TransformMeta],
     variables: dict[str, str] | None = None,
+    force_views: bool = False,
 ) -> list[TransformResult]:
     """Execute an already-sorted list of transforms against a DuckDB connection.
 
     Silver transforms become VIEWs. Gold transforms become VIEWs by default,
-    or TABLEs when ``materialized=True``. On error, the transform is recorded
-    as failed and execution continues with the next transform.
+    or TABLEs when ``materialized=True`` (unless ``force_views=True``,
+    which creates everything as VIEWs — used in dev/test mode).
     """
     results: list[TransformResult] = []
     subs = variables or {}
@@ -159,7 +160,7 @@ def execute_transforms(
     for t in transforms:
         sql = string.Template(t.sql).safe_substitute(subs)
 
-        if t.materialized and t.schema == "gold":
+        if t.materialized and t.schema == "gold" and not force_views:
             ddl = f"CREATE OR REPLACE TABLE {t.schema}.{t.name} AS {sql}"
             obj_type = "table"
         else:
