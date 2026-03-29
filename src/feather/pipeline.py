@@ -9,10 +9,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import duckdb
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from feather.alerts import alert_on_failure
+from feather.alerts import alert_on_dq_failure, alert_on_failure, alert_on_schema_drift
 from feather.config import FeatherConfig, TableConfig
 from feather.destinations.duckdb import DuckDBDestination
 from feather.sources.registry import create_source
@@ -121,6 +122,29 @@ def _filter_boundary_rows(
     return data.filter(mask), skipped
 
 
+def _apply_dedup(data: pa.Table, table: TableConfig) -> pa.Table:
+    """Apply dedup to extracted data if configured."""
+    if not table.dedup and not table.dedup_columns:
+        return data
+    con = duckdb.connect(":memory:")
+    con.register("_dedup_data", data)
+    if table.dedup:
+        result = con.execute("SELECT DISTINCT * FROM _dedup_data").arrow().read_all()
+    else:
+        # dedup_columns: keep first occurrence per dedup key
+        cols = ", ".join(f'"{c}"' for c in table.dedup_columns)
+        result = con.execute(
+            f"SELECT * FROM (SELECT *, ROW_NUMBER() OVER "
+            f"(PARTITION BY {cols} ORDER BY 1) AS _rn FROM _dedup_data) "
+            f"WHERE _rn = 1"
+        ).arrow().read_all()
+        # Remove the _rn column
+        idx = result.schema.get_field_index("_rn")
+        result = result.remove_column(idx)
+    con.close()
+    return result
+
+
 @dataclass
 class RunResult:
     table_name: str
@@ -216,6 +240,54 @@ def run_table(
         wm_last_value = wm.get("last_value") if wm else None
         watermark_before = str(wm_last_value) if wm_last_value else None
 
+        # Schema drift detection (V10)
+        schema_changes_json: str | None = None
+        try:
+            from feather.schema_drift import detect_drift
+
+            current_schema = source.get_schema(table.source_table)
+            stored_schema = state.get_schema_snapshot(table.name)
+
+            if stored_schema is None:
+                # First run — save baseline, no drift reported
+                state.save_schema_snapshot(table.name, current_schema)
+            else:
+                drift = detect_drift(current_schema, stored_schema)
+                if drift.has_drift:
+                    import json as _json
+
+                    schema_changes_json = _json.dumps(drift.to_json_dict())
+                    logger.info(
+                        "Schema drift detected: %s", schema_changes_json,
+                        extra={"table": table.name},
+                    )
+                    alert_on_schema_drift(
+                        table.name,
+                        schema_changes_json,
+                        severity=drift.severity,
+                        config=config.alerts,
+                    )
+
+                    # Handle added columns: ALTER TABLE before load (FR4.11)
+                    if drift.added:
+                        dest_con = dest._connect()
+                        try:
+                            for col_name, col_type in drift.added:
+                                try:
+                                    dest_con.execute(
+                                        f'ALTER TABLE {effective_target} '
+                                        f'ADD COLUMN "{col_name}" {col_type}'
+                                    )
+                                except duckdb.CatalogException:
+                                    pass  # Table/column may not exist yet
+                        finally:
+                            dest_con.close()
+
+                    # Save updated snapshot
+                    state.save_schema_snapshot(table.name, current_schema)
+        except Exception as sd_err:
+            logger.warning("Schema drift check failed: %s", sd_err)
+
         if is_incremental and wm_last_value is not None:
             # Subsequent incremental run: apply overlap window
             overlap = config.defaults.overlap_window_minutes
@@ -234,6 +306,7 @@ def run_table(
                 data = data.slice(0, config.defaults.row_limit)
             if config.mode == "prod" and table.column_map:
                 data = _apply_column_map(data, table.column_map)
+            data = _apply_dedup(data, table)
 
             # Boundary dedup: filter out rows already loaded in previous run
             prev_hashes = state.read_boundary_hashes(table.name)
@@ -282,6 +355,7 @@ def run_table(
                 data = data.slice(0, config.defaults.row_limit)
             if config.mode == "prod" and table.column_map:
                 data = _apply_column_map(data, table.column_map)
+            data = _apply_dedup(data, table)
             rows_loaded = dest.load_append(effective_target, data, run_id)
         else:
             # Full strategy, or first incremental run (no watermark yet)
@@ -293,7 +367,39 @@ def run_table(
                 data = data.slice(0, config.defaults.row_limit)
             if config.mode == "prod" and table.column_map:
                 data = _apply_column_map(data, table.column_map)
+            data = _apply_dedup(data, table)
             rows_loaded = dest.load_full(effective_target, data, run_id)
+
+        # Run DQ checks after load (FR8.5: against local DuckDB table)
+        try:
+            from feather.dq import run_dq_checks
+
+            dq_con = dest._connect()
+            try:
+                dq_results = run_dq_checks(
+                    dq_con, table.name, effective_target,
+                    table.quality_checks, run_id,
+                    primary_key=table.primary_key,
+                )
+            finally:
+                dq_con.close()
+            for dq in dq_results:
+                state.record_dq_result(
+                    run_id=run_id,
+                    table_name=table.name,
+                    check_type=dq.check_type,
+                    column_name=dq.column_name,
+                    result=dq.result,
+                    details=dq.details,
+                )
+                if dq.result == "fail":
+                    alert_on_dq_failure(
+                        table.name,
+                        f"{dq.check_type}({dq.column_name}): {dq.details}",
+                        config=config.alerts,
+                    )
+        except Exception as dq_err:
+            logger.warning("DQ checks failed: %s", dq_err)
 
         # Compute new watermark value for incremental tables
         new_last_value = None
@@ -333,6 +439,7 @@ def run_table(
             rows_loaded=rows_loaded,
             watermark_before=watermark_before,
             watermark_after=watermark_after,
+            schema_changes=schema_changes_json,
         )
         state.reset_retry(table.name)
         logger.info(

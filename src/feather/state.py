@@ -255,6 +255,71 @@ class StateManager:
         finally:
             con.close()
 
+    def record_dq_result(
+        self,
+        run_id: str,
+        table_name: str,
+        check_type: str,
+        column_name: str | None,
+        result: str,
+        details: str,
+    ) -> None:
+        """Write a DQ check result to _dq_results."""
+        con = self._connect()
+        try:
+            con.execute(
+                "INSERT INTO _dq_results VALUES (?,?,?,?,?,?,?)",
+                [
+                    run_id,
+                    table_name,
+                    check_type,
+                    column_name,
+                    result,
+                    details,
+                    datetime.now(timezone.utc),
+                ],
+            )
+        finally:
+            con.close()
+
+    # --- Schema snapshots (V10) ---
+
+    def save_schema_snapshot(
+        self, table_name: str, schema: list[tuple[str, str]]
+    ) -> None:
+        """Save or replace the schema snapshot for a table."""
+        con = self._connect()
+        try:
+            now = datetime.now(timezone.utc)
+            # Delete existing snapshot for this table, then insert fresh
+            con.execute(
+                "DELETE FROM _schema_snapshots WHERE table_name = ?", [table_name]
+            )
+            for col_name, data_type in schema:
+                con.execute(
+                    "INSERT INTO _schema_snapshots VALUES (?,?,?,?)",
+                    [table_name, col_name, data_type, now],
+                )
+        finally:
+            con.close()
+
+    def get_schema_snapshot(
+        self, table_name: str
+    ) -> list[tuple[str, str]] | None:
+        """Read stored schema snapshot. Returns None if no snapshot exists."""
+        con = self._connect()
+        try:
+            rows = con.execute(
+                "SELECT column_name, data_type FROM _schema_snapshots "
+                "WHERE table_name = ? ORDER BY rowid",
+                [table_name],
+            ).fetchall()
+            if not rows:
+                return None
+            return [(r[0], r[1]) for r in rows]
+        finally:
+            con.close()
+
     def get_history(
         self,
         table_name: str | None = None,

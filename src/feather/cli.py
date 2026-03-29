@@ -43,10 +43,16 @@ def _load_and_validate(config_path: Path, mode_override: str | None = None):
 
 
 @app.command()
-def init(ctx: typer.Context, project_name: str) -> None:
-    """Scaffold a new client project."""
-    from feather.init_wizard import scaffold_project
-
+def init(
+    ctx: typer.Context,
+    project_name: str,
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Skip prompts, use CLI flags."),
+    source_type: str | None = typer.Option(None, "--source-type", help="Source type for discovery."),
+    source_path: str | None = typer.Option(None, "--source-path", help="Source path (file-based sources)."),
+    connection_string: str | None = typer.Option(None, "--connection-string", help="Connection string (DB sources)."),
+    tables: str | None = typer.Option(None, "--tables", help="Comma-separated table names to select."),
+) -> None:
+    """Scaffold a new client project, optionally with interactive or non-interactive wizard."""
     project_path = Path(project_name).resolve()
     if project_path.exists():
         non_hidden = [f for f in project_path.iterdir() if not f.name.startswith(".")]
@@ -57,13 +63,58 @@ def init(ctx: typer.Context, project_name: str) -> None:
             )
             raise typer.Exit(code=1)
 
-    created = scaffold_project(project_path)
-    if _is_json(ctx):
-        emit_line({"project": str(project_path), "files_created": created}, json_mode=True)
+    if non_interactive:
+        if not source_type:
+            typer.echo("--source-type is required with --non-interactive", err=True)
+            raise typer.Exit(code=1)
+        from feather.init_wizard import run_non_interactive
+
+        result = run_non_interactive(
+            project_path, source_type,
+            source_path=source_path,
+            connection_string=connection_string,
+            tables_filter=tables,
+        )
+        if _is_json(ctx):
+            emit_line(result, json_mode=True)
+        else:
+            typer.echo(f"Project created at {result['project']}")
+            typer.echo(f"  {result['tables_configured']} table(s) configured")
+    elif source_type or source_path or connection_string:
+        # Flags provided without --non-interactive → treat as non-interactive
+        if not source_type:
+            typer.echo("--source-type is required when using wizard flags", err=True)
+            raise typer.Exit(code=1)
+        from feather.init_wizard import run_non_interactive
+
+        result = run_non_interactive(
+            project_path, source_type,
+            source_path=source_path,
+            connection_string=connection_string,
+            tables_filter=tables,
+        )
+        if _is_json(ctx):
+            emit_line(result, json_mode=True)
+        else:
+            typer.echo(f"Project created at {result['project']}")
+            typer.echo(f"  {result['tables_configured']} table(s) configured")
     else:
-        typer.echo(f"Project scaffolded at {project_path}")
-        for f in created:
-            typer.echo(f"  {f}")
+        # No wizard flags → run interactive wizard
+        from feather.init_wizard import run_interactive
+
+        try:
+            result = run_interactive(project_path)
+            if _is_json(ctx):
+                emit_line(result, json_mode=True)
+        except (EOFError, typer.Abort):
+            # Non-interactive environment (no stdin) → scaffold only
+            from feather.init_wizard import scaffold_project
+
+            scaffold_project(project_path)
+            if _is_json(ctx):
+                emit_line({"project": str(project_path), "files_created": []}, json_mode=True)
+            else:
+                typer.echo(f"Project scaffolded at {project_path}")
 
 
 @app.command()
@@ -261,7 +312,10 @@ def run(
             parts.append(f"{skipped} skipped")
         typer.echo(f"\n{', '.join(parts)}.")
 
-    failures = sum(1 for r in results if r.status == "failure")
+    failures = sum(
+        1 for r in results
+        if r.status == "failure" or (r.status == "skipped" and r.error_message)
+    )
     if failures > 0:
         raise typer.Exit(code=1)
 

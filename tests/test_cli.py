@@ -195,6 +195,32 @@ class TestRun:
         assert result.exit_code == 1
         assert "failure" in result.output.lower()
 
+    def test_backoff_skipped_table_exits_nonzero(self, tmp_path: Path):
+        """Second run after partial failure should exit non-zero (backoff-skipped)."""
+        from feather.cli import app
+
+        client_db = tmp_path / "client.duckdb"
+        shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
+        config = {
+            "source": {"type": "duckdb", "path": str(client_db)},
+            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
+            "tables": [
+                {"name": "good_table", "source_table": "icube.SALESINVOICE", "target_table": "bronze.good_table", "strategy": "full"},
+                {"name": "bad_table", "source_table": "nonexistent.NOPE", "target_table": "bronze.bad_table", "strategy": "full"},
+            ],
+        }
+        (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+
+        # First run: bad_table fails, good_table succeeds
+        result1 = runner.invoke(app, ["run", "--config", str(tmp_path / "feather.yaml")])
+        assert result1.exit_code == 1
+
+        # Second run: bad_table is in backoff (skipped with error), good_table skipped (unchanged)
+        result2 = runner.invoke(app, ["run", "--config", str(tmp_path / "feather.yaml")])
+        assert result2.exit_code == 1, (
+            f"Expected non-zero exit when table is backoff-skipped, got 0. Output: {result2.output}"
+        )
+
 
 class TestStatus:
     def test_shows_status_after_run(self, cli_env: tuple[Path, Path]):

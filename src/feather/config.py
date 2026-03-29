@@ -51,6 +51,8 @@ class TableConfig:
     quality_checks: dict | None = None
     column_map: dict[str, str] | None = None
     schedule: str | None = None
+    dedup: bool = False
+    dedup_columns: list[str] | None = None
 
 
 @dataclass
@@ -115,6 +117,8 @@ def _parse_tables(raw_tables: list[dict], config: dict) -> list[TableConfig]:
                     quality_checks=t.get("quality_checks"),
                     column_map=t.get("column_map"),
                     schedule=t.get("schedule"),
+                    dedup=bool(t.get("dedup", False)),
+                    dedup_columns=t.get("dedup_columns"),
                 )
             )
         except KeyError as e:
@@ -211,6 +215,12 @@ def _validate(config: FeatherConfig) -> list[str]:
             errors.append(
                 f"Table '{table.name}': strategy 'incremental' requires "
                 f"a timestamp_column."
+            )
+
+        if table.dedup and table.dedup_columns:
+            errors.append(
+                f"Table '{table.name}': dedup and dedup_columns are mutually "
+                f"exclusive — use one or the other."
             )
 
         # Source-type-aware source_table validation (R-1)
