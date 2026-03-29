@@ -217,14 +217,19 @@ def run(
     ctx: typer.Context,
     config: Path = typer.Option("feather.yaml", "--config"),
     mode: str | None = typer.Option(None, "--mode"),
+    table: str | None = typer.Option(None, "--table", help="Extract only this table."),
 ) -> None:
-    """Extract all configured tables."""
+    """Extract all configured tables (or a single table with --table)."""
     from feather.pipeline import run_all
 
     cfg = _load_and_validate(config, mode_override=mode)
     if not _is_json(ctx):
         typer.echo(f"Mode: {cfg.mode}")
-    results = run_all(cfg, config)
+    try:
+        results = run_all(cfg, config, table_filter=table)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
 
     if _is_json(ctx):
         emit(

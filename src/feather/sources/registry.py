@@ -8,6 +8,9 @@ from feather.config import FILE_SOURCE_TYPES, SourceConfig
 from feather.sources import Source
 from feather.sources.csv import CsvSource
 from feather.sources.duckdb_file import DuckDBFileSource
+from feather.sources.excel import ExcelSource
+from feather.sources.json_source import JsonSource
+from feather.sources.postgres import PostgresSource
 from feather.sources.sqlite import SqliteSource
 from feather.sources.sqlserver import SqlServerSource
 
@@ -16,6 +19,9 @@ SOURCE_REGISTRY: dict[str, type[Any]] = {
     "csv": CsvSource,
     "sqlite": SqliteSource,
     "sqlserver": SqlServerSource,
+    "postgres": PostgresSource,
+    "excel": ExcelSource,
+    "json": JsonSource,
 }
 
 

@@ -46,7 +46,7 @@ class StateManager:
                     table_name VARCHAR PRIMARY KEY,
                     strategy VARCHAR,
                     last_value VARCHAR,
-                    last_checksum INTEGER,
+                    last_checksum VARCHAR,
                     last_row_count INTEGER,
                     last_file_mtime DOUBLE,
                     last_file_hash VARCHAR,
@@ -148,7 +148,7 @@ class StateManager:
         last_file_mtime: float | None = None,
         last_file_hash: str | None = None,
         last_value: object = _SENTINEL,
-        last_checksum: int | None = None,
+        last_checksum: int | str | None = None,
         last_row_count: int | None = None,
     ) -> None:
         if last_run_at is None:
@@ -260,22 +260,34 @@ class StateManager:
         table_name: str | None = None,
         limit: int = 20,
     ) -> list[dict[str, object]]:
-        """Return recent runs ordered by started_at DESC."""
+        """Return recent runs ordered by started_at DESC.
+
+        Optionally filter by table_name. Returns dicts with keys:
+        run_id, table_name, started_at, ended_at, status, rows_loaded, error_message.
+        """
         con = self._connect()
         try:
             if table_name is not None:
                 rows = con.execute(
-                    "SELECT run_id, table_name, started_at, ended_at, "
-                    "status, rows_loaded, error_message "
-                    "FROM _runs WHERE table_name = ? "
-                    "ORDER BY started_at DESC LIMIT ?",
+                    """
+                    SELECT run_id, table_name, started_at, ended_at,
+                           status, rows_loaded, error_message
+                    FROM _runs
+                    WHERE table_name = ?
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
                     [table_name, limit],
                 ).fetchall()
             else:
                 rows = con.execute(
-                    "SELECT run_id, table_name, started_at, ended_at, "
-                    "status, rows_loaded, error_message "
-                    "FROM _runs ORDER BY started_at DESC LIMIT ?",
+                    """
+                    SELECT run_id, table_name, started_at, ended_at,
+                           status, rows_loaded, error_message
+                    FROM _runs
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
                     [limit],
                 ).fetchall()
             columns = [desc[0] for desc in con.description]

@@ -65,6 +65,7 @@ MotherDuck → Rill Data / BI tools
 | Excel `.xls` | openpyxl fallback | mtime + MD5 hash | — |
 | JSON | `read_json()` | mtime + MD5 hash | — |
 | SQL Server | pyodbc → PyArrow | CHECKSUM_AGG + COUNT(*) | ✓ |
+| PostgreSQL | psycopg2 → PyArrow | md5(row_to_json) + COUNT(*) | ✓ |
 
 **CSV note:** `source_table` must include the `.csv` extension (e.g., `orders.csv` not `orders`).
 
@@ -111,10 +112,12 @@ feather discover                       # list all tables in the configured sourc
 # Pipeline operations
 feather setup                          # init state DB + schemas + apply transforms (optional — run creates them automatically)
 feather run                            # run all tables
+feather run --table sales              # run a single table only
 feather status                         # last run status per table (all-time history)
+feather history                        # show run history (recent runs, filterable)
 ```
 
-All commands accept `--config PATH` (default: `feather.yaml`). `run` and `setup` accept `--mode dev|prod|test` to override the config mode.
+All commands accept `--config PATH` (default: `feather.yaml`). `run` and `setup` accept `--mode dev|prod|test` to override the config mode. `history` accepts `--table` and `--limit`.
 
 **Note:** `feather setup --mode prod` applies gold transforms as materialized tables, which requires bronze/silver data to already exist. Run `feather run` first, then `feather setup --mode prod` to materialize gold.
 

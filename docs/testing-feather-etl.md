@@ -88,6 +88,66 @@ When a table has an explicit `target_table` set in the config, it should always 
 - Invalid strategy values should be rejected.
 - Unresolved environment variables (`${SOME_VAR}` where SOME_VAR is not set) should be caught and reported.
 
+## 12. PostgreSQL Source
+
+Test extraction from a real PostgreSQL database. Requires PostgreSQL running locally (via mise or similar).
+
+**Setup:** Run `uv run python scripts/create_postgres_test_fixture.py` to create the `feather_test` database with `erp` schema (sales: 10 rows, customers: 4 rows, products: 5 rows). Connection string: `dbname=feather_test host=localhost`.
+
+- **Full extraction** — Configure `type: postgres` with `connection_string`. Extract all 3 tables. Verify row counts match source (10, 4, 5).
+- **Incremental extraction** — Use `erp.sales` with `strategy: incremental` and `timestamp_column: modified_at`. Run once, insert a new row into PostgreSQL, run again. Verify only the new row appears in the incremental batch.
+- **Change detection** — Run extraction twice without modifying source. The second run should skip all tables (detected as unchanged via checksum).
+- **Discover** — Run `feather discover`. Verify it lists all tables with column names and types.
+- **Column types** — Verify integer, text, float, and timestamp columns map correctly to the DuckDB destination.
+
+**Note:** All loaded tables include `_etl_loaded_at` and `_etl_run_id` metadata columns.
+
+## 13. Excel Source
+
+Test extraction from Excel (.xlsx) files.
+
+- **Full extraction** — Configure `type: excel` with path pointing to `tests/fixtures/excel_data/`. Extract all 3 files (orders.xlsx, customers.xlsx, products.xlsx). Verify row counts (5, 4, 3).
+- **Column types** — Verify numeric, text, and boolean columns load correctly.
+- **Discover** — Run `feather discover`. Verify it lists all .xlsx files with their column schemas.
+- **Change detection** — Run twice without modifying files. Second run should skip (file mtime + MD5 unchanged).
+- **Source table naming** — The `source_table` in config must include the `.xlsx` extension (e.g., `orders.xlsx`).
+
+## 14. JSON Source
+
+Test extraction from JSON files.
+
+- **Full extraction** — Configure `type: json` with path pointing to `tests/fixtures/json_data/`. Extract all 3 files (orders.json, customers.json, products.json). Verify row counts (5, 4, 3).
+- **Column types** — Verify that numeric, string, and boolean JSON values map to correct DuckDB types.
+- **Discover** — Run `feather discover`. Verify it lists all .json files with their column schemas.
+- **Change detection** — Works via FileSource base (mtime + MD5), same as CSV.
+- **Source table naming** — The `source_table` must include `.json` extension.
+
+## 15. Single-Table Extraction
+
+Test the `--table` flag for `feather run`.
+
+- **Filter to one table** — Configure multiple tables. Run `feather run --table <name>`. Verify only that table is extracted, others are skipped.
+- **Unknown table** — Run `feather run --table nonexistent`. Verify clear error message listing available table names and exit code 1.
+- **No flag** — Run `feather run` without `--table`. Verify all tables are extracted (existing behavior preserved).
+
+## 16. Run History
+
+Test the `feather history` command.
+
+- **After runs** — Extract some tables, then run `feather history`. Verify it shows a formatted table with run_id, table name, status, rows loaded, and timestamps.
+- **Filter by table** — Run `feather history --table <name>`. Verify only runs for that table are shown.
+- **Limit** — Run `feather history --limit 5`. Verify at most 5 runs are shown.
+- **Empty state** — Run `feather history` before any extraction. Verify it shows "No runs recorded yet."
+
+## 17. Append Strategy
+
+Test the append (insert-only) load strategy.
+
+- **First append** — Configure a table with `strategy: append`. Run extraction. Verify data lands in the target table with `_etl_loaded_at` and `_etl_run_id` metadata columns.
+- **Second append with changed source** — Modify the source (add rows), run again. Verify BOTH the original AND new rows exist in the target (not replaced).
+- **Unchanged source skip** — Run again without modifying source. Verify the run is skipped (change detection prevents duplicate append).
+- **Row accumulation** — After multiple successful appends, verify the total row count equals the sum of all appended batches.
+
 ---
 
 ## How to Report Results

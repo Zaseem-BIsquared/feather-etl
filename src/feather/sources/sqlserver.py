@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import datetime
+import decimal
+import uuid
+
 import pyarrow as pa
 import pyodbc
 
@@ -9,13 +13,19 @@ from feather.sources import ChangeResult, StreamSchema
 from feather.sources.database_source import DatabaseSource
 
 # pyodbc type code → PyArrow type mapping
-# SQL Server types reported via cursor.description type_code
+# pyodbc cursor.description[1] returns Python types — map them all
 _PYODBC_TYPE_MAP: dict[type, pa.DataType] = {
     int: pa.int64(),
     float: pa.float64(),
     str: pa.string(),
     bool: pa.bool_(),
     bytes: pa.binary(),
+    bytearray: pa.binary(),
+    decimal.Decimal: pa.float64(),
+    datetime.datetime: pa.timestamp("us"),
+    datetime.date: pa.date32(),
+    datetime.time: pa.time64("us"),
+    uuid.UUID: pa.string(),
 }
 
 # SQL Server INFORMATION_SCHEMA type name → PyArrow type
@@ -61,6 +71,14 @@ class SqlServerSource(DatabaseSource):
     def __init__(self, connection_string: str, batch_size: int = 120_000) -> None:
         super().__init__(connection_string)
         self.batch_size = batch_size
+
+    def _format_watermark(self, value: str) -> str:
+        """SQL Server datetime: replace ISO 'T' separator, truncate to 3ms precision."""
+        wm_val = value.replace("T", " ")
+        if "." in wm_val:
+            base, frac = wm_val.rsplit(".", 1)
+            wm_val = f"{base}.{frac[:3]}"
+        return wm_val
 
     def check(self) -> bool:
         try:
@@ -165,11 +183,17 @@ class SqlServerSource(DatabaseSource):
             rows = cursor.fetchmany(self.batch_size)
             if not rows:
                 break
-            # Convert rows to column-oriented dict
+            # Convert rows to column-oriented dict with type coercion
             col_data: dict[str, list] = {name: [] for name in col_names}
             for row in rows:
                 for i, name in enumerate(col_names):
-                    col_data[name].append(row[i])
+                    val = row[i]
+                    # Coerce types pyodbc returns that PyArrow can't auto-convert
+                    if isinstance(val, decimal.Decimal):
+                        val = float(val)
+                    elif isinstance(val, uuid.UUID):
+                        val = str(val)
+                    col_data[name].append(val)
             batch = pa.RecordBatch.from_pydict(col_data, schema=arrow_schema)
             batches.append(batch)
 

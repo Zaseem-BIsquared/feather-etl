@@ -67,6 +67,40 @@ class DuckDBDestination:
 
         return data.num_rows
 
+    def load_append(self, table: str, data: pa.Table, run_id: str) -> int:
+        """Append-only insert — never deletes existing rows."""
+        con = self._connect()
+
+        parts = table.split(".")
+        schema, table_name = parts[0], parts[1]
+        final = f"{schema}.{table_name}"
+
+        con.register("_arrow_data", data)
+
+        con.execute("BEGIN TRANSACTION")
+        try:
+            # Create the table (with ETL metadata) if it doesn't exist yet.
+            # The WHERE 1=0 ensures no rows are inserted on CREATE — only schema.
+            con.execute(
+                f"CREATE TABLE IF NOT EXISTS {final} AS "
+                f"SELECT *, CURRENT_TIMESTAMP AS _etl_loaded_at, "
+                f"'{run_id}' AS _etl_run_id FROM _arrow_data WHERE 1=0"
+            )
+            con.execute(
+                f"INSERT INTO {final} "
+                f"SELECT *, CURRENT_TIMESTAMP AS _etl_loaded_at, "
+                f"'{run_id}' AS _etl_run_id FROM _arrow_data"
+            )
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        finally:
+            con.unregister("_arrow_data")
+            con.close()
+
+        return data.num_rows
+
     def load_incremental(
         self,
         table: str,

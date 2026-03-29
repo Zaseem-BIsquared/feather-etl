@@ -3,12 +3,23 @@
 Config-driven Python ETL for extracting from heterogeneous ERP sources into local DuckDB.
 See `docs/prd.md` for requirements, `README.md` for architecture, `docs/CONTRIBUTING.md` for work conventions.
 
+## Before You Start
+
+Run both test suites and confirm green:
+
+```bash
+uv run pytest -q               # currently: 341 tests
+bash scripts/hands_on_test.sh  # currently: 72 checks
+```
+
+If anything is red before you touch anything, report immediately.
+
 ## Tech Stack
 
 - **Language:** Python >=3.10, managed with `uv`
 - **Core:** DuckDB (local processing + file readers), PyArrow (interchange), PyYAML (config), Typer (CLI)
-- **Connectors:** pyodbc (SQL Server), openpyxl (Excel .xls fallback)
-- **Runtime:** APScheduler (scheduling), smtplib (alerting)
+- **Connectors:** pyodbc (SQL Server), psycopg2-binary (PostgreSQL), openpyxl (Excel)
+- **Future (in pyproject.toml, not yet used):** APScheduler (scheduling), smtplib (alerting)
 - **Testing:** pytest, pytest-cov | **Quality:** ruff
 
 ## Directory Structure
@@ -18,10 +29,19 @@ src/feather/
   cli.py              Typer CLI: validate, discover, run, setup, status, init
   config.py           YAML config loader + validation
   pipeline.py         run_all() orchestration + change detection integration
+  transforms.py       Silver/gold SQL transform execution + mode-aware DDL
   state.py            StateManager: _runs + _watermarks tables in DuckDB
   init_wizard.py      `feather init` client scaffolding
-  sources/            Source protocol + implementations (duckdb_file, csv, sqlite)
+  sources/            Source protocol + implementations
     file_source.py    FileSource base: detect_changes() with mtime + MD5 hash
+    database_source.py DatabaseSource base with _format_watermark hook
+    duckdb_file.py    DuckDB file reader
+    csv.py            CSV file reader
+    sqlite.py         SQLite database reader
+    excel.py          Excel (.xlsx) reader via DuckDB excel extension
+    json_source.py    JSON (.json/.jsonl) reader via DuckDB read_json_auto
+    sqlserver.py      SQL Server reader (pyodbc)
+    postgres.py       PostgreSQL reader (psycopg2)
     registry.py       Source type registry (type string -> class)
   destinations/       Destination protocol (duckdb only for now)
 tests/                pytest (real DuckDB fixtures, no mocking)
@@ -51,6 +71,26 @@ Regenerate: `python scripts/create_sample_erp_fixture.py` (DuckDB) and `python s
 | Coverage | `uv run pytest -q --cov=src --cov-fail-under=80` |
 | Lint | `ruff check .` |
 | Format | `ruff format .` |
+
+## Current State
+
+| Slice | Plan | Status |
+|---|---|---|
+| 1 — foundation + CSV/SQLite sources | `docs/plans/2026-03-26-slice1-foundation.md` | VERIFIED |
+| 2 — change detection | `docs/plans/2026-03-27-slice2-change-detection.md` | VERIFIED |
+| 3 — incremental extraction | `docs/plans/2026-03-27-slice3-incremental-extraction.md` | VERIFIED |
+| mode — dev/prod/test | `docs/plans/2026-03-28-mode-dev-prod-test.md` | VERIFIED |
+| MVP test bugfixes | `docs/plans/2026-03-28-mvp-test-bugfixes.md` | VERIFIED |
+| parallel slices + postgres | `docs/plans/2026-03-28-parallel-slices-postgres.md` | VERIFIED |
+
+## Work Conventions
+
+Full conventions in `docs/CONTRIBUTING.md`. The short version:
+
+- **Always create a plan doc before starting work.** Use today's date, copy header format from existing plans.
+- Plan chain: `docs/plans/YYYY-MM-DD-<slice>-<topic>.md` → `docs/reviews/` → `docs/plans/...-fixes.md`
+- Bug fixing: read review doc, create fixes plan, graduate `TestKnownBugs` tests, update `hands_on_test.sh`. Never edit review findings.
+- All tests use real DuckDB fixtures, no mocking.
 
 ## Source Protocol
 

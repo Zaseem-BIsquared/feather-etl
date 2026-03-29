@@ -275,6 +275,26 @@ schedule_tiers:
   cold: "weekly"
 ```
 
+> **Decision: `mode` controls pipeline behavior, not table definitions.**
+> A single `mode:` field (`dev`, `prod`, or `test`) in `feather.yaml` changes how the pipeline executes without duplicating table or column definitions. The same YAML works across environments — only the `mode:` line changes (or is set via `FEATHER_MODE` env var or `--mode` CLI flag).
+>
+> | Aspect | `dev` | `prod` | `test` |
+> |--------|-------|--------|--------|
+> | Extraction columns | `SELECT *` (all columns) | Only `column_map` keys (if defined) | `SELECT *` |
+> | Target schema | `bronze.{name}` | `silver.{name}` (skip bronze) | `bronze.{name}` |
+> | Silver transforms | Views over bronze | Skipped (data is already in silver) | Views over bronze |
+> | Gold transforms | Views (lazy, no rebuild) | Materialized tables (rebuilt after each run) | Views (lazy) |
+> | Row limit | None | None | `defaults.row_limit` (if set) |
+> | `target_table` override | Respected if set explicitly | Respected if set explicitly | Respected if set explicitly |
+>
+> **Dev mode** is the development workflow: extract everything into bronze, iterate on silver/gold SQL transforms locally. No re-extraction needed when you tweak a view.
+>
+> **Prod mode** is the resource-constrained deployment: skip bronze, land only the columns you need directly in silver. Gold is materialized for dashboard performance.
+>
+> **Test mode** behaves like dev but with optional row limits for fast test runs. Used by pytest fixtures with file-based sources.
+>
+> If `mode` is omitted, it defaults to `dev` (safe, no data loss). The operator explicitly opts into `prod` when transforms are stable.
+
 > **Decision: Environment variable substitution via `${VAR_NAME}` syntax.**
 > Credentials (connection strings, tokens, SMTP passwords) must never be stored in YAML. The `${VAR_NAME}` syntax is resolved at load time via `os.path.expandvars()`. This is simpler than dotenv files or vault integrations and matches how operators manage secrets in cron and systemd environments.
 
@@ -323,8 +343,36 @@ THE SYSTEM SHALL support schedule tier shortcuts mapping tier names
 to schedule names (e.g., hot → twice daily).
 
 # FR2.9
-THE SYSTEM SHALL support global defaults for overlap_window_minutes (default: 2)
-and batch_size (default: 120,000).
+THE SYSTEM SHALL support global defaults for overlap_window_minutes (default: 2),
+batch_size (default: 120,000), and row_limit (default: None).
+
+# FR2.17
+THE SYSTEM SHALL support a mode field (dev, prod, test) in the config.
+IF mode is omitted THE SYSTEM SHALL default to dev.
+mode MAY be overridden via FEATHER_MODE environment variable
+or --mode CLI flag (CLI > env var > YAML).
+
+# FR2.18
+WHEN mode is dev or test
+THE SYSTEM SHALL derive target_table as bronze.{table.name}
+unless target_table is explicitly set.
+
+# FR2.19
+WHEN mode is prod
+THE SYSTEM SHALL derive target_table as silver.{table.name}
+unless target_table is explicitly set.
+IF column_map is defined THE SYSTEM SHALL extract only the mapped columns.
+IF column_map is not defined THE SYSTEM SHALL extract all columns.
+
+# FR2.20
+WHEN mode is prod AND extraction completes
+THE SYSTEM SHALL rebuild gold transforms as materialized tables.
+WHEN mode is dev or test
+THE SYSTEM SHALL create gold transforms as views (no rebuild after extraction).
+
+# FR2.21
+WHEN mode is test AND defaults.row_limit is set
+THE SYSTEM SHALL limit extraction to row_limit rows per table.
 
 # FR2.10
 WHEN strategy is incremental or append AND timestamp_column is not configured
@@ -363,9 +411,22 @@ so the operator can confirm locations before a run.
 
 **AC-FR2.c:** Given a `feather.yaml` with `${MOTHERDUCK_TOKEN}` in the sync section, when the environment variable is set to `abc123`, then the resolved config contains `abc123` — not the literal string `${MOTHERDUCK_TOKEN}`.
 
+**AC-FR2.d:** Given a `feather.yaml` with `mode: dev` and a table with `column_map`, when `feather run` executes, then all columns are extracted into `bronze.{name}` (column_map is ignored in dev).
+
+**AC-FR2.e:** Given a `feather.yaml` with `mode: prod` and a table with `column_map: {SITYPE: invoice_type, SI_NO: invoice_no}`, when `feather run` executes, then only `SITYPE` and `SI_NO` are extracted and loaded into `silver.{name}` with renamed columns.
+
+**AC-FR2.f:** Given a `feather.yaml` with `mode: prod`, when extraction completes, then gold transforms with `-- materialized: true` are rebuilt as tables. Given `mode: dev`, gold transforms are created as views.
+
+**AC-FR2.g:** Given a `feather.yaml` with `mode: test` and `defaults.row_limit: 100`, when extraction runs, then each table extracts at most 100 rows.
+
+**AC-FR2.h:** Given `mode: prod` and no `column_map` on a table, when `feather run` executes, then all columns are extracted into `silver.{name}` (no bronze, but no column filtering either).
+
 ### FR3: Extraction
 
 The extractor is stateless. It receives parameters (table name, watermark value, filter, batch size) and returns a PyArrow Table. It does not read or write watermarks, does not know about run history, and does not decide whether extraction should happen. That decision belongs to the pipeline orchestrator, which reads state, calls `detect_changes()`, and only invokes the extractor if work is needed. This separation means the extractor can be tested in isolation with no state database.
+
+> **Decision: `filter` is for business-logic exclusion at extraction, not just incremental watermarks.**
+> The `filter` field in table config serves two purposes: (1) combining with watermark conditions for incremental extraction, and (2) excluding junk data at extraction time so it never enters bronze. Examples: `extinct = 0` (soft-deleted POS records), `STATUS <> 1` (cancelled invoices). In a resource-constrained deployment (typical Indian SMB client), bronze is a **clean copy** of production-relevant data, not a complete mirror of the source database. Rows excluded by `filter` are never extracted, never stored, and never consume local disk. This is a deliberate departure from the medallion architecture's "bronze = complete copy" pattern — that pattern assumes cheap storage and compliance requirements that don't apply to most feather-etl deployments. For regulated clients who need a complete copy, omit the `filter` and let silver views handle exclusion instead.
 
 Two extraction paths exist — file-based (DuckDB native readers → PyArrow) and database (pyodbc cursor → chunked fetch → PyArrow) — but both produce the same output format.
 
@@ -531,6 +592,9 @@ Silver transforms are always views — they are lazy, always reflect current dat
 
 > **Decision: silver is the canonical mapping layer.**
 > Silver is where source-system-specific naming, column selection, and light cleaning happen. A SAP B1 table `ORDR` and a custom ERP table `SalesHeader` both become `silver.sales_order` with the same 10-15 columns in the same shape. Client analysts and LLM agents work against silver, not bronze. This is also the layer where the planned connector/transform library (v2) will provide reusable canonical mappings per source system — so the operator deploying a second SAP B1 client can reuse the silver transforms from the first.
+
+> **Decision: silver views are the right default; materialized silver is a future escape hatch.**
+> Silver transforms are views because they add zero pipeline overhead, always reflect current data, and allow fast iteration on column mappings without re-processing. At current data volumes (largest table ~440K rows), DuckDB resolves multi-table join chains through silver views in milliseconds. If a client's data grows to where repeated view resolution becomes a performance issue (millions of rows, complex aggregations, or dashboards querying silver directly), the engine can be extended to support `-- materialized: true` on silver transforms — the same mechanism gold already uses. This is a one-line engine change, not an architectural redesign.
 
 #### Requirements
 
@@ -1891,6 +1955,26 @@ def runner(config) -> CliRunner:
 ## 11. Deferred Ideas
 
 See `docs/research.md` section "Ideas Evaluated and Deferred to Later Stages" for 13 deferred ideas with revisit triggers.
+
+### Deferred: Unified YAML-driven silver transforms (replacing SQL files)
+
+**Status:** Deferred — revisit after MVP has more real-world table examples.
+
+**Context:** During Slice 7+8 implementation (2026-03-28), we discussed whether silver transforms should be SQL files (current V8 design) or YAML-driven column mappings. For 4 of 6 MVP tables, the silver transform is purely column renames — something a YAML `column_map` can express without a separate SQL file. Only 2 tables (item_master, gold.sales_invoice) require JOINs that need SQL.
+
+**Options explored:**
+
+| Option | Description | Pro | Con |
+|--------|-------------|-----|-----|
+| A: Everything in YAML | `column_map` for renames, inline `transform_sql` for JOINs | Single file, one place, agent-friendly | Inline SQL in YAML is hard to read for complex transforms |
+| B: YAML references SQL | `column_map` in YAML, `transform:` pointer to .sql file for JOINs | YAML stays clean, SQL gets editor support | Two locations to manage |
+| C: Auto-generated SQL | YAML column_map generates VIEW SQL at runtime, no files | Truly one place, no file management | Can't inspect generated SQL easily |
+
+**Industry precedent:** Meltano supports inline YAML mappers for rename/filter/cast but explicitly excludes JOINs (use dbt). Databricks dlt-meta uses YAML for bronze→silver column configs. PYYql (config-driven medallion framework) puts everything in YAML including JOINs, but effectively reinvents SQL as a YAML DSL.
+
+**Likely direction:** Option A — YAML `column_map` for simple tables, inline `transform_sql` for JOINs, with a `mode: dev/prod` toggle that controls whether data goes through bronze first (dev = full extract → bronze → silver views, prod = extract mapped columns → silver directly). This aligns with the resource-constrained deployment philosophy and keeps everything in one config file.
+
+**Revisit trigger:** When we have 3+ client deployments and can see the real ratio of simple-rename vs JOIN-based transforms. If >80% are simple renames, the YAML approach wins decisively. If JOINs are common, SQL files remain the right default.
 
 ---
 

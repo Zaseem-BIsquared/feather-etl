@@ -235,7 +235,7 @@ class TestConfigValidationExtended:
         from feather.config import load_config
 
         cfg = {
-            "source": {"type": "excel", "path": str(tmp_path / "data.xlsx")},
+            "source": {"type": "ftp", "connection_string": "ftp://example.com"},
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [
                 {

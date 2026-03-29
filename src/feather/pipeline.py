@@ -275,6 +275,14 @@ def run_table(
             rows_loaded = dest.load_incremental(
                 effective_target, data, run_id, table.timestamp_column
             )
+        elif table.strategy == "append":
+            # Append strategy: extract full source, insert without deleting existing rows
+            data = source.extract(table.source_table, columns=prod_columns, filter=table.filter)
+            if config.mode == "test" and config.defaults.row_limit:
+                data = data.slice(0, config.defaults.row_limit)
+            if config.mode == "prod" and table.column_map:
+                data = _apply_column_map(data, table.column_map)
+            rows_loaded = dest.load_append(effective_target, data, run_id)
         else:
             # Full strategy, or first incremental run (no watermark yet)
             if is_incremental and table.filter:
@@ -365,17 +373,30 @@ def run_table(
 def run_all(
     config: FeatherConfig,
     config_path: Path,
+    table_filter: str | None = None,
 ) -> list[RunResult]:
-    """Run all configured tables.
+    """Run all configured tables (or a single table if table_filter is set).
 
     After extraction, rebuilds materialized gold transforms if any tables
     succeeded and transform SQL files exist.
+
+    Raises ValueError if table_filter names a table not in config.
     """
     working_dir = config.config_dir
     _setup_jsonl_logging(working_dir)
 
+    tables = config.tables
+    if table_filter is not None:
+        tables = [t for t in config.tables if t.name == table_filter]
+        if not tables:
+            available = ", ".join(t.name for t in config.tables)
+            raise ValueError(
+                f"Table '{table_filter}' not found in config. "
+                f"Available tables: {available}"
+            )
+
     results: list[RunResult] = []
-    for table in config.tables:
+    for table in tables:
         result = run_table(config, table, working_dir)
         results.append(result)
 
