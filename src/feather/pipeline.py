@@ -2,21 +2,56 @@
 
 from __future__ import annotations
 
+import hashlib
+import json as json_mod
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pyarrow as pa
 import pyarrow.compute as pc
 
+from feather.alerts import alert_on_failure
 from feather.config import FeatherConfig, TableConfig
 from feather.destinations.duckdb import DuckDBDestination
 from feather.sources.registry import create_source
 from feather.state import StateManager
 
-import pyarrow as pa
-
 logger = logging.getLogger(__name__)
+
+
+class _JsonlFormatter(logging.Formatter):
+    """Format log records as JSON lines."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "event": record.getMessage(),
+        }
+        # Include extra fields if present
+        for key in ("table", "status", "rows_loaded", "error"):
+            if hasattr(record, key):
+                entry[key] = getattr(record, key)
+        return json_mod.dumps(entry, default=str)
+
+
+def _setup_jsonl_logging(config_dir: Path) -> None:
+    """Add a JSONL FileHandler to the feather logger (idempotent)."""
+    log_path = config_dir / "feather_log.jsonl"
+    feather_logger = logging.getLogger("feather")
+
+    # Guard against duplicate handlers across multiple run_all() calls
+    for h in feather_logger.handlers:
+        if isinstance(h, logging.FileHandler) and h.baseFilename == str(log_path.resolve()):
+            return
+
+    handler = logging.FileHandler(str(log_path), mode="a")
+    handler.setFormatter(_JsonlFormatter())
+    handler.setLevel(logging.INFO)
+    feather_logger.addHandler(handler)
+    feather_logger.setLevel(logging.INFO)
 
 
 def _resolve_target(table: TableConfig, mode: str) -> str:
@@ -38,6 +73,54 @@ def _apply_column_map(data: pa.Table, column_map: dict[str, str]) -> pa.Table:
     return data.rename_columns(new_names)
 
 
+def _compute_pk_hashes(
+    data: pa.Table,
+    primary_key: list[str],
+    ts_column: str,
+    watermark_value: str,
+) -> list[str]:
+    """Compute SHA-256 hashes of PK values for rows at the given watermark timestamp."""
+    ts_vals = data.column(ts_column).to_pylist()
+    pk_cols = {pk: data.column(pk).to_pylist() for pk in primary_key}
+    hashes = []
+    for i in range(data.num_rows):
+        if str(ts_vals[i]) == watermark_value:
+            key = "|".join(str(pk_cols[pk][i]) for pk in primary_key)
+            hashes.append(hashlib.sha256(key.encode()).hexdigest())
+    return hashes
+
+
+def _filter_boundary_rows(
+    data: pa.Table,
+    primary_key: list[str] | None,
+    ts_column: str,
+    old_watermark: str,
+    prev_hashes: list[str],
+) -> tuple[pa.Table, int]:
+    """Filter out boundary rows whose PK hash matches stored hashes.
+
+    Returns (filtered_data, rows_skipped).
+    """
+    if not primary_key or not prev_hashes:
+        return data, 0
+
+    prev_set = set(prev_hashes)
+    ts_vals = data.column(ts_column).to_pylist()
+    pk_cols = {pk: data.column(pk).to_pylist() for pk in primary_key}
+    mask = []
+    skipped = 0
+    for i in range(data.num_rows):
+        if str(ts_vals[i]) == old_watermark:
+            key = "|".join(str(pk_cols[pk][i]) for pk in primary_key)
+            h = hashlib.sha256(key.encode()).hexdigest()
+            if h in prev_set:
+                mask.append(False)
+                skipped += 1
+                continue
+        mask.append(True)
+    return data.filter(mask), skipped
+
+
 @dataclass
 class RunResult:
     table_name: str
@@ -53,12 +136,34 @@ def run_table(
     working_dir: Path,
 ) -> RunResult:
     """Run a single table through the pipeline: extract → load → update state."""
+    logger.info("Starting extraction", extra={"table": table.name})
     now = datetime.now(timezone.utc)
     run_id = f"{table.name}_{now.isoformat()}"
 
     state_path = working_dir / "feather_state.duckdb"
     state = StateManager(state_path)
     state.init_state()
+
+    # Retry backoff check: skip if table is in backoff window
+    skip, skip_error = state.should_skip_retry(table.name)
+    if skip:
+        ended_at = datetime.now(timezone.utc)
+        error_msg = f"In backoff (previous failure: {skip_error})"
+        logger.info("Skipped (retry backoff)", extra={"table": table.name, "status": "skipped"})
+        state.record_run(
+            run_id=run_id,
+            table_name=table.name,
+            started_at=now,
+            ended_at=ended_at,
+            status="skipped",
+            error_message=error_msg,
+        )
+        return RunResult(
+            table_name=table.name,
+            run_id=run_id,
+            status="skipped",
+            error_message=error_msg,
+        )
 
     dest = DuckDBDestination(path=config.destination.path)
     dest.setup_schemas()
@@ -130,6 +235,13 @@ def run_table(
             if config.mode == "prod" and table.column_map:
                 data = _apply_column_map(data, table.column_map)
 
+            # Boundary dedup: filter out rows already loaded in previous run
+            prev_hashes = state.read_boundary_hashes(table.name)
+            data, rows_skipped_boundary = _filter_boundary_rows(
+                data, table.primary_key, table.timestamp_column,
+                str(wm_last_value), prev_hashes,
+            )
+
             if data.num_rows == 0:
                 ended_at = datetime.now(timezone.utc)
                 state.record_run(
@@ -152,6 +264,7 @@ def run_table(
                     last_file_hash=change.metadata.get("file_hash"),
                     last_value=str(wm_last_value),
                 )
+                state.reset_retry(table.name)
                 return RunResult(
                     table_name=table.name,
                     run_id=run_id,
@@ -184,6 +297,13 @@ def run_table(
 
         watermark_after = new_last_value
 
+        # Store boundary hashes for next run's dedup
+        if is_incremental and new_last_value and table.primary_key and data.num_rows > 0:
+            new_hashes = _compute_pk_hashes(
+                data, table.primary_key, table.timestamp_column, new_last_value,
+            )
+            state.write_boundary_hashes(table.name, new_hashes)
+
         ended_at = datetime.now(timezone.utc)
         state.write_watermark(
             table.name,
@@ -206,6 +326,11 @@ def run_table(
             watermark_before=watermark_before,
             watermark_after=watermark_after,
         )
+        state.reset_retry(table.name)
+        logger.info(
+            "Loaded %d rows", rows_loaded,
+            extra={"table": table.name, "status": "success", "rows_loaded": rows_loaded},
+        )
         return RunResult(
             table_name=table.name,
             run_id=run_id,
@@ -215,6 +340,10 @@ def run_table(
     except Exception as e:
         ended_at = datetime.now(timezone.utc)
         error_msg = str(e)
+        logger.error(
+            "Failed: %s", error_msg,
+            extra={"table": table.name, "status": "failure", "error": error_msg},
+        )
         state.record_run(
             run_id=run_id,
             table_name=table.name,
@@ -223,6 +352,8 @@ def run_table(
             status="failure",
             error_message=error_msg,
         )
+        state.increment_retry(table.name)
+        alert_on_failure(table.name, error_msg, config=config.alerts)
         return RunResult(
             table_name=table.name,
             run_id=run_id,
@@ -241,6 +372,8 @@ def run_all(
     succeeded and transform SQL files exist.
     """
     working_dir = config.config_dir
+    _setup_jsonl_logging(working_dir)
+
     results: list[RunResult] = []
     for table in config.tables:
         result = run_table(config, table, working_dir)

@@ -54,6 +54,16 @@ class TableConfig:
 
 
 @dataclass
+class AlertsConfig:
+    smtp_host: str
+    smtp_port: int
+    smtp_user: str
+    smtp_password: str
+    alert_to: str
+    alert_from: str = ""  # defaults to smtp_user if empty
+
+
+@dataclass
 class FeatherConfig:
     source: SourceConfig
     destination: DestinationConfig
@@ -61,6 +71,7 @@ class FeatherConfig:
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
     config_dir: Path = field(default_factory=lambda: Path("."))
     mode: str = "dev"
+    alerts: AlertsConfig | None = None
 
 
 def _resolve_env_vars(text: str) -> str:
@@ -314,6 +325,25 @@ def load_config(
     raw_tables = _merge_tables_dir(config_dir, raw_tables)
     tables = _parse_tables(raw_tables, raw)
 
+    # Parse optional alerts section
+    alerts: AlertsConfig | None = None
+    alerts_raw = raw.get("alerts")
+    if alerts_raw:
+        _ALERTS_REQUIRED = ("smtp_host", "smtp_port", "smtp_user", "smtp_password", "alert_to")
+        missing = [f for f in _ALERTS_REQUIRED if f not in alerts_raw]
+        if missing:
+            raise ValueError(
+                f"alerts section missing required field(s): {', '.join(missing)}"
+            )
+        alerts = AlertsConfig(
+            smtp_host=alerts_raw["smtp_host"],
+            smtp_port=int(alerts_raw["smtp_port"]),
+            smtp_user=alerts_raw["smtp_user"],
+            smtp_password=alerts_raw["smtp_password"],
+            alert_to=alerts_raw["alert_to"],
+            alert_from=alerts_raw.get("alert_from") or alerts_raw["smtp_user"],
+        )
+
     config = FeatherConfig(
         source=source,
         destination=dest,
@@ -321,6 +351,7 @@ def load_config(
         defaults=defaults,
         config_dir=config_dir,
         mode=mode,
+        alerts=alerts,
     )
 
     errors = _validate(config)

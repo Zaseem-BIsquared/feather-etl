@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
@@ -255,22 +255,178 @@ class StateManager:
         finally:
             con.close()
 
+    def get_history(
+        self,
+        table_name: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        """Return recent runs ordered by started_at DESC."""
+        con = self._connect()
+        try:
+            if table_name is not None:
+                rows = con.execute(
+                    "SELECT run_id, table_name, started_at, ended_at, "
+                    "status, rows_loaded, error_message "
+                    "FROM _runs WHERE table_name = ? "
+                    "ORDER BY started_at DESC LIMIT ?",
+                    [table_name, limit],
+                ).fetchall()
+            else:
+                rows = con.execute(
+                    "SELECT run_id, table_name, started_at, ended_at, "
+                    "status, rows_loaded, error_message "
+                    "FROM _runs ORDER BY started_at DESC LIMIT ?",
+                    [limit],
+                ).fetchall()
+            columns = [desc[0] for desc in con.description]
+            return [dict(zip(columns, row)) for row in rows]
+        finally:
+            con.close()
+
     def get_status(self) -> list[dict[str, object]]:
         """Return last run per table (all-time history, not filtered by current config)."""
         con = self._connect()
         try:
             rows = con.execute("""
                 SELECT r.table_name, r.status, r.rows_loaded, r.ended_at, r.run_id,
-                       r.error_message
+                       r.error_message, w.last_value AS watermark
                 FROM _runs r
                 INNER JOIN (
                     SELECT table_name, MAX(started_at) as max_started
                     FROM _runs GROUP BY table_name
                 ) latest ON r.table_name = latest.table_name
                     AND r.started_at = latest.max_started
+                LEFT JOIN _watermarks w ON r.table_name = w.table_name
                 ORDER BY r.table_name
             """).fetchall()
             columns = [desc[0] for desc in con.description]
             return [dict(zip(columns, row)) for row in rows]
+        finally:
+            con.close()
+
+    # --- Retry + backoff (V14) ---
+
+    _BACKOFF_BASE_MINUTES = 15
+    _BACKOFF_CAP_MINUTES = 120
+
+    @staticmethod
+    def _utcnow_naive() -> datetime:
+        """Return current UTC time as a naive datetime (for DuckDB TIMESTAMP)."""
+        return datetime.now(timezone.utc).replace(tzinfo=None)
+
+    def increment_retry(self, table_name: str) -> None:
+        """Increment retry_count and compute retry_after with linear backoff."""
+        con = self._connect()
+        try:
+            row = con.execute(
+                "SELECT retry_count FROM _watermarks WHERE table_name = ?",
+                [table_name],
+            ).fetchone()
+            now = self._utcnow_naive()
+            if row is None:
+                # Table not yet in watermarks — insert with retry_count=1
+                new_count = 1
+                backoff_min = min(
+                    new_count * self._BACKOFF_BASE_MINUTES,
+                    self._BACKOFF_CAP_MINUTES,
+                )
+                retry_after = now + timedelta(minutes=backoff_min)
+                con.execute(
+                    "INSERT INTO _watermarks (table_name, retry_count, retry_after) "
+                    "VALUES (?, ?, ?)",
+                    [table_name, new_count, retry_after],
+                )
+            else:
+                current = row[0] or 0
+                new_count = current + 1
+                backoff_min = min(
+                    new_count * self._BACKOFF_BASE_MINUTES,
+                    self._BACKOFF_CAP_MINUTES,
+                )
+                retry_after = now + timedelta(minutes=backoff_min)
+                con.execute(
+                    "UPDATE _watermarks SET retry_count = ?, retry_after = ? "
+                    "WHERE table_name = ?",
+                    [new_count, retry_after, table_name],
+                )
+        finally:
+            con.close()
+
+    def reset_retry(self, table_name: str) -> None:
+        """Reset retry_count to 0 and clear retry_after."""
+        con = self._connect()
+        try:
+            con.execute(
+                "UPDATE _watermarks SET retry_count = 0, retry_after = NULL "
+                "WHERE table_name = ?",
+                [table_name],
+            )
+        finally:
+            con.close()
+
+    def should_skip_retry(self, table_name: str) -> tuple[bool, str | None]:
+        """Check if a table is in backoff.
+
+        Returns (True, original_error_message) if retry_after > now,
+        (False, None) otherwise.
+        """
+        con = self._connect()
+        try:
+            row = con.execute(
+                "SELECT retry_after FROM _watermarks WHERE table_name = ?",
+                [table_name],
+            ).fetchone()
+            if row is None or row[0] is None:
+                return False, None
+            retry_after = row[0]
+            if retry_after > self._utcnow_naive():
+                error = self.get_last_failure_message(table_name)
+                return True, error
+            return False, None
+        finally:
+            con.close()
+
+    def get_last_failure_message(self, table_name: str) -> str | None:
+        """Return error_message from the most recent failed run for a table."""
+        con = self._connect()
+        try:
+            row = con.execute(
+                "SELECT error_message FROM _runs "
+                "WHERE table_name = ? AND status = 'failure' "
+                "ORDER BY started_at DESC LIMIT 1",
+                [table_name],
+            ).fetchone()
+            return row[0] if row else None
+        finally:
+            con.close()
+
+    # --- Boundary deduplication (V16) ---
+
+    def write_boundary_hashes(self, table_name: str, hashes: list[str]) -> None:
+        """Store PK hashes of boundary rows in _watermarks.boundary_hashes."""
+        import json
+
+        con = self._connect()
+        try:
+            con.execute(
+                "UPDATE _watermarks SET boundary_hashes = ? WHERE table_name = ?",
+                [json.dumps(hashes), table_name],
+            )
+        finally:
+            con.close()
+
+    def read_boundary_hashes(self, table_name: str) -> list[str]:
+        """Read stored boundary hashes. Returns empty list if none."""
+        import json
+
+        con = self._connect()
+        try:
+            row = con.execute(
+                "SELECT boundary_hashes FROM _watermarks WHERE table_name = ?",
+                [table_name],
+            ).fetchone()
+            if row is None or row[0] is None:
+                return []
+            return json.loads(row[0])
         finally:
             con.close()

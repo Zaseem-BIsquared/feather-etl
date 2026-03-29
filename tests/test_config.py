@@ -444,3 +444,91 @@ class TestConfigValidationExtended:
         config_file = _write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="source_table.*invalid"):
             load_config(config_file)
+
+
+class TestAlertsConfig:
+    def test_no_alerts_section_sets_none(self, tmp_path: Path):
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        config_file = _write_config(tmp_path, cfg)
+        result = load_config(config_file)
+        assert result.alerts is None
+
+    def test_valid_alerts_section_parses(self, tmp_path: Path):
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["alerts"] = {
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "smtp_user": "user@example.com",
+            "smtp_password": "secret",
+            "alert_to": "ops@example.com",
+        }
+        config_file = _write_config(tmp_path, cfg)
+        result = load_config(config_file)
+        assert result.alerts is not None
+        assert result.alerts.smtp_host == "smtp.example.com"
+        assert result.alerts.smtp_port == 587
+        assert result.alerts.smtp_user == "user@example.com"
+        assert result.alerts.alert_to == "ops@example.com"
+
+    def test_alert_from_defaults_to_smtp_user(self, tmp_path: Path):
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["alerts"] = {
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "smtp_user": "user@example.com",
+            "smtp_password": "secret",
+            "alert_to": "ops@example.com",
+        }
+        config_file = _write_config(tmp_path, cfg)
+        result = load_config(config_file)
+        assert result.alerts.alert_from == "user@example.com"
+
+    def test_explicit_alert_from(self, tmp_path: Path):
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["alerts"] = {
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "smtp_user": "user@example.com",
+            "smtp_password": "secret",
+            "alert_to": "ops@example.com",
+            "alert_from": "noreply@example.com",
+        }
+        config_file = _write_config(tmp_path, cfg)
+        result = load_config(config_file)
+        assert result.alerts.alert_from == "noreply@example.com"
+
+    def test_missing_required_alert_field_raises(self, tmp_path: Path):
+        from feather.config import load_config
+
+        cfg = _minimal_config(tmp_path)
+        cfg["alerts"] = {
+            "smtp_host": "smtp.example.com",
+            # missing smtp_port, smtp_user, smtp_password, alert_to
+        }
+        config_file = _write_config(tmp_path, cfg)
+        with pytest.raises(ValueError, match="alerts.*missing"):
+            load_config(config_file)
+
+    def test_alerts_env_var_resolved(self, tmp_path: Path, monkeypatch):
+        from feather.config import load_config
+
+        monkeypatch.setenv("TEST_SMTP_PASS", "env_secret")
+        cfg = _minimal_config(tmp_path)
+        cfg["alerts"] = {
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "smtp_user": "user@example.com",
+            "smtp_password": "${TEST_SMTP_PASS}",
+            "alert_to": "ops@example.com",
+        }
+        config_file = _write_config(tmp_path, cfg)
+        result = load_config(config_file)
+        assert result.alerts.smtp_password == "env_secret"

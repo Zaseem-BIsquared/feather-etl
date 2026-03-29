@@ -244,5 +244,8 @@ class TestRunAll:
 
         sm = StateManager(tmp_path / "feather_state.duckdb")
         wm = sm.read_watermark("inventory_group")
-        # No watermark written for failed run
-        assert wm is None
+        # Watermark value not advanced on failure (retry metadata may exist)
+        if wm is not None:
+            assert wm["last_value"] is None
+            assert wm["last_run_at"] is None
+            assert wm["retry_count"] == 1  # retry state set by V14
