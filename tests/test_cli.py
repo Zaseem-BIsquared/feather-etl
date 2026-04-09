@@ -46,10 +46,6 @@ class TestInit:
         assert (project / "pyproject.toml").exists()
         assert (project / ".gitignore").exists()
         assert (project / ".env.example").exists()
-        assert (project / "transforms" / "silver").is_dir()
-        assert (project / "transforms" / "gold").is_dir()
-        assert (project / "tables").is_dir()
-        assert (project / "extracts").is_dir()
 
     def test_init_nonempty_dir_fails(self, tmp_path: Path):
         from feather_etl.cli import app

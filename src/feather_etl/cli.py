@@ -45,7 +45,7 @@ def _load_and_validate(config_path: Path, mode_override: str | None = None):
 @app.command()
 def init(
     ctx: typer.Context,
-    project_name: str,
+    project_name: str | None = typer.Argument(None, help="Project directory name."),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Skip prompts, use CLI flags."),
     source_type: str | None = typer.Option(None, "--source-type", help="Source type for discovery."),
     source_path: str | None = typer.Option(None, "--source-path", help="Source path (file-based sources)."),
@@ -53,6 +53,12 @@ def init(
     tables: str | None = typer.Option(None, "--tables", help="Comma-separated table names to select."),
 ) -> None:
     """Scaffold a new client project, optionally with interactive or non-interactive wizard."""
+    if project_name is None:
+        if non_interactive or source_type or source_path or connection_string:
+            typer.echo("Project name is required as first argument in non-interactive mode", err=True)
+            raise typer.Exit(code=1)
+        project_name = typer.prompt("Project name")
+
     project_path = Path(project_name).resolve()
     if project_path.exists():
         non_hidden = [f for f in project_path.iterdir() if not f.name.startswith(".")]

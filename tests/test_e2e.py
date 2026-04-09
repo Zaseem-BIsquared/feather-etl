@@ -24,10 +24,6 @@ def test_full_onboarding_flow(tmp_path: Path):
     assert (project_dir / "pyproject.toml").exists()
     assert (project_dir / ".gitignore").exists()
     assert (project_dir / ".env.example").exists()
-    assert (project_dir / "transforms" / "silver").is_dir()
-    assert (project_dir / "transforms" / "gold").is_dir()
-    assert (project_dir / "tables").is_dir()
-    assert (project_dir / "extracts").is_dir()
 
     # --- 2. Edit feather.yaml (simulating operator) ---
     client_db = project_dir / "client.duckdb"

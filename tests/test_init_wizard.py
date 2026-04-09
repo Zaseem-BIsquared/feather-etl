@@ -60,32 +60,6 @@ class TestNonInteractiveInit:
         assert len(cfg["tables"]) == 1
         assert cfg["tables"][0]["source_table"] == "erp.customers"
 
-    def test_non_interactive_generates_silver_stubs(self, tmp_path: Path):
-        """Silver transform stubs are created for each table."""
-        from feather_etl.cli import app
-
-        client_db = tmp_path / "source.duckdb"
-        shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
-
-        project = tmp_path / "test-project"
-        result = runner.invoke(app, [
-            "init", str(project),
-            "--non-interactive",
-            "--source-type", "duckdb",
-            "--source-path", str(client_db),
-            "--tables", "erp.customers",
-        ])
-        assert result.exit_code == 0
-
-        # Check silver stub exists
-        silver_dir = project / "transforms" / "silver"
-        sql_files = list(silver_dir.glob("*.sql"))
-        assert len(sql_files) >= 1
-
-        content = sql_files[0].read_text()
-        assert "depends_on" in content
-        assert "SELECT" in content
-
     def test_non_interactive_json_output(self, tmp_path: Path):
         """--json produces JSON summary."""
         import json
@@ -131,3 +105,13 @@ class TestInteractiveInit:
         # Tables come from discovery, not template
         table_sources = [t["source_table"] for t in cfg["tables"]]
         assert any("erp." in s for s in table_sources)
+
+    def test_init_prompts_for_project_name(self, tmp_path: Path):
+        """init without project_name prompts for it and scaffolds."""
+        from feather_etl.cli import app
+
+        project = tmp_path / "my-project"
+        # Feed project name, then EOF kills interactive wizard → scaffold-only fallback
+        result = runner.invoke(app, ["init"], input=f"{project}\n")
+        assert result.exit_code == 0
+        assert (project / "feather.yaml").exists()

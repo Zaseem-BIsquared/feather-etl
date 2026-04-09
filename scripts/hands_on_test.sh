@@ -54,10 +54,6 @@ S1="$WORK_DIR/s1"
 [[ -f "$S1/pyproject.toml" ]]       && check "pyproject.toml created"     ok || check "pyproject.toml created"     fail
 [[ -f "$S1/.gitignore" ]]           && check ".gitignore created"         ok || check ".gitignore created"         fail
 [[ -f "$S1/.env.example" ]]         && check ".env.example created"       ok || check ".env.example created"       fail
-[[ -d "$S1/transforms/silver" ]]    && check "transforms/silver/ created" ok || check "transforms/silver/ created" fail
-[[ -d "$S1/transforms/gold" ]]      && check "transforms/gold/ created"   ok || check "transforms/gold/ created"   fail
-[[ -d "$S1/tables" ]]               && check "tables/ created"            ok || check "tables/ created"            fail
-[[ -d "$S1/extracts" ]]             && check "extracts/ created"          ok || check "extracts/ created"          fail
 
 # re-init non-empty dir must be rejected
 code=$("$FEATHER" init "$S1" > /dev/null 2>&1; echo $?) || true

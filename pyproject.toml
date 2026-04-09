@@ -1,6 +1,6 @@
 [project]
 name = "feather-etl"
-version = "0.1.1"
+version = "0.1.2"
 description = "Config-driven ETL for heterogeneous ERP sources → local DuckDB"
 readme = "README.md"
 license = "MIT"
@@ -37,6 +37,7 @@ Issues = "https://github.com/siraj-samsudeen/feather-etl/issues"
 
 [project.scripts]
 feather = "feather_etl.cli:app"
+feather-etl = "feather_etl.cli:app"
 
 [build-system]
 requires = ["hatchling"]

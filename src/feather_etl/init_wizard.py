@@ -86,10 +86,6 @@ def scaffold_project(project_path: Path) -> list[str]:
         fp.write_text(content)
         created.append(rel_path)
 
-    for d in ("transforms/silver", "transforms/gold", "tables", "extracts"):
-        (project_path / d).mkdir(parents=True, exist_ok=True)
-        created.append(d + "/")
-
     return created
 
 
@@ -134,15 +130,6 @@ def _generate_config_yaml(
     return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
 
-def _generate_silver_stub(table_name: str) -> str:
-    """Generate a silver transform SQL stub."""
-    return (
-        f"-- Silver transform for {table_name}\n"
-        f"-- depends_on: bronze.{table_name}\n"
-        f"SELECT * FROM bronze.{table_name}\n"
-    )
-
-
 def _build_table_configs(schemas: list) -> list[dict]:
     """Convert discovered schemas to table config dicts."""
     table_configs = []
@@ -175,18 +162,11 @@ def _write_project_files(
     )
     (project_path / "feather.yaml").write_text(yaml_content)
 
-    silver_dir = project_path / "transforms" / "silver"
-    for tc in table_configs:
-        stub = _generate_silver_stub(tc["name"])
-        (silver_dir / f"{tc['name']}.sql").write_text(stub)
-
     return {
         "project": str(project_path),
         "tables_configured": len(table_configs),
         "tables": [t["name"] for t in table_configs],
-        "files_created": [
-            "feather.yaml", "pyproject.toml", ".gitignore", ".env.example",
-        ] + [f"transforms/silver/{t['name']}.sql" for t in table_configs],
+        "files_created": ["feather.yaml", "pyproject.toml", ".gitignore", ".env.example"],
     }
 
 
