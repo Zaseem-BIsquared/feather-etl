@@ -19,11 +19,27 @@ _SQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _UNRESOLVED_ENV_RE = re.compile(r"\$\{([^}]+)\}")
 
 
+DB_CONNECTION_BUILDERS: dict[str, str] = {
+    "sqlserver": (
+        "DRIVER={{ODBC Driver 18 for SQL Server}};"
+        "SERVER={host},{port};DATABASE={database};UID={user};PWD={password}"
+    ),
+    "postgres": (
+        "host={host} port={port} dbname={database} user={user} password={password}"
+    ),
+}
+
+
 @dataclass
 class SourceConfig:
     type: str
     path: Path | None = None
     connection_string: str | None = None
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    user: str | None = None
+    password: str | None = None
 
 
 @dataclass
@@ -170,7 +186,8 @@ def _validate(config: FeatherConfig) -> list[str]:
         and not config.source.connection_string
     ):
         errors.append(
-            f"Source type '{config.source.type}' requires a connection_string."
+            f"Source type '{config.source.type}' requires either "
+            f"host/database/user/password fields or a connection_string."
         )
 
     if not config.destination.path.parent.exists():
@@ -293,12 +310,32 @@ def load_config(
             raise ValueError(f"Missing required config section: '{key}'")
 
     source_raw = raw["source"]
+    src_type = source_raw["type"]
+
+    # Assemble connection_string from individual fields if not provided directly
+    conn_str = source_raw.get("connection_string")
+    host = source_raw.get("host")
+    if not conn_str and host and src_type in DB_CONNECTION_BUILDERS:
+        port = source_raw.get("port", 1433 if src_type == "sqlserver" else 5432)
+        conn_str = DB_CONNECTION_BUILDERS[src_type].format(
+            host=host,
+            port=port,
+            database=source_raw.get("database", ""),
+            user=source_raw.get("user", ""),
+            password=source_raw.get("password", ""),
+        )
+
     source = SourceConfig(
-        type=source_raw["type"],
+        type=src_type,
         path=_resolve_path(config_dir, source_raw["path"])
         if "path" in source_raw
         else None,
-        connection_string=source_raw.get("connection_string"),
+        connection_string=conn_str,
+        host=host,
+        port=source_raw.get("port"),
+        database=source_raw.get("database"),
+        user=source_raw.get("user"),
+        password=source_raw.get("password"),
     )
 
     dest = DestinationConfig(
