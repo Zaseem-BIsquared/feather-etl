@@ -6,7 +6,7 @@ from pathlib import Path
 
 import typer
 
-from feather.output import emit, emit_line
+from feather_etl.output import emit, emit_line
 
 app = typer.Typer(name="feather", help="feather-etl: config-driven ETL")
 
@@ -27,7 +27,7 @@ def _is_json(ctx: typer.Context) -> bool:
 
 def _load_and_validate(config_path: Path, mode_override: str | None = None):
     """Load config, validate, write validation JSON. Raises on failure."""
-    from feather.config import load_config, write_validation_json
+    from feather_etl.config import load_config, write_validation_json
 
     try:
         cfg = load_config(config_path, mode_override=mode_override)
@@ -67,7 +67,7 @@ def init(
         if not source_type:
             typer.echo("--source-type is required with --non-interactive", err=True)
             raise typer.Exit(code=1)
-        from feather.init_wizard import run_non_interactive
+        from feather_etl.init_wizard import run_non_interactive
 
         result = run_non_interactive(
             project_path, source_type,
@@ -85,7 +85,7 @@ def init(
         if not source_type:
             typer.echo("--source-type is required when using wizard flags", err=True)
             raise typer.Exit(code=1)
-        from feather.init_wizard import run_non_interactive
+        from feather_etl.init_wizard import run_non_interactive
 
         result = run_non_interactive(
             project_path, source_type,
@@ -100,7 +100,7 @@ def init(
             typer.echo(f"  {result['tables_configured']} table(s) configured")
     else:
         # No wizard flags → run interactive wizard
-        from feather.init_wizard import run_interactive
+        from feather_etl.init_wizard import run_interactive
 
         try:
             result = run_interactive(project_path)
@@ -108,7 +108,7 @@ def init(
                 emit_line(result, json_mode=True)
         except (EOFError, typer.Abort):
             # Non-interactive environment (no stdin) → scaffold only
-            from feather.init_wizard import scaffold_project
+            from feather_etl.init_wizard import scaffold_project
 
             scaffold_project(project_path)
             if _is_json(ctx):
@@ -144,7 +144,7 @@ def validate(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--
 @app.command()
 def discover(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")) -> None:
     """List tables and columns available in the configured source."""
-    from feather.sources.registry import create_source
+    from feather_etl.sources.registry import create_source
 
     cfg = _load_and_validate(config)
     source = create_source(cfg.source)
@@ -181,8 +181,8 @@ def setup(
     mode: str | None = typer.Option(None, "--mode"),
 ) -> None:
     """Preview and initialize state DB and schemas. Optional — feather run creates them automatically."""
-    from feather.destinations.duckdb import DuckDBDestination
-    from feather.state import StateManager
+    from feather_etl.destinations.duckdb import DuckDBDestination
+    from feather_etl.state import StateManager
 
     cfg = _load_and_validate(config, mode_override=mode)
     if not _is_json(ctx):
@@ -200,7 +200,7 @@ def setup(
         typer.echo(f"Schemas created in: {cfg.destination.path}")
 
     # Execute transforms (silver views, gold views/tables) if any exist
-    from feather.transforms import (
+    from feather_etl.transforms import (
         build_execution_order,
         discover_transforms,
         execute_transforms,
@@ -271,7 +271,7 @@ def run(
     table: str | None = typer.Option(None, "--table", help="Extract only this table."),
 ) -> None:
     """Extract all configured tables (or a single table with --table)."""
-    from feather.pipeline import run_all
+    from feather_etl.pipeline import run_all
 
     cfg = _load_and_validate(config, mode_override=mode)
     if not _is_json(ctx):
@@ -328,7 +328,7 @@ def history(
     limit: int = typer.Option(20, "--limit", help="Maximum number of runs to show."),
 ) -> None:
     """Show recent run history."""
-    from feather.state import StateManager
+    from feather_etl.state import StateManager
 
     cfg = _load_and_validate(config)
     state_path = cfg.config_dir / "feather_state.duckdb"
@@ -380,7 +380,7 @@ def history(
 @app.command()
 def status(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")) -> None:
     """Show last run status for all tables."""
-    from feather.state import StateManager
+    from feather_etl.state import StateManager
 
     cfg = _load_and_validate(config)
     state_path = cfg.config_dir / "feather_state.duckdb"

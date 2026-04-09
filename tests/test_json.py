@@ -23,33 +23,33 @@ def json_dir(tmp_path: Path) -> Path:
 
 class TestJsonSourceRegistry:
     def test_source_in_registry(self):
-        from feather.sources.registry import SOURCE_REGISTRY
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.registry import SOURCE_REGISTRY
+        from feather_etl.sources.json_source import JsonSource
 
         assert "json" in SOURCE_REGISTRY
         assert SOURCE_REGISTRY["json"] is JsonSource
 
     def test_json_in_file_source_types(self):
-        from feather.config import FILE_SOURCE_TYPES
+        from feather_etl.config import FILE_SOURCE_TYPES
 
         assert "json" in FILE_SOURCE_TYPES
 
 
 class TestJsonSourceCheck:
     def test_check_existing_dir(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         assert src.check() is True
 
     def test_check_nonexistent(self, tmp_path: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=tmp_path / "nope")
         assert src.check() is False
 
     def test_check_file_not_dir(self, tmp_path: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         f = tmp_path / "file.json"
         f.write_text("[{}]")
@@ -59,7 +59,7 @@ class TestJsonSourceCheck:
 
 class TestJsonSourceDiscover:
     def test_discover_finds_json_files(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         schemas = src.discover()
@@ -69,7 +69,7 @@ class TestJsonSourceDiscover:
         assert "products.json" in names
 
     def test_discover_schema_has_columns(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         schemas = src.discover()
@@ -79,7 +79,7 @@ class TestJsonSourceDiscover:
         assert "product" in col_names
 
     def test_discover_supports_incremental_false(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         schemas = src.discover()
@@ -89,7 +89,7 @@ class TestJsonSourceDiscover:
 
 class TestJsonSourceGetSchema:
     def test_get_schema_orders(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         cols = src.get_schema("orders.json")
@@ -99,7 +99,7 @@ class TestJsonSourceGetSchema:
         assert "product" in col_names
 
     def test_get_schema_returns_list_of_tuples(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         cols = src.get_schema("customers.json")
@@ -109,7 +109,7 @@ class TestJsonSourceGetSchema:
 
 class TestJsonSourceExtract:
     def test_extract_orders_full(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         table = src.extract("orders.json")
@@ -117,21 +117,21 @@ class TestJsonSourceExtract:
         assert table.num_rows == 5
 
     def test_extract_customers_row_count(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         table = src.extract("customers.json")
         assert table.num_rows == 4
 
     def test_extract_products_row_count(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         table = src.extract("products.json")
         assert table.num_rows == 3
 
     def test_extract_with_columns(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         table = src.extract("orders.json", columns=["order_id", "product"])
@@ -139,7 +139,7 @@ class TestJsonSourceExtract:
         assert table.num_rows == 5
 
     def test_extract_with_filter(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         table = src.extract("orders.json", filter="quantity > 1")
@@ -148,7 +148,7 @@ class TestJsonSourceExtract:
         assert all(q > 1 for q in quantities)
 
     def test_extract_returns_pyarrow_table(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         result = src.extract("products.json")
@@ -157,7 +157,7 @@ class TestJsonSourceExtract:
 
 class TestJsonSourceDetectChanges:
     def test_detect_changes_first_run(self, json_dir: Path):
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         result = src.detect_changes("orders.json")
@@ -169,7 +169,7 @@ class TestJsonSourceDetectChanges:
     def test_detect_changes_unchanged(self, json_dir: Path):
         import os
 
-        from feather.sources.json_source import JsonSource
+        from feather_etl.sources.json_source import JsonSource
 
         src = JsonSource(path=json_dir)
         first = src.detect_changes("orders.json")

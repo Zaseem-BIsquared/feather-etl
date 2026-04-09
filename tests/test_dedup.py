@@ -11,7 +11,7 @@ import yaml
 class TestDedupConfig:
     def test_dedup_and_dedup_columns_mutually_exclusive(self, tmp_path: Path):
         """Validation rejects both dedup and dedup_columns set."""
-        from feather.config import load_config
+        from feather_etl.config import load_config
         import pytest
 
         config = {
@@ -36,8 +36,8 @@ class TestDedupConfig:
 class TestDedupExtraction:
     def test_dedup_true_removes_exact_duplicates(self, tmp_path: Path):
         """dedup: true causes SELECT DISTINCT at extraction."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         # Create CSV with duplicate rows
         csv_dir = tmp_path / "data"
@@ -65,8 +65,8 @@ class TestDedupExtraction:
 
     def test_dedup_columns_deduplicates_by_key(self, tmp_path: Path):
         """dedup_columns removes duplicates by specified columns."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         csv_dir = tmp_path / "data"
         csv_dir.mkdir()
@@ -93,8 +93,8 @@ class TestDedupExtraction:
 
     def test_no_dedup_keeps_all_rows(self, tmp_path: Path):
         """Without dedup config, all rows are kept including duplicates."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         csv_dir = tmp_path / "data"
         csv_dir.mkdir()
@@ -120,8 +120,8 @@ class TestDedupExtraction:
 
     def test_dedup_works_for_json_source(self, tmp_path: Path):
         """Dedup works for JSON sources via pipeline-level _apply_dedup."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         json_dir = tmp_path / "data"
         json_dir.mkdir()

@@ -7,7 +7,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from feather.dq import run_dq_checks
+from feather_etl.dq import run_dq_checks
 
 
 @pytest.fixture
@@ -158,9 +158,9 @@ class TestPipelineIntegration:
         import yaml
 
         from tests.conftest import FIXTURES_DIR
-        from feather.config import load_config
-        from feather.pipeline import run_table
-        from feather.state import StateManager
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
+        from feather_etl.state import StateManager
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
@@ -195,8 +195,8 @@ class TestPipelineIntegration:
         import yaml
 
         from tests.conftest import FIXTURES_DIR
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)

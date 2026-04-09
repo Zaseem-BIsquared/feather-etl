@@ -48,7 +48,7 @@ class TestTableFilter:
         self, two_table_env: tuple[Path, Path]
     ):
         """--table inventory_group should extract only that table."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, tmp_path = two_table_env
         result = runner.invoke(
@@ -63,7 +63,7 @@ class TestTableFilter:
         self, two_table_env: tuple[Path, Path]
     ):
         """--table nonexistent should exit with code 1 and show error."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = two_table_env
         result = runner.invoke(
@@ -78,7 +78,7 @@ class TestTableFilter:
         self, two_table_env: tuple[Path, Path]
     ):
         """Without --table, all configured tables are extracted."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = two_table_env
         result = runner.invoke(app, ["run", "--config", str(config_path)])
@@ -90,7 +90,7 @@ class TestTableFilter:
 class TestHistory:
     def test_history_shows_runs_after_run(self, two_table_env: tuple[Path, Path]):
         """feather history shows a table of recent runs."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = two_table_env
         runner.invoke(app, ["run", "--config", str(config_path)])
@@ -101,7 +101,7 @@ class TestHistory:
 
     def test_history_table_filter(self, two_table_env: tuple[Path, Path]):
         """feather history --table inventory_group shows only that table's runs."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = two_table_env
         runner.invoke(app, ["run", "--config", str(config_path)])
@@ -115,7 +115,7 @@ class TestHistory:
 
     def test_history_limit(self, two_table_env: tuple[Path, Path]):
         """feather history --limit 1 shows at most 1 run."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = two_table_env
         # Run twice to build up history
@@ -139,7 +139,7 @@ class TestHistory:
         self, two_table_env: tuple[Path, Path]
     ):
         """feather history with no runs shows a friendly message."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = two_table_env
         runner.invoke(app, ["setup", "--config", str(config_path)])

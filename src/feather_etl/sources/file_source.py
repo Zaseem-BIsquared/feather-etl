@@ -6,7 +6,7 @@ import hashlib
 import os
 from pathlib import Path
 
-from feather.sources import ChangeResult
+from feather_etl.sources import ChangeResult
 
 
 class FileSource:

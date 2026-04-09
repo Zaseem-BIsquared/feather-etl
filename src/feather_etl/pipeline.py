@@ -13,11 +13,11 @@ import duckdb
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from feather.alerts import alert_on_dq_failure, alert_on_failure, alert_on_schema_drift
-from feather.config import FeatherConfig, TableConfig
-from feather.destinations.duckdb import DuckDBDestination
-from feather.sources.registry import create_source
-from feather.state import StateManager
+from feather_etl.alerts import alert_on_dq_failure, alert_on_failure, alert_on_schema_drift
+from feather_etl.config import FeatherConfig, TableConfig
+from feather_etl.destinations.duckdb import DuckDBDestination
+from feather_etl.sources.registry import create_source
+from feather_etl.state import StateManager
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class _JsonlFormatter(logging.Formatter):
 def _setup_jsonl_logging(config_dir: Path) -> None:
     """Add a JSONL FileHandler to the feather logger (idempotent)."""
     log_path = config_dir / "feather_log.jsonl"
-    feather_logger = logging.getLogger("feather")
+    feather_logger = logging.getLogger("feather_etl")
 
     # Guard against duplicate handlers across multiple run_all() calls
     for h in feather_logger.handlers:
@@ -243,7 +243,7 @@ def run_table(
         # Schema drift detection (V10)
         schema_changes_json: str | None = None
         try:
-            from feather.schema_drift import detect_drift
+            from feather_etl.schema_drift import detect_drift
 
             current_schema = source.get_schema(table.source_table)
             stored_schema = state.get_schema_snapshot(table.name)
@@ -372,7 +372,7 @@ def run_table(
 
         # Run DQ checks after load (FR8.5: against local DuckDB table)
         try:
-            from feather.dq import run_dq_checks
+            from feather_etl.dq import run_dq_checks
 
             dq_con = dest._connect()
             try:
@@ -513,7 +513,7 @@ def run_all(
     any_ok = any(r.status in ("success", "skipped") for r in results)
     if any_ok:
         try:
-            from feather.transforms import (
+            from feather_etl.transforms import (
                 build_execution_order,
                 discover_transforms,
                 execute_transforms,

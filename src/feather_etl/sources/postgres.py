@@ -8,8 +8,8 @@ import psycopg2
 import psycopg2.extras
 import pyarrow as pa
 
-from feather.sources import ChangeResult, StreamSchema
-from feather.sources.database_source import DatabaseSource
+from feather_etl.sources import ChangeResult, StreamSchema
+from feather_etl.sources.database_source import DatabaseSource
 
 # psycopg2 cursor.description[1] is a PostgreSQL OID integer → PyArrow type
 _PSYCOPG2_TYPE_MAP: dict[int, pa.DataType] = {

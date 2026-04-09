@@ -6,9 +6,9 @@ from pathlib import Path
 import duckdb
 import pyarrow as pa
 
-from feather.destinations.duckdb import DuckDBDestination
-from feather.sources.file_source import FileSource
-from feather.state import StateManager
+from feather_etl.destinations.duckdb import DuckDBDestination
+from feather_etl.sources.file_source import FileSource
+from feather_etl.state import StateManager
 
 
 class TestBuildWhereClause:
@@ -173,7 +173,7 @@ class TestPipelineIncremental:
 
     def _make_config(self, tmp_path: Path, src_path: Path, filter: str | None = None):
         import yaml
-        from feather.config import load_config
+        from feather_etl.config import load_config
 
         table_def = {
             "name": "orders",
@@ -195,7 +195,7 @@ class TestPipelineIncremental:
         return load_config(config_file), config_file
 
     def test_first_incremental_run_extracts_all(self, tmp_path: Path):
-        from feather.pipeline import run_table
+        from feather_etl.pipeline import run_table
 
         src_path = self._make_source_db(tmp_path)
         cfg, _ = self._make_config(tmp_path, src_path)
@@ -212,7 +212,7 @@ class TestPipelineIncremental:
         assert "2025-01-05" in str(wm["last_value"])
 
     def test_second_run_no_new_rows_extracts_zero(self, tmp_path: Path):
-        from feather.pipeline import run_table
+        from feather_etl.pipeline import run_table
 
         src_path = self._make_source_db(tmp_path)
         cfg, _ = self._make_config(tmp_path, src_path)
@@ -224,7 +224,7 @@ class TestPipelineIncremental:
         assert result.status == "skipped"
 
     def test_incremental_after_new_rows(self, tmp_path: Path):
-        from feather.pipeline import run_table
+        from feather_etl.pipeline import run_table
 
         src_path = self._make_source_db(tmp_path)
         cfg, _ = self._make_config(tmp_path, src_path)
@@ -256,7 +256,7 @@ class TestPipelineIncremental:
 
     def test_run_after_incremental_no_new_rows_watermark_unchanged(self, tmp_path: Path):
         """PRD scenario 4: run after incremental, no new rows → watermark unchanged."""
-        from feather.pipeline import run_table
+        from feather_etl.pipeline import run_table
 
         src_path = self._make_source_db(tmp_path)
         cfg, _ = self._make_config(tmp_path, src_path)
@@ -283,7 +283,7 @@ class TestPipelineIncremental:
 
     def test_filter_excludes_matching_rows(self, tmp_path: Path):
         """PRD scenario 5: filter field prevents matching rows from appearing."""
-        from feather.pipeline import run_table
+        from feather_etl.pipeline import run_table
 
         src_path = self._make_source_db(tmp_path)
         # Add a cancelled row
@@ -336,7 +336,7 @@ class TestIncrementalWithFixture:
 
     def _make_config(self, tmp_path: Path, src_path: Path, filter: str | None = None):
         import yaml
-        from feather.config import load_config
+        from feather_etl.config import load_config
 
         table_def = {
             "name": "sales",
@@ -359,7 +359,7 @@ class TestIncrementalWithFixture:
 
     def test_full_incremental_cycle_with_fixture(self, sample_erp_db, tmp_path: Path):
         """Full PRD cycle: first run → no change → add rows → incremental."""
-        from feather.pipeline import run_table
+        from feather_etl.pipeline import run_table
 
         cfg, _ = self._make_config(tmp_path, sample_erp_db)
 
@@ -407,7 +407,7 @@ class TestIncrementalWithFixture:
 
     def test_filter_with_fixture(self, sample_erp_db, tmp_path: Path):
         """erp.sales has 2 cancelled rows — filter should exclude them."""
-        from feather.pipeline import run_table
+        from feather_etl.pipeline import run_table
 
         cfg, _ = self._make_config(
             tmp_path, sample_erp_db, filter="status <> 'cancelled'"
@@ -426,7 +426,7 @@ class TestIncrementalWithFixture:
 
     def test_overlap_window_arithmetic(self, sample_erp_db, tmp_path: Path):
         """Verify effective_watermark = stored_watermark - overlap_window_minutes."""
-        from feather.pipeline import run_table
+        from feather_etl.pipeline import run_table
 
         cfg, _ = self._make_config(tmp_path, sample_erp_db)
 

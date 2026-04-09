@@ -15,7 +15,7 @@ CURRENT_SCHEMA_VERSION = 1
 
 class TestStateInit:
     def test_creates_all_tables(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -40,7 +40,7 @@ class TestStateInit:
         assert tables == expected
 
     def test_state_meta_version(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -51,7 +51,7 @@ class TestStateInit:
         assert row[0] == CURRENT_SCHEMA_VERSION
 
     def test_idempotent_init(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -63,7 +63,7 @@ class TestStateInit:
         assert count == 1
 
     def test_downgrade_protection(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -77,7 +77,7 @@ class TestStateInit:
             sm.init_state()
 
     def test_new_state_db_gets_600_permissions(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -85,17 +85,17 @@ class TestStateInit:
         assert mode == 0o600
 
     def test_chmod_oserror_is_swallowed(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
-        with patch("feather.state.os.chmod", side_effect=OSError("denied")):
+        with patch("feather_etl.state.os.chmod", side_effect=OSError("denied")):
             sm.init_state()  # should not raise
         assert sm.path.exists()
 
 
 class TestWatermarks:
     def test_write_and_read(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -107,14 +107,14 @@ class TestWatermarks:
         assert wm["strategy"] == "full"
 
     def test_read_nonexistent(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
         assert sm.read_watermark("nonexistent") is None
 
     def test_upsert_watermark(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -130,7 +130,7 @@ class TestWatermarks:
         assert count == 1
 
     def test_write_watermark_with_mtime_and_hash(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -146,7 +146,7 @@ class TestWatermarks:
         assert wm["last_file_hash"] == "abc123def456"
 
     def test_write_watermark_update_preserves_mtime_hash(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -168,7 +168,7 @@ class TestWatermarks:
         assert wm["last_file_hash"] == "hash2"
 
     def test_write_watermark_without_mtime_hash_stays_null(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -180,7 +180,7 @@ class TestWatermarks:
 
     def test_write_watermark_preserves_last_value_on_update(self, tmp_path: Path):
         """H-1: write_watermark() without last_value must preserve existing last_value."""
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -209,7 +209,7 @@ class TestWatermarks:
 
     def test_write_watermark_updates_last_value_when_provided(self, tmp_path: Path):
         """H-1: write_watermark() with explicit last_value should update it."""
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -234,7 +234,7 @@ class TestConnectionCleanup:
     def test_read_watermark_closes_on_error(self, tmp_path: Path):
         from unittest.mock import MagicMock
 
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -251,7 +251,7 @@ class TestConnectionCleanup:
     def test_write_watermark_closes_on_error(self, tmp_path: Path):
         from unittest.mock import MagicMock
 
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -268,7 +268,7 @@ class TestConnectionCleanup:
     def test_record_run_closes_on_error(self, tmp_path: Path):
         from unittest.mock import MagicMock
 
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -292,7 +292,7 @@ class TestConnectionCleanup:
     def test_get_status_closes_on_error(self, tmp_path: Path):
         from unittest.mock import MagicMock
 
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -309,7 +309,7 @@ class TestConnectionCleanup:
 
 class TestRuns:
     def test_record_and_get_status(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()

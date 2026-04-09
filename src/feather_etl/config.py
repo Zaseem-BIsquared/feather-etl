@@ -146,7 +146,7 @@ def _merge_tables_dir(config_dir: Path, tables: list[dict]) -> list[dict]:
 
 def _validate(config: FeatherConfig) -> list[str]:
     """Validate config, return list of error messages."""
-    from feather.sources.registry import SOURCE_REGISTRY
+    from feather_etl.sources.registry import SOURCE_REGISTRY
 
     errors: list[str] = []
 

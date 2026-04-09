@@ -16,8 +16,8 @@ GLOB_FIXTURES = FIXTURES_DIR / "csv_glob"
 class TestCsvGlobExtraction:
     def test_glob_extracts_all_matching_files(self, tmp_path: Path):
         """source_table: 'sales_*.csv' extracts all matching files as one table."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
@@ -40,8 +40,8 @@ class TestCsvGlobExtraction:
 
     def test_glob_no_match_fails(self, tmp_path: Path):
         """Glob that matches no files should fail gracefully."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         data_dir = tmp_path / "data"
         data_dir.mkdir()
@@ -67,8 +67,8 @@ class TestCsvGlobExtraction:
 class TestCsvGlobChangeDetection:
     def test_no_change_skips(self, tmp_path: Path):
         """Second run with no file changes should skip extraction."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
@@ -91,8 +91,8 @@ class TestCsvGlobChangeDetection:
 
     def test_new_file_triggers_reextract(self, tmp_path: Path):
         """Adding a new matching file should trigger re-extraction."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
@@ -121,8 +121,8 @@ class TestCsvGlobChangeDetection:
     def test_modified_file_triggers_reextract(self, tmp_path: Path):
         """Modifying a matching file should trigger re-extraction."""
         import time
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
@@ -155,7 +155,7 @@ class TestCsvGlobChangeDetection:
 class TestCsvGlobDiscover:
     def test_discover_shows_glob_as_single_table(self, tmp_path: Path):
         """feather discover shows a glob pattern as one logical table."""
-        from feather.sources.csv import CsvSource
+        from feather_etl.sources.csv import CsvSource
 
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)

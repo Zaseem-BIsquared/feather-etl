@@ -6,7 +6,7 @@ from pathlib import Path
 
 import duckdb
 
-from feather.schema_drift import detect_drift
+from feather_etl.schema_drift import detect_drift
 
 
 class TestDetectDrift:
@@ -65,7 +65,7 @@ class TestDetectDrift:
 
 class TestStateSnapshot:
     def test_save_and_read_snapshot(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -76,14 +76,14 @@ class TestStateSnapshot:
         assert stored == [("id", "INTEGER"), ("name", "VARCHAR")]
 
     def test_no_snapshot_returns_none(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
         assert sm.get_schema_snapshot("nonexistent") is None
 
     def test_upsert_overwrites(self, tmp_path: Path):
-        from feather.state import StateManager
+        from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
@@ -104,9 +104,9 @@ class TestPipelineIntegration:
         import yaml
 
         from tests.conftest import FIXTURES_DIR
-        from feather.config import load_config
-        from feather.pipeline import run_table
-        from feather.state import StateManager
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
+        from feather_etl.state import StateManager
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
@@ -139,9 +139,9 @@ class TestPipelineIntegration:
         import yaml
 
         from tests.conftest import FIXTURES_DIR
-        from feather.config import load_config
-        from feather.pipeline import run_table
-        from feather.state import StateManager
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
+        from feather_etl.state import StateManager
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)

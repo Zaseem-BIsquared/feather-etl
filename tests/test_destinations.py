@@ -22,7 +22,7 @@ def _sample_arrow_table(num_rows: int = 10) -> pa.Table:
 
 class TestDuckDBDestination:
     def test_setup_schemas(self, tmp_path: Path):
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)
@@ -40,7 +40,7 @@ class TestDuckDBDestination:
             assert s in schemas
 
     def test_load_full_creates_table(self, tmp_path: Path):
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)
@@ -56,7 +56,7 @@ class TestDuckDBDestination:
         con.close()
 
     def test_load_full_has_etl_metadata(self, tmp_path: Path):
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)
@@ -74,7 +74,7 @@ class TestDuckDBDestination:
         assert row[1] == "run_xyz"  # _etl_run_id
 
     def test_load_full_swap_replaces_data(self, tmp_path: Path):
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)
@@ -96,7 +96,7 @@ class TestDuckDBDestination:
         assert run_id == "run_2"
 
     def test_new_db_gets_600_permissions(self, tmp_path: Path):
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "new_data.duckdb"
         dest = DuckDBDestination(path=db_path)
@@ -105,16 +105,16 @@ class TestDuckDBDestination:
         assert mode == 0o600
 
     def test_chmod_oserror_is_swallowed(self, tmp_path: Path):
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)
-        with patch("feather.destinations.duckdb.os.chmod", side_effect=OSError("denied")):
+        with patch("feather_etl.destinations.duckdb.os.chmod", side_effect=OSError("denied")):
             dest.setup_schemas()  # should not raise
         assert db_path.exists()
 
     def test_load_full_rollback_on_error(self, tmp_path: Path):
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)

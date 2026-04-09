@@ -198,8 +198,8 @@ def run_non_interactive(
     tables_filter: str | None = None,
 ) -> dict:
     """Non-interactive wizard: discover tables, generate config."""
-    from feather.config import SourceConfig
-    from feather.sources.registry import create_source
+    from feather_etl.config import SourceConfig
+    from feather_etl.sources.registry import create_source
 
     scaffold_project(project_path)
 
@@ -227,8 +227,8 @@ def run_interactive(project_path: Path) -> dict:
     """Interactive wizard: prompt for source, discover, select tables."""
     import typer
 
-    from feather.config import SourceConfig
-    from feather.sources.registry import create_source
+    from feather_etl.config import SourceConfig
+    from feather_etl.sources.registry import create_source
 
     scaffold_project(project_path)
 

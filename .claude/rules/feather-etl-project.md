@@ -25,7 +25,7 @@ If anything is red before you touch anything, report immediately.
 ## Directory Structure
 
 ```
-src/feather/
+src/feather_etl/
   cli.py              Typer CLI: validate, discover, run, setup, status, init
   config.py           YAML config loader + validation
   pipeline.py         run_all() orchestration + change detection integration
@@ -100,4 +100,4 @@ Change detection: `FileSource.detect_changes()` checks mtime first, falls back t
 
 ## Entry Point
 
-`feather = "feather.cli:app"` (Typer). All commands accept `--config PATH` (default: `feather.yaml`).
+`feather = "feather_etl.cli:app"` (Typer). All commands accept `--config PATH` (default: `feather.yaml`).

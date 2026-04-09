@@ -9,8 +9,8 @@ from pathlib import Path
 import duckdb
 import pyarrow as pa
 
-from feather.sources import ChangeResult, StreamSchema
-from feather.sources.file_source import FileSource
+from feather_etl.sources import ChangeResult, StreamSchema
+from feather_etl.sources.file_source import FileSource
 
 
 def _is_glob(table: str) -> bool:

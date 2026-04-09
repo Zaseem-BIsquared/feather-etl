@@ -15,8 +15,8 @@ from tests.conftest import FIXTURES_DIR
 class TestJsonlLogging:
     def test_feather_log_jsonl_created(self, tmp_path: Path):
         """feather_log.jsonl is created alongside state DB after feather run."""
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
@@ -42,8 +42,8 @@ class TestJsonlLogging:
         assert log_path.exists()
 
     def test_each_line_is_valid_json(self, tmp_path: Path):
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
@@ -75,8 +75,8 @@ class TestJsonlLogging:
             assert "event" in entry
 
     def test_log_is_append_only(self, tmp_path: Path):
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
@@ -108,7 +108,7 @@ class TestJsonlLogging:
 
 class TestOutputHelper:
     def test_emit_single_dict_json_mode(self, capsys):
-        from feather.output import emit_line
+        from feather_etl.output import emit_line
 
         emit_line({"table": "orders", "status": "success"}, json_mode=True)
         out = capsys.readouterr().out
@@ -116,13 +116,13 @@ class TestOutputHelper:
         assert parsed["table"] == "orders"
 
     def test_emit_single_dict_noop_in_normal_mode(self, capsys):
-        from feather.output import emit_line
+        from feather_etl.output import emit_line
 
         emit_line({"table": "orders"}, json_mode=False)
         assert capsys.readouterr().out == ""
 
     def test_emit_list_outputs_ndjson(self, capsys):
-        from feather.output import emit
+        from feather_etl.output import emit
 
         data = [
             {"table": "orders", "status": "success"},
@@ -137,7 +137,7 @@ class TestOutputHelper:
     def test_emit_datetime_serialized(self, capsys):
         from datetime import datetime, timezone
 
-        from feather.output import emit_line
+        from feather_etl.output import emit_line
 
         dt = datetime(2026, 3, 28, 12, 0, 0, tzinfo=timezone.utc)
         emit_line({"ts": dt}, json_mode=True)
@@ -173,7 +173,7 @@ def _cli_config(tmp_path: Path) -> Path:
 
 class TestCliJsonFlag:
     def test_run_json_outputs_ndjson(self, tmp_path: Path):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_file = _cli_config(tmp_path)
         result = runner.invoke(app, ["--json", "run", "--config", str(config_file)])
@@ -187,7 +187,7 @@ class TestCliJsonFlag:
 
     def test_status_json_outputs_ndjson(self, tmp_path: Path):
         """AC-FR11.d: feather status --json outputs NDJSON with required fields."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_file = _cli_config(tmp_path)
         # Run first to create state
@@ -202,7 +202,7 @@ class TestCliJsonFlag:
         assert "status" in parsed
 
     def test_validate_json_outputs_json(self, tmp_path: Path):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_file = _cli_config(tmp_path)
         result = runner.invoke(app, ["--json", "validate", "--config", str(config_file)])
@@ -212,7 +212,7 @@ class TestCliJsonFlag:
         assert "tables_count" in parsed
 
     def test_history_json_outputs_ndjson(self, tmp_path: Path):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_file = _cli_config(tmp_path)
         runner.invoke(app, ["run", "--config", str(config_file)])
@@ -227,7 +227,7 @@ class TestCliJsonFlag:
 
     def test_default_output_unchanged(self, tmp_path: Path):
         """Default (no --json) output should still be human-readable."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_file = _cli_config(tmp_path)
         result = runner.invoke(app, ["validate", "--config", str(config_file)])

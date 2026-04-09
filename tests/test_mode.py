@@ -42,7 +42,7 @@ def _write_config(tmp_path: Path, mode: str | None = None, **overrides) -> Path:
 
 def test_config_mode_defaults_to_dev(tmp_path):
     """mode defaults to 'dev' when not specified."""
-    from feather.config import load_config
+    from feather_etl.config import load_config
 
     config_path = _write_config(tmp_path)
     cfg = load_config(config_path)
@@ -51,7 +51,7 @@ def test_config_mode_defaults_to_dev(tmp_path):
 
 def test_config_mode_parsed_from_yaml(tmp_path):
     """mode: prod in YAML is parsed correctly."""
-    from feather.config import load_config
+    from feather_etl.config import load_config
 
     config_path = _write_config(tmp_path, mode="prod")
     cfg = load_config(config_path)
@@ -60,7 +60,7 @@ def test_config_mode_parsed_from_yaml(tmp_path):
 
 def test_config_invalid_mode_rejected(tmp_path):
     """Invalid mode value raises validation error."""
-    from feather.config import load_config
+    from feather_etl.config import load_config
 
     config_path = _write_config(tmp_path, mode="staging")
     with pytest.raises(ValueError, match="mode"):
@@ -69,7 +69,7 @@ def test_config_invalid_mode_rejected(tmp_path):
 
 def test_config_mode_env_var_overrides_yaml(tmp_path, monkeypatch):
     """FEATHER_MODE env var overrides YAML mode."""
-    from feather.config import load_config
+    from feather_etl.config import load_config
 
     config_path = _write_config(tmp_path, mode="dev")
     monkeypatch.setenv("FEATHER_MODE", "prod")
@@ -79,7 +79,7 @@ def test_config_mode_env_var_overrides_yaml(tmp_path, monkeypatch):
 
 def test_config_mode_cli_override(tmp_path):
     """mode_override parameter overrides both YAML and env var."""
-    from feather.config import load_config
+    from feather_etl.config import load_config
 
     config_path = _write_config(tmp_path, mode="dev")
     cfg = load_config(config_path, mode_override="prod")
@@ -88,7 +88,7 @@ def test_config_mode_cli_override(tmp_path):
 
 def test_config_row_limit_parsed(tmp_path):
     """defaults.row_limit is parsed from YAML."""
-    from feather.config import load_config
+    from feather_etl.config import load_config
 
     config_path = _write_config(tmp_path, defaults={"row_limit": 100})
     cfg = load_config(config_path)
@@ -97,7 +97,7 @@ def test_config_row_limit_parsed(tmp_path):
 
 def test_config_row_limit_defaults_to_none(tmp_path):
     """defaults.row_limit defaults to None."""
-    from feather.config import load_config
+    from feather_etl.config import load_config
 
     config_path = _write_config(tmp_path)
     cfg = load_config(config_path)
@@ -108,7 +108,7 @@ def test_config_empty_target_table_valid_with_mode(tmp_path):
     """Tables without target_table are valid — mode derives the target."""
     import shutil
 
-    from feather.config import load_config
+    from feather_etl.config import load_config
 
     src_db = tmp_path / "sample_erp.duckdb"
     shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)
@@ -141,8 +141,8 @@ def _run_pipeline(tmp_path: Path, mode: str, column_map: dict[str, str] | None =
     """Helper: run pipeline and return (config, results, dest_path)."""
     import shutil
 
-    from feather.config import load_config
-    from feather.pipeline import run_all
+    from feather_etl.config import load_config
+    from feather_etl.pipeline import run_all
 
     src_db = tmp_path / "sample_erp.duckdb"
     shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)
@@ -260,8 +260,8 @@ def _run_with_transforms(tmp_path: Path, mode: str) -> Path:
     """Helper: run pipeline with a gold transform SQL file and return dest_path."""
     import shutil
 
-    from feather.config import load_config
-    from feather.pipeline import run_all
+    from feather_etl.config import load_config
+    from feather_etl.pipeline import run_all
 
     src_db = tmp_path / "sample_erp.duckdb"
     shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)
@@ -347,8 +347,8 @@ def test_test_mode_with_row_limit(tmp_path):
     """Test mode with row_limit: extracts at most N rows."""
     import shutil
 
-    from feather.config import load_config
-    from feather.pipeline import run_all
+    from feather_etl.config import load_config
+    from feather_etl.pipeline import run_all
 
     src_db = tmp_path / "sample_erp.duckdb"
     shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)
@@ -387,8 +387,8 @@ def test_dev_mode_ignores_row_limit(tmp_path):
     """Dev mode ignores row_limit even if set."""
     import shutil
 
-    from feather.config import load_config
-    from feather.pipeline import run_all
+    from feather_etl.config import load_config
+    from feather_etl.pipeline import run_all
 
     src_db = tmp_path / "sample_erp.duckdb"
     shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)
@@ -434,8 +434,8 @@ def test_cli_mode_overrides_yaml(tmp_path):
     # Now re-run with mode_override=prod — should go to silver
     import shutil
 
-    from feather.config import load_config
-    from feather.pipeline import run_all
+    from feather_etl.config import load_config
+    from feather_etl.pipeline import run_all
 
     tmp2 = tmp_path / "prod_run"
     tmp2.mkdir()
@@ -474,7 +474,7 @@ def test_cli_mode_flag_via_runner(tmp_path):
 
     from typer.testing import CliRunner
 
-    from feather.cli import app
+    from feather_etl.cli import app
 
     src_db = tmp_path / "sample_erp.duckdb"
     shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)
@@ -510,8 +510,8 @@ def test_env_var_overrides_yaml(tmp_path, monkeypatch):
     """FEATHER_MODE=prod env var overrides mode: dev in YAML."""
     import shutil
 
-    from feather.config import load_config
-    from feather.pipeline import run_all
+    from feather_etl.config import load_config
+    from feather_etl.pipeline import run_all
 
     src_db = tmp_path / "sample_erp.duckdb"
     shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)

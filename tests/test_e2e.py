@@ -14,7 +14,7 @@ runner = CliRunner()
 
 def test_full_onboarding_flow(tmp_path: Path):
     """init → validate → discover → setup → run → status → run again."""
-    from feather.cli import app
+    from feather_etl.cli import app
 
     # --- 1. feather init ---
     project_dir = tmp_path / "client-test"

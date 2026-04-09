@@ -36,13 +36,13 @@ class TestDatabaseSourceFormatWatermark:
     """The base class default passes values through unchanged."""
 
     def test_default_passthrough(self):
-        from feather.sources.database_source import DatabaseSource
+        from feather_etl.sources.database_source import DatabaseSource
 
         ds = DatabaseSource("dummy")
         assert ds._format_watermark("2026-01-01T10:00:00") == "2026-01-01T10:00:00"
 
     def test_sqlserver_override_replaces_T(self):
-        from feather.sources.sqlserver import SqlServerSource
+        from feather_etl.sources.sqlserver import SqlServerSource
 
         src = SqlServerSource("dummy")
         result = src._format_watermark("2026-01-01T10:00:00.123456")
@@ -50,7 +50,7 @@ class TestDatabaseSourceFormatWatermark:
         assert result == "2026-01-01 10:00:00.123"
 
     def test_sqlserver_override_no_fractional(self):
-        from feather.sources.sqlserver import SqlServerSource
+        from feather_etl.sources.sqlserver import SqlServerSource
 
         src = SqlServerSource("dummy")
         result = src._format_watermark("2026-01-01T10:00:00")
@@ -58,7 +58,7 @@ class TestDatabaseSourceFormatWatermark:
 
     def test_build_where_uses_format_watermark(self):
         """_build_where_clause delegates to _format_watermark."""
-        from feather.sources.database_source import DatabaseSource
+        from feather_etl.sources.database_source import DatabaseSource
 
         ds = DatabaseSource("dummy")
         result = ds._build_where_clause(
@@ -76,28 +76,28 @@ class TestDatabaseSourceFormatWatermark:
 
 class TestPostgresSourceUnit:
     def test_source_in_registry(self):
-        from feather.sources.registry import SOURCE_REGISTRY
-        from feather.sources.postgres import PostgresSource
+        from feather_etl.sources.registry import SOURCE_REGISTRY
+        from feather_etl.sources.postgres import PostgresSource
 
         assert "postgres" in SOURCE_REGISTRY
         assert SOURCE_REGISTRY["postgres"] is PostgresSource
 
     def test_watermark_passthrough(self):
         """PostgresSource uses the default _format_watermark (ISO unchanged)."""
-        from feather.sources.postgres import PostgresSource
+        from feather_etl.sources.postgres import PostgresSource
 
         src = PostgresSource(CONN_STR)
         assert src._format_watermark("2026-01-01T10:00:00") == "2026-01-01T10:00:00"
 
     def test_build_where_filter_only(self):
-        from feather.sources.postgres import PostgresSource
+        from feather_etl.sources.postgres import PostgresSource
 
         src = PostgresSource(CONN_STR)
         result = src._build_where_clause(filter="active = true")
         assert result == " WHERE (active = true)"
 
     def test_build_where_watermark_only(self):
-        from feather.sources.postgres import PostgresSource
+        from feather_etl.sources.postgres import PostgresSource
 
         src = PostgresSource(CONN_STR)
         result = src._build_where_clause(
@@ -106,7 +106,7 @@ class TestPostgresSourceUnit:
         assert result == " WHERE modified_at > '2026-01-01'"
 
     def test_build_where_both(self):
-        from feather.sources.postgres import PostgresSource
+        from feather_etl.sources.postgres import PostgresSource
 
         src = PostgresSource(CONN_STR)
         result = src._build_where_clause(
@@ -126,7 +126,7 @@ class TestPostgresSourceUnit:
 class TestPostgresSourceIntegration:
     @pytest.fixture
     def source(self):
-        from feather.sources.postgres import PostgresSource
+        from feather_etl.sources.postgres import PostgresSource
 
         return PostgresSource(CONN_STR)
 
@@ -134,7 +134,7 @@ class TestPostgresSourceIntegration:
         assert source.check() is True
 
     def test_check_bad_conn_returns_false(self):
-        from feather.sources.postgres import PostgresSource
+        from feather_etl.sources.postgres import PostgresSource
 
         bad = PostgresSource("dbname=nonexistent host=localhost")
         assert bad.check() is False

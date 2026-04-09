@@ -37,7 +37,7 @@ def cli_env(tmp_path: Path) -> tuple[Path, Path]:
 
 class TestInit:
     def test_scaffolds_project(self, tmp_path: Path):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         result = runner.invoke(app, ["init", str(tmp_path / "test-project")])
         assert result.exit_code == 0
@@ -52,7 +52,7 @@ class TestInit:
         assert (project / "extracts").is_dir()
 
     def test_init_nonempty_dir_fails(self, tmp_path: Path):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         project = tmp_path / "existing"
         project.mkdir()
@@ -63,7 +63,7 @@ class TestInit:
 
     def test_init_allows_git_only_dir(self, tmp_path: Path):
         """UX-3: .git directory should not block feather init."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         project = tmp_path / "git-project"
         project.mkdir()
@@ -77,7 +77,7 @@ class TestInit:
         """UX-2: feather init . should use directory name, not empty string."""
         import os
 
-        from feather.cli import app
+        from feather_etl.cli import app
 
         project = tmp_path / "my-client"
         project.mkdir()
@@ -95,7 +95,7 @@ class TestInit:
 
 class TestValidate:
     def test_valid_config(self, cli_env: tuple[Path, Path]):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, tmp_path = cli_env
         result = runner.invoke(app, ["validate", "--config", str(config_path)])
@@ -103,7 +103,7 @@ class TestValidate:
         assert (config_path.parent / "feather_validation.json").exists()
 
     def test_invalid_config(self, tmp_path: Path):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         bad_config = tmp_path / "feather.yaml"
         bad_config.write_text(yaml.dump({
@@ -116,7 +116,7 @@ class TestValidate:
 
     def test_missing_config_file_shows_friendly_error(self, tmp_path: Path):
         """BUG-3: Missing feather.yaml should not show a Python traceback."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         result = runner.invoke(app, ["validate", "--config", str(tmp_path / "nope.yaml")])
         assert result.exit_code != 0
@@ -124,7 +124,7 @@ class TestValidate:
 
     def test_validate_shows_state_path(self, cli_env: tuple[Path, Path]):
         """UX-9: validate output should show where the state DB will be created."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = cli_env
         result = runner.invoke(app, ["validate", "--config", str(config_path)])
@@ -135,7 +135,7 @@ class TestValidate:
 
 class TestDiscover:
     def test_lists_tables(self, cli_env: tuple[Path, Path]):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = cli_env
         result = runner.invoke(app, ["discover", "--config", str(config_path)])
@@ -144,7 +144,7 @@ class TestDiscover:
         assert "CUSTOMERMASTER" in result.output
 
     def test_discover_bad_source_fails(self, tmp_path: Path):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         db = tmp_path / "empty.duckdb"
         db.write_bytes(b"not a duckdb file")
@@ -161,7 +161,7 @@ class TestDiscover:
 
 class TestSetup:
     def test_creates_state_and_schemas(self, cli_env: tuple[Path, Path]):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, tmp_path = cli_env
         result = runner.invoke(app, ["setup", "--config", str(config_path)])
@@ -171,7 +171,7 @@ class TestSetup:
 
 class TestRun:
     def test_extracts_tables(self, cli_env: tuple[Path, Path]):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, tmp_path = cli_env
         result = runner.invoke(app, ["run", "--config", str(config_path)])
@@ -179,7 +179,7 @@ class TestRun:
         assert "success" in result.output.lower()
 
     def test_run_with_bad_table_shows_failure(self, tmp_path: Path):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
@@ -197,7 +197,7 @@ class TestRun:
 
     def test_backoff_skipped_table_exits_nonzero(self, tmp_path: Path):
         """Second run after partial failure should exit non-zero (backoff-skipped)."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
@@ -224,7 +224,7 @@ class TestRun:
 
 class TestStatus:
     def test_shows_status_after_run(self, cli_env: tuple[Path, Path]):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, tmp_path = cli_env
         runner.invoke(app, ["run", "--config", str(config_path)])
@@ -233,7 +233,7 @@ class TestStatus:
         assert "inventory_group" in result.output
 
     def test_status_no_state_db(self, cli_env: tuple[Path, Path]):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = cli_env
         result = runner.invoke(app, ["status", "--config", str(config_path)])
@@ -241,7 +241,7 @@ class TestStatus:
         assert "No state DB found" in result.output
 
     def test_status_no_runs_yet(self, cli_env: tuple[Path, Path]):
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, _ = cli_env
         # setup creates state DB but no runs yet
@@ -252,7 +252,7 @@ class TestStatus:
 
     def test_status_shows_error_message_for_failures(self, tmp_path: Path):
         """UX-5: feather status should display error text for failed tables."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
@@ -275,7 +275,7 @@ class TestStatus:
     def test_status_shows_all_time_history(self, tmp_path: Path):
         """BUG-8 (intentional): status shows tables from ALL runs, not just current config.
         This is correct behavior — history should not be lost when config changes."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
@@ -315,7 +315,7 @@ class TestStatus:
 class TestRunAutoCreates:
     def test_run_without_setup_auto_creates_state_and_data(self, cli_env: tuple[Path, Path]):
         """UX-7: feather run creates state/data DBs automatically. setup is optional."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         config_path, tmp_path = cli_env
         # Do NOT call setup first

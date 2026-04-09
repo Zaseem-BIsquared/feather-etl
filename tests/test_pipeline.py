@@ -42,8 +42,8 @@ def setup_env(tmp_path: Path) -> tuple[Path, Path]:
 
 class TestRunTable:
     def test_extracts_and_loads(self, setup_env: tuple[Path, Path]):
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -53,9 +53,9 @@ class TestRunTable:
         assert result.rows_loaded == 66  # InventoryGroup has 66 rows
 
     def test_records_state(self, setup_env: tuple[Path, Path]):
-        from feather.config import load_config
-        from feather.pipeline import run_table
-        from feather.state import StateManager
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
+        from feather_etl.state import StateManager
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -67,8 +67,8 @@ class TestRunTable:
         assert status[0]["status"] == "success"
 
     def test_data_has_etl_metadata(self, setup_env: tuple[Path, Path]):
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -85,8 +85,8 @@ class TestRunTable:
 
 class TestRunAll:
     def test_runs_all_tables(self, setup_env: tuple[Path, Path]):
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -96,8 +96,8 @@ class TestRunAll:
         assert all(r.status == "success" for r in results)
 
     def test_failed_table_doesnt_stop_others(self, setup_env: tuple[Path, Path]):
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -111,8 +111,8 @@ class TestRunAll:
 
     def test_run_all_does_not_write_validation_json(self, setup_env: tuple[Path, Path]):
         """L-1: run_all() should NOT write validation JSON — CLI owns that."""
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -128,8 +128,8 @@ class TestRunAll:
 
     def test_first_run_always_extracts(self, setup_env: tuple[Path, Path]):
         """First run with no prior watermark always extracts."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -139,9 +139,9 @@ class TestRunAll:
 
     def test_watermark_populated_after_success(self, setup_env: tuple[Path, Path]):
         """After successful run, watermark has mtime and hash."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
-        from feather.state import StateManager
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
+        from feather_etl.state import StateManager
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -155,8 +155,8 @@ class TestRunAll:
 
     def test_second_run_skips_unchanged(self, setup_env: tuple[Path, Path]):
         """Second run on unchanged source → all tables skipped."""
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -169,8 +169,8 @@ class TestRunAll:
         """Modify source file → next run extracts again."""
         import time
 
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -195,8 +195,8 @@ class TestRunAll:
         import os
         import time
 
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -212,9 +212,9 @@ class TestRunAll:
 
     def test_skipped_run_recorded_in_state(self, setup_env: tuple[Path, Path]):
         """Skipped runs are recorded in _runs table."""
-        from feather.config import load_config
-        from feather.pipeline import run_all
-        from feather.state import StateManager
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
+        from feather_etl.state import StateManager
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
@@ -231,9 +231,9 @@ class TestRunAll:
         self, setup_env: tuple[Path, Path]
     ):
         """Failed extraction should not populate mtime/hash in watermark."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
-        from feather.state import StateManager
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
+        from feather_etl.state import StateManager
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)

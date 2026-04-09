@@ -8,7 +8,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from feather.transforms import (
+from feather_etl.transforms import (
     TransformMeta,
     build_execution_order,
     discover_transforms,
@@ -644,7 +644,7 @@ class TestCLISetupTransforms:
         import yaml
         from typer.testing import CliRunner
 
-        from feather.cli import app
+        from feather_etl.cli import app
 
         # Create a source DB (needed for config validation)
         source_db = tmp_path / "source.duckdb"
@@ -698,7 +698,7 @@ class TestCLISetupTransforms:
         import yaml
         from typer.testing import CliRunner
 
-        from feather.cli import app
+        from feather_etl.cli import app
 
         source_db = tmp_path / "source.duckdb"
         con = duckdb.connect(str(source_db))
@@ -740,8 +740,8 @@ class TestPipelineTransformRebuild:
         """After extraction, materialized gold tables are rebuilt."""
         import yaml
 
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         # Create source with data
         source_db = tmp_path / "source.duckdb"
@@ -800,8 +800,8 @@ class TestPipelineTransformRebuild:
         """Dev→prod mode switch rematerializes gold VIEW as TABLE even when extraction skipped."""
         import yaml
 
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         # Create source with data
         source_db = tmp_path / "source.duckdb"
@@ -881,8 +881,8 @@ class TestPipelineTransformRebuild:
         """If all tables are skipped, gold table still exists from prior run."""
         import yaml
 
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         source_db = tmp_path / "source.duckdb"
         con = duckdb.connect(str(source_db))

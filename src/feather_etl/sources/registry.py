@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from feather.config import FILE_SOURCE_TYPES, SourceConfig
-from feather.sources import Source
-from feather.sources.csv import CsvSource
-from feather.sources.duckdb_file import DuckDBFileSource
-from feather.sources.excel import ExcelSource
-from feather.sources.json_source import JsonSource
-from feather.sources.postgres import PostgresSource
-from feather.sources.sqlite import SqliteSource
-from feather.sources.sqlserver import SqlServerSource
+from feather_etl.config import FILE_SOURCE_TYPES, SourceConfig
+from feather_etl.sources import Source
+from feather_etl.sources.csv import CsvSource
+from feather_etl.sources.duckdb_file import DuckDBFileSource
+from feather_etl.sources.excel import ExcelSource
+from feather_etl.sources.json_source import JsonSource
+from feather_etl.sources.postgres import PostgresSource
+from feather_etl.sources.sqlite import SqliteSource
+from feather_etl.sources.sqlserver import SqlServerSource
 
 SOURCE_REGISTRY: dict[str, type[Any]] = {
     "duckdb": DuckDBFileSource,

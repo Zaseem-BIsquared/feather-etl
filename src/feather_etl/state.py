@@ -8,7 +8,7 @@ from pathlib import Path
 
 import duckdb
 
-import feather
+import feather_etl
 
 SCHEMA_VERSION = 1
 
@@ -115,7 +115,7 @@ class StateManager:
             if row is None:
                 con.execute(
                     "INSERT INTO _state_meta VALUES (?, ?, ?)",
-                    [SCHEMA_VERSION, datetime.now(timezone.utc), feather.__version__],
+                    [SCHEMA_VERSION, datetime.now(timezone.utc), feather_etl.__version__],
                 )
             elif row[0] > SCHEMA_VERSION:
                 raise RuntimeError(

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 import pytest
 
-from feather.sources.sqlserver import SqlServerSource
+from feather_etl.sources.sqlserver import SqlServerSource
 
 FAKE_CONN_STR = "DRIVER={ODBC Driver 18};SERVER=fake;DATABASE=testdb"
 
@@ -21,7 +21,7 @@ def source() -> SqlServerSource:
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_full_extract_loads_rows(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -52,7 +52,7 @@ def test_sqlserver_full_extract_loads_rows(
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_incremental_extract_with_watermark(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -85,7 +85,7 @@ def test_sqlserver_incremental_extract_with_watermark(
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_extract_with_filter_and_columns(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -117,7 +117,7 @@ def test_sqlserver_extract_with_filter_and_columns(
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_empty_table(mock_pyodbc: MagicMock, source: SqlServerSource) -> None:
     """Extract on empty table returns empty table with correct schema."""
     mock_cursor = MagicMock()
@@ -141,7 +141,7 @@ def test_sqlserver_empty_table(mock_pyodbc: MagicMock, source: SqlServerSource) 
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_change_detection_first_run(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -161,7 +161,7 @@ def test_sqlserver_change_detection_first_run(
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_change_detection_skip(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -180,7 +180,7 @@ def test_sqlserver_change_detection_skip(
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_change_detection_changed(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -220,7 +220,7 @@ def test_sqlserver_change_detection_incremental_always_changed(
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_discover_returns_schemas(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -252,7 +252,7 @@ def test_sqlserver_discover_returns_schemas(
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_get_schema(mock_pyodbc: MagicMock, source: SqlServerSource) -> None:
     """get_schema returns column list for a single table."""
     mock_cursor = MagicMock()
@@ -267,7 +267,7 @@ def test_sqlserver_get_schema(mock_pyodbc: MagicMock, source: SqlServerSource) -
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_get_schema_unqualified(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -290,7 +290,7 @@ def test_sqlserver_get_schema_unqualified(
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_check_success(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -303,7 +303,7 @@ def test_sqlserver_check_success(
 
 
 @pytest.mark.unit
-@patch("feather.sources.sqlserver.pyodbc")
+@patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_connection_failure(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
@@ -320,7 +320,7 @@ def test_sqlserver_connection_failure(
 @pytest.mark.unit
 def test_registry_creates_sqlserver_source() -> None:
     """Registry creates SqlServerSource when type is 'sqlserver'."""
-    from feather.sources.registry import SOURCE_REGISTRY
+    from feather_etl.sources.registry import SOURCE_REGISTRY
 
     assert "sqlserver" in SOURCE_REGISTRY
     assert SOURCE_REGISTRY["sqlserver"] is SqlServerSource
@@ -341,7 +341,7 @@ def test_config_validation_sqlserver_requires_connection_string(tmp_path) -> Non
         "    strategy: full\n"
         "    target_table: bronze.orders\n"
     )
-    from feather.config import load_config
+    from feather_etl.config import load_config
 
     with pytest.raises(ValueError, match="connection_string"):
         load_config(config_yaml)

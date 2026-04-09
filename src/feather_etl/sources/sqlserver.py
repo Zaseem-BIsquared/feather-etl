@@ -9,8 +9,8 @@ import uuid
 import pyarrow as pa
 import pyodbc
 
-from feather.sources import ChangeResult, StreamSchema
-from feather.sources.database_source import DatabaseSource
+from feather_etl.sources import ChangeResult, StreamSchema
+from feather_etl.sources.database_source import DatabaseSource
 
 # pyodbc type code → PyArrow type mapping
 # pyodbc cursor.description[1] returns Python types — map them all

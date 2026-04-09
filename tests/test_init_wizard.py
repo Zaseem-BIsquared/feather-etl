@@ -16,7 +16,7 @@ runner = CliRunner()
 class TestNonInteractiveInit:
     def test_non_interactive_with_duckdb_source(self, tmp_path: Path):
         """--non-interactive creates project with valid config from CLI flags."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         client_db = tmp_path / "source.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
@@ -41,7 +41,7 @@ class TestNonInteractiveInit:
 
     def test_non_interactive_with_tables_filter(self, tmp_path: Path):
         """--tables flag selects specific tables."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         client_db = tmp_path / "source.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
@@ -62,7 +62,7 @@ class TestNonInteractiveInit:
 
     def test_non_interactive_generates_silver_stubs(self, tmp_path: Path):
         """Silver transform stubs are created for each table."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         client_db = tmp_path / "source.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
@@ -89,7 +89,7 @@ class TestNonInteractiveInit:
     def test_non_interactive_json_output(self, tmp_path: Path):
         """--json produces JSON summary."""
         import json
-        from feather.cli import app
+        from feather_etl.cli import app
 
         client_db = tmp_path / "source.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
@@ -110,7 +110,7 @@ class TestNonInteractiveInit:
 class TestInteractiveInit:
     def test_interactive_prompts_and_generates(self, tmp_path: Path):
         """Interactive mode prompts for source type and generates config."""
-        from feather.cli import app
+        from feather_etl.cli import app
 
         client_db = tmp_path / "source.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)

@@ -25,7 +25,7 @@ def _make_table(num_rows: int = 5, id_offset: int = 0) -> pa.Table:
 class TestLoadAppend:
     def test_load_append_inserts_with_metadata(self, tmp_path: Path):
         """load_append() inserts rows and adds ETL metadata columns."""
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)
@@ -49,7 +49,7 @@ class TestLoadAppend:
 
     def test_load_append_accumulates_rows(self, tmp_path: Path):
         """Calling load_append twice accumulates rows — does not replace."""
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)
@@ -76,7 +76,7 @@ class TestLoadAppend:
 
     def test_load_append_creates_table_if_not_exists(self, tmp_path: Path):
         """First call creates the table; subsequent calls append without errors."""
-        from feather.destinations.duckdb import DuckDBDestination
+        from feather_etl.destinations.duckdb import DuckDBDestination
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)
@@ -121,8 +121,8 @@ class TestPipelineAppendDispatch:
 
     def test_pipeline_dispatches_to_load_append(self, tmp_path: Path):
         """run_table() with strategy=append calls load_append, not load_full."""
-        from feather.config import load_config
-        from feather.pipeline import run_table
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_table
 
         source_db = tmp_path / "sample_erp.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", source_db)
@@ -141,8 +141,8 @@ class TestPipelineAppendDispatch:
 
     def test_append_second_run_appends_on_change(self, tmp_path: Path):
         """Run append twice with a source change — both batches accumulate."""
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         source_db = tmp_path / "sample_erp.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", source_db)
@@ -177,8 +177,8 @@ class TestPipelineAppendDispatch:
 
     def test_append_unchanged_source_skips(self, tmp_path: Path):
         """Run append twice without source change — second run is skipped."""
-        from feather.config import load_config
-        from feather.pipeline import run_all
+        from feather_etl.config import load_config
+        from feather_etl.pipeline import run_all
 
         source_db = tmp_path / "sample_erp.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", source_db)
