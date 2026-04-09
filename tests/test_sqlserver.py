@@ -348,6 +348,41 @@ def test_registry_creates_sqlserver_source() -> None:
 
 
 @pytest.mark.unit
+def test_sqlserver_connection_string_builder_trusts_self_signed_cert(tmp_path) -> None:
+    """Regression for siraj-samsudeen/feather-etl#3.
+
+    Driver 18 enforces strict TLS validation by default, so connecting to a
+    SQL Server with a self-signed cert fails with "certificate verify failed".
+    The default connection-string builder must include TrustServerCertificate=yes
+    so that on-prem ERP servers work out of the box. Users who want strict TLS
+    can override by providing a raw `connection_string:` in feather.yaml.
+    """
+    config_yaml = tmp_path / "feather.yaml"
+    config_yaml.write_text(
+        "source:\n"
+        "  type: sqlserver\n"
+        "  host: 10.0.0.1\n"
+        "  port: 1433\n"
+        "  database: mydb\n"
+        "  user: sa\n"
+        "  password: secret\n"
+        "destination:\n"
+        f"  path: {tmp_path}/dest.duckdb\n"
+        "tables:\n"
+        "  - name: orders\n"
+        "    source_table: dbo.orders\n"
+        "    strategy: full\n"
+        "    target_table: bronze.orders\n"
+    )
+    from feather_etl.config import load_config
+
+    cfg = load_config(config_yaml)
+    assert cfg.source.connection_string is not None
+    assert "TrustServerCertificate=yes" in cfg.source.connection_string
+    assert "ODBC Driver 18 for SQL Server" in cfg.source.connection_string
+
+
+@pytest.mark.unit
 def test_config_validation_sqlserver_requires_connection_string(tmp_path) -> None:
     """Config validation rejects sqlserver without connection_string."""
     config_yaml = tmp_path / "feather.yaml"

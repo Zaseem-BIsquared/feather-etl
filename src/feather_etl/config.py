@@ -19,10 +19,19 @@ _SQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _UNRESOLVED_ENV_RE = re.compile(r"\$\{([^}]+)\}")
 
 
+# Default connection-string templates for database sources.
+#
+# SQL Server note: ODBC Driver 18 enforces TLS certificate validation by
+# default, so connections to servers with self-signed or internally-issued
+# certs fail with "SSL Provider: certificate verify failed". We default to
+# TrustServerCertificate=yes because most on-prem ERP SQL Servers ship with
+# self-signed certs. Users whose server presents a publicly-trusted cert can
+# override by providing a raw `connection_string:` in feather.yaml.
 DB_CONNECTION_BUILDERS: dict[str, str] = {
     "sqlserver": (
         "DRIVER={{ODBC Driver 18 for SQL Server}};"
-        "SERVER={host},{port};DATABASE={database};UID={user};PWD={password}"
+        "SERVER={host},{port};DATABASE={database};UID={user};PWD={password};"
+        "TrustServerCertificate=yes"
     ),
     "postgres": (
         "host={host} port={port} dbname={database} user={user} password={password}"
