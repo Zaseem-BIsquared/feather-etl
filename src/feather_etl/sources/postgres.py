@@ -70,15 +70,18 @@ class PostgresSource(DatabaseSource):
     def __init__(self, connection_string: str, batch_size: int = 120_000) -> None:
         super().__init__(connection_string)
         self.batch_size = batch_size
+        self._last_error: str | None = None
 
     # _format_watermark: uses base class default (ISO value passed through unchanged)
 
     def check(self) -> bool:
+        self._last_error = None
         try:
             conn = psycopg2.connect(self.connection_string, connect_timeout=10)
             conn.close()
             return True
-        except psycopg2.Error:
+        except psycopg2.Error as e:
+            self._last_error = str(e)
             return False
 
     def discover(self) -> list[StreamSchema]:

@@ -118,6 +118,40 @@ class TestValidate:
         assert result.exit_code != 0
         assert "Config file not found" in result.output
 
+    def test_validate_prints_details_on_source_failure(
+        self, cli_env: tuple[Path, Path], monkeypatch
+    ):
+        """When source.check() fails, the real exception must be surfaced as 'Details: ...'.
+
+        Regression for siraj-samsudeen/feather-etl#2: the CLI used to print only
+        'Source connection failed.' and swallow the real error, making remote DB
+        misconfig (TLS, creds, driver) impossible to diagnose without code changes.
+        """
+        from feather_etl.cli import app
+
+        class FakeFailingSource:
+            def __init__(self):
+                self._last_error = "TLS Provider: certificate verify failed"
+
+            def check(self) -> bool:
+                return False
+
+        def fake_create_source(_source_cfg):
+            return FakeFailingSource()
+
+        monkeypatch.setattr(
+            "feather_etl.sources.registry.create_source", fake_create_source
+        )
+
+        config_path, _ = cli_env
+        result = runner.invoke(
+            app, ["validate", "--config", str(config_path)], catch_exceptions=False
+        )
+        assert result.exit_code == 2
+        # Typer's CliRunner merges stderr into output by default.
+        assert "Source connection failed." in result.output
+        assert "Details: TLS Provider: certificate verify failed" in result.output
+
     def test_validate_shows_state_path(self, cli_env: tuple[Path, Path]):
         """UX-9: validate output should show where the state DB will be created."""
         from feather_etl.cli import app

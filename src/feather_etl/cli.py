@@ -105,6 +105,9 @@ def validate(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--
 
     if not source_ok:
         typer.echo("Source connection failed.", err=True)
+        err = getattr(source, "_last_error", None)
+        if err:
+            typer.echo(f"  Details: {err}", err=True)
         raise typer.Exit(code=2)
 
 

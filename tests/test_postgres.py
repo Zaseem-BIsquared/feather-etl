@@ -118,6 +118,44 @@ class TestPostgresSourceUnit:
 
 
 # ---------------------------------------------------------------------------
+# PostgresSource.check() — unit tests (mocked psycopg2)
+# ---------------------------------------------------------------------------
+
+
+class TestPostgresCheckLastError:
+    """check() must capture the real exception on failure so the CLI can print it."""
+
+    def test_check_failure_populates_last_error(self, monkeypatch):
+        from feather_etl.sources import postgres as pg_mod
+        from feather_etl.sources.postgres import PostgresSource
+
+        def boom(*args, **kwargs):
+            raise pg_mod.psycopg2.Error("FATAL: password authentication failed")
+
+        monkeypatch.setattr(pg_mod.psycopg2, "connect", boom)
+
+        src = PostgresSource("dbname=nope host=nope")
+        assert src.check() is False
+        assert src._last_error is not None
+        assert "password authentication failed" in src._last_error
+
+    def test_check_success_clears_last_error(self, monkeypatch):
+        from feather_etl.sources import postgres as pg_mod
+        from feather_etl.sources.postgres import PostgresSource
+
+        src = PostgresSource("dbname=x host=y")
+        src._last_error = "stale error from a prior call"
+
+        class FakeConn:
+            def close(self):
+                pass
+
+        monkeypatch.setattr(pg_mod.psycopg2, "connect", lambda *a, **k: FakeConn())
+        assert src.check() is True
+        assert src._last_error is None
+
+
+# ---------------------------------------------------------------------------
 # PostgresSource — integration tests (real PostgreSQL required)
 # ---------------------------------------------------------------------------
 

@@ -71,6 +71,7 @@ class SqlServerSource(DatabaseSource):
     def __init__(self, connection_string: str, batch_size: int = 120_000) -> None:
         super().__init__(connection_string)
         self.batch_size = batch_size
+        self._last_error: str | None = None
 
     def _format_watermark(self, value: str) -> str:
         """SQL Server datetime: replace ISO 'T' separator, truncate to 3ms precision."""
@@ -81,11 +82,13 @@ class SqlServerSource(DatabaseSource):
         return wm_val
 
     def check(self) -> bool:
+        self._last_error = None
         try:
             con = pyodbc.connect(self.connection_string, timeout=10)
             con.close()
             return True
-        except pyodbc.Error:
+        except pyodbc.Error as e:
+            self._last_error = str(e)
             return False
 
     def discover(self) -> list[StreamSchema]:

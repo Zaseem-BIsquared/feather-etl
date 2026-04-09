@@ -307,11 +307,32 @@ def test_sqlserver_check_success(
 def test_sqlserver_connection_failure(
     mock_pyodbc: MagicMock, source: SqlServerSource
 ) -> None:
-    """check() returns False when connection fails."""
+    """check() returns False when connection fails and populates _last_error."""
     mock_pyodbc.Error = Exception
     mock_pyodbc.connect.side_effect = Exception("Connection refused")
 
     assert source.check() is False
+    assert source._last_error is not None
+    assert "Connection refused" in source._last_error
+
+
+@pytest.mark.unit
+@patch("feather_etl.sources.sqlserver.pyodbc")
+def test_sqlserver_check_success_clears_last_error(
+    mock_pyodbc: MagicMock, source: SqlServerSource
+) -> None:
+    """A successful check() resets _last_error left over from a prior failure."""
+    mock_pyodbc.Error = Exception
+    # First: fail
+    mock_pyodbc.connect.side_effect = Exception("boom")
+    assert source.check() is False
+    assert source._last_error is not None
+
+    # Then: succeed — _last_error should be cleared
+    mock_pyodbc.connect.side_effect = None
+    mock_pyodbc.connect.return_value = MagicMock()
+    assert source.check() is True
+    assert source._last_error is None
 
 
 # --- registry + config integration ---
