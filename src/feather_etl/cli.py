@@ -46,17 +46,9 @@ def _load_and_validate(config_path: Path, mode_override: str | None = None):
 def init(
     ctx: typer.Context,
     project_name: str | None = typer.Argument(None, help="Project directory name."),
-    non_interactive: bool = typer.Option(False, "--non-interactive", help="Skip prompts, use CLI flags."),
-    source_type: str | None = typer.Option(None, "--source-type", help="Source type for discovery."),
-    source_path: str | None = typer.Option(None, "--source-path", help="Source path (file-based sources)."),
-    connection_string: str | None = typer.Option(None, "--connection-string", help="Connection string (DB sources)."),
-    tables: str | None = typer.Option(None, "--tables", help="Comma-separated table names to select."),
 ) -> None:
-    """Scaffold a new client project, optionally with interactive or non-interactive wizard."""
+    """Scaffold a new client project with template files."""
     if project_name is None:
-        if non_interactive or source_type or source_path or connection_string:
-            typer.echo("Project name is required as first argument in non-interactive mode", err=True)
-            raise typer.Exit(code=1)
         project_name = typer.prompt("Project name")
 
     project_path = Path(project_name).resolve()
@@ -69,58 +61,13 @@ def init(
             )
             raise typer.Exit(code=1)
 
-    if non_interactive:
-        if not source_type:
-            typer.echo("--source-type is required with --non-interactive", err=True)
-            raise typer.Exit(code=1)
-        from feather_etl.init_wizard import run_non_interactive
+    from feather_etl.init_wizard import scaffold_project
 
-        result = run_non_interactive(
-            project_path, source_type,
-            source_path=source_path,
-            connection_string=connection_string,
-            tables_filter=tables,
-        )
-        if _is_json(ctx):
-            emit_line(result, json_mode=True)
-        else:
-            typer.echo(f"Project created at {result['project']}")
-            typer.echo(f"  {result['tables_configured']} table(s) configured")
-    elif source_type or source_path or connection_string:
-        # Flags provided without --non-interactive → treat as non-interactive
-        if not source_type:
-            typer.echo("--source-type is required when using wizard flags", err=True)
-            raise typer.Exit(code=1)
-        from feather_etl.init_wizard import run_non_interactive
-
-        result = run_non_interactive(
-            project_path, source_type,
-            source_path=source_path,
-            connection_string=connection_string,
-            tables_filter=tables,
-        )
-        if _is_json(ctx):
-            emit_line(result, json_mode=True)
-        else:
-            typer.echo(f"Project created at {result['project']}")
-            typer.echo(f"  {result['tables_configured']} table(s) configured")
+    files_created = scaffold_project(project_path)
+    if _is_json(ctx):
+        emit_line({"project": str(project_path), "files_created": files_created}, json_mode=True)
     else:
-        # No wizard flags → run interactive wizard
-        from feather_etl.init_wizard import run_interactive
-
-        try:
-            result = run_interactive(project_path)
-            if _is_json(ctx):
-                emit_line(result, json_mode=True)
-        except (EOFError, typer.Abort):
-            # Non-interactive environment (no stdin) → scaffold only
-            from feather_etl.init_wizard import scaffold_project
-
-            scaffold_project(project_path)
-            if _is_json(ctx):
-                emit_line({"project": str(project_path), "files_created": []}, json_mode=True)
-            else:
-                typer.echo(f"Project scaffolded at {project_path}")
+        typer.echo(f"Project scaffolded at {project_path}")
 
 
 @app.command()
