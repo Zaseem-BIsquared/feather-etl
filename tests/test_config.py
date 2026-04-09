@@ -206,6 +206,80 @@ class TestEnvVarEdgeCases:
         assert result.defaults.overlap_window_minutes == 5
         assert result.defaults.batch_size == 50000
 
+    def test_dotenv_auto_loaded_from_config_dir(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Regression for siraj-samsudeen/feather-etl#1.
+
+        A `.env` file next to `feather.yaml` should be loaded automatically,
+        so users don't have to manually `export` variables before running
+        `feather validate`, `feather run`, etc. Without this, `${VAR}`
+        references in feather.yaml fall back to `os.environ` only.
+        """
+        from feather_etl.config import load_config
+
+        # Ensure the var is NOT already in the environment
+        monkeypatch.delenv("FEATHER_TEST_DOTENV_VAR", raising=False)
+
+        db = tmp_path / "source.duckdb"
+        db.touch()
+
+        # Write .env alongside the config — this is what should get auto-loaded
+        (tmp_path / ".env").write_text("FEATHER_TEST_DOTENV_VAR=bronze\n")
+
+        cfg = {
+            "source": {"type": "duckdb", "path": str(db)},
+            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
+            "tables": [
+                {
+                    "name": "t",
+                    "source_table": "main.t",
+                    "target_table": "${FEATHER_TEST_DOTENV_VAR}.t",
+                    "strategy": "full",
+                },
+            ],
+        }
+        config_file = _write_config(tmp_path, cfg)
+
+        result = load_config(config_file)
+        # If .env was loaded, ${FEATHER_TEST_DOTENV_VAR} resolved to "bronze"
+        assert result.tables[0].target_table == "bronze.t"
+
+    def test_dotenv_does_not_override_existing_env(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Existing shell/CI env vars must win over .env (override=False).
+
+        Important for CI/CD: secrets come from the environment, not a
+        committed .env file. A stray committed .env must not silently
+        clobber what the pipeline passes in.
+        """
+        from feather_etl.config import load_config
+
+        # Shell/CI already set this — should win
+        monkeypatch.setenv("FEATHER_TEST_OVERRIDE_VAR", "gold")
+
+        db = tmp_path / "source.duckdb"
+        db.touch()
+        (tmp_path / ".env").write_text("FEATHER_TEST_OVERRIDE_VAR=bronze\n")
+
+        cfg = {
+            "source": {"type": "duckdb", "path": str(db)},
+            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
+            "tables": [
+                {
+                    "name": "t",
+                    "source_table": "main.t",
+                    "target_table": "${FEATHER_TEST_OVERRIDE_VAR}.t",
+                    "strategy": "full",
+                },
+            ],
+        }
+        config_file = _write_config(tmp_path, cfg)
+
+        result = load_config(config_file)
+        assert result.tables[0].target_table == "gold.t"
+
     def test_unresolved_env_var_gives_clear_error(self, tmp_path: Path):
         """UX-4: Unset env vars should show which variable is missing."""
         from feather_etl.config import load_config

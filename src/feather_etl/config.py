@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 FILE_SOURCE_TYPES = {"duckdb", "sqlite", "csv", "excel", "json"}
 VALID_STRATEGIES = {"full", "incremental", "append"}
@@ -307,6 +308,16 @@ def load_config(
     Mode resolution: mode_override (CLI) > FEATHER_MODE env var > YAML mode > default "dev".
     """
     config_dir = config_path.parent.resolve()
+
+    # Auto-load .env from the config directory so users don't have to
+    # manually export variables before running feather commands (closes #1).
+    # override=False respects any variables the user already exported in
+    # their shell, which is important for CI/CD where secrets come from
+    # the environment, not a committed .env file.
+    dotenv_path = config_dir / ".env"
+    if dotenv_path.is_file():
+        load_dotenv(dotenv_path, override=False)
+
     raw = yaml.safe_load(config_path.read_text())
     raw = _resolve_yaml_env_vars(raw)
 
