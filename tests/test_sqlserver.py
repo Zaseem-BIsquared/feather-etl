@@ -315,6 +315,61 @@ def test_sqlserver_connection_failure(
     assert source.check() is False
     assert source._last_error is not None
     assert "Connection refused" in source._last_error
+    assert "Hint: ODBC Driver 18 for SQL Server is not installed." not in source._last_error
+
+
+@pytest.mark.unit
+@patch("feather_etl.sources.sqlserver.platform.system", return_value="Darwin")
+@patch("feather_etl.sources.sqlserver.pyodbc")
+def test_sqlserver_missing_driver18_open_lib_adds_hint(
+    mock_pyodbc: MagicMock, _mock_platform_system: MagicMock, source: SqlServerSource
+) -> None:
+    """Missing Driver 18 should append install guidance."""
+    mock_pyodbc.Error = Exception
+    mock_pyodbc.connect.side_effect = Exception(
+        "[01000] [unixODBC][Driver Manager]Can't open lib 'ODBC Driver 18 for SQL Server' : file not found"
+    )
+
+    assert source.check() is False
+    assert source._last_error is not None
+    assert "Hint: ODBC Driver 18 for SQL Server is not installed." in source._last_error
+    assert "brew install msodbcsql18" in source._last_error
+
+
+@pytest.mark.unit
+@patch("feather_etl.sources.sqlserver.platform.system", return_value="Windows")
+@patch("feather_etl.sources.sqlserver.pyodbc")
+def test_sqlserver_im002_with_driver18_adds_hint(
+    mock_pyodbc: MagicMock, _mock_platform_system: MagicMock, source: SqlServerSource
+) -> None:
+    """IM002 + explicit Driver 18 should append install guidance."""
+    mock_pyodbc.Error = Exception
+    mock_pyodbc.connect.side_effect = Exception(
+        "('IM002', '[IM002] [Microsoft][ODBC Driver Manager] Data source name not found and no default driver specified (0) (SQLDriverConnect)')"
+    )
+
+    assert source.check() is False
+    assert source._last_error is not None
+    assert "Hint: ODBC Driver 18 for SQL Server is not installed." in source._last_error
+    assert "download-odbc-driver-for-sql-server" in source._last_error
+
+
+@pytest.mark.unit
+@patch("feather_etl.sources.sqlserver.platform.system", return_value="Windows")
+@patch("feather_etl.sources.sqlserver.pyodbc")
+def test_sqlserver_im002_for_dsn_does_not_add_driver18_hint(
+    mock_pyodbc: MagicMock, _mock_platform_system: MagicMock
+) -> None:
+    """IM002 with DSN-only config should not be mislabeled as missing Driver 18."""
+    source = SqlServerSource(connection_string="DSN=MissingERP")
+    mock_pyodbc.Error = Exception
+    mock_pyodbc.connect.side_effect = Exception(
+        "('IM002', '[IM002] [Microsoft][ODBC Driver Manager] Data source name not found and no default driver specified (0) (SQLDriverConnect)')"
+    )
+
+    assert source.check() is False
+    assert source._last_error is not None
+    assert "Hint: ODBC Driver 18 for SQL Server is not installed." not in source._last_error
 
 
 @pytest.mark.unit

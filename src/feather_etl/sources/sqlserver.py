@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import platform
 import uuid
 
 import pyarrow as pa
@@ -65,6 +66,25 @@ def _pyodbc_type_to_arrow(type_code: type) -> pa.DataType:
     return _PYODBC_TYPE_MAP.get(type_code, pa.string())
 
 
+def _is_missing_odbc_driver_18_error(message: str, connection_string: str) -> bool:
+    """Return True only when evidence points to missing ODBC Driver 18."""
+    msg = message.lower()
+    conn = connection_string.lower()
+    targets_driver_18 = "odbc driver 18" in conn
+    mentions_driver_18 = "odbc driver 18" in msg
+    explicit_driver_18 = targets_driver_18 or mentions_driver_18
+
+    if "can't open lib" in msg and explicit_driver_18:
+        return True
+    if "file not found" in msg and explicit_driver_18:
+        return True
+
+    # IM002 / data source name not found can also mean a missing DSN.
+    if ("im002" in msg or "data source name not found" in msg) and explicit_driver_18:
+        return True
+    return False
+
+
 class SqlServerSource(DatabaseSource):
     """Source that reads tables from SQL Server via pyodbc."""
 
@@ -89,14 +109,7 @@ class SqlServerSource(DatabaseSource):
             return True
         except pyodbc.Error as e:
             msg = str(e)
-            _driver_missing = (
-                "Can't open lib" in msg          # unixODBC: driver .so not found
-                or "file not found" in msg        # unixODBC: alternate phrasing
-                or "IM002" in msg                 # Windows ODBC DM: driver not registered
-                or "data source name not found" in msg.lower()  # Windows ODBC DM: full message
-            )
-            if _driver_missing:
-                import platform
+            if _is_missing_odbc_driver_18_error(msg, self.connection_string):
                 if platform.system() == "Darwin":
                     hint = (
                         "\n  Hint: ODBC Driver 18 for SQL Server is not installed."
