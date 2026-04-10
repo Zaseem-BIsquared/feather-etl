@@ -1,10 +1,22 @@
 """Shared test fixtures for feather-etl."""
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
+
+
+def pytest_configure(config):
+    """Start PostgreSQL before test collection (so skipif checks see it)."""
+    subprocess.run(["pg_ctl", "start", "-l", "/dev/null"], capture_output=True)
+
+
+def pytest_unconfigure(config):
+    """Stop PostgreSQL after the test session."""
+    subprocess.run(["pg_ctl", "stop"], capture_output=True)
+
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
