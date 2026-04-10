@@ -128,13 +128,15 @@ Every command then runs via `uv run feather …`.
 
 ### One-off — no install
 
-To scaffold a new client without installing anything first:
+Run any feather command without installing, using `uvx`:
 
 ```bash
-uvx feather-etl init client-abc
+uvx feather-etl init client-abc     # scaffold a new client
+uvx feather-etl validate            # validate a config
+uvx feather-etl run                 # run the pipeline
 ```
 
-`uvx` runs feather-etl in a throwaway environment — useful for the very first `init`, but it does **not** leave `feather` on your PATH. Pick one of the install options above before running `feather run`, `feather validate`, etc.
+`uvx` downloads feather-etl into a throwaway environment for each invocation, so nothing is left on your PATH and there's no `feather` command afterwards — every call must be prefixed with `uvx feather-etl …`. Good for CI, quick trials, and scaffolding the very first client. For day-to-day use, prefer the global install above.
 
 ## CLI
 
