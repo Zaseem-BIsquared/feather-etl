@@ -21,7 +21,6 @@ def source() -> SqlServerSource:
 # --- extract ---
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_full_extract_loads_rows(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -52,7 +51,6 @@ def test_sqlserver_full_extract_loads_rows(
     mock_cursor.execute.assert_any_call("SET NOCOUNT ON")
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_incremental_extract_with_watermark(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -85,7 +83,6 @@ def test_sqlserver_incremental_extract_with_watermark(
     assert "updated_at > '2026-03-26'" in query_call[0]
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_extract_with_filter_and_columns(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -117,7 +114,6 @@ def test_sqlserver_extract_with_filter_and_columns(
     assert "status = 'active'" in query_call[0]
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_empty_table(mock_pyodbc: MagicMock, source: SqlServerSource) -> None:
     """Extract on empty table returns empty table with correct schema."""
@@ -141,7 +137,6 @@ def test_sqlserver_empty_table(mock_pyodbc: MagicMock, source: SqlServerSource) 
 # --- change detection ---
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_change_detection_first_run(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -161,7 +156,6 @@ def test_sqlserver_change_detection_first_run(
     assert result.metadata["row_count"] == 100
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_change_detection_skip(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -180,7 +174,6 @@ def test_sqlserver_change_detection_skip(
     assert result.reason == "unchanged"
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_change_detection_changed(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -201,7 +194,6 @@ def test_sqlserver_change_detection_changed(
     assert result.metadata["row_count"] == 150
 
 
-@pytest.mark.unit
 def test_sqlserver_change_detection_incremental_always_changed(
     source: SqlServerSource,
 ) -> None:
@@ -220,7 +212,6 @@ def test_sqlserver_change_detection_incremental_always_changed(
 # --- discover ---
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_discover_returns_schemas(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -252,7 +243,6 @@ def test_sqlserver_discover_returns_schemas(
 # --- get_schema ---
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_get_schema(mock_pyodbc: MagicMock, source: SqlServerSource) -> None:
     """get_schema returns column list for a single table."""
@@ -267,7 +257,6 @@ def test_sqlserver_get_schema(mock_pyodbc: MagicMock, source: SqlServerSource) -
     assert cols == [("id", "int"), ("name", "nvarchar")]
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_get_schema_unqualified(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -290,7 +279,6 @@ def test_sqlserver_get_schema_unqualified(
 # --- connection ---
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_check_success(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -303,7 +291,6 @@ def test_sqlserver_check_success(
     mock_conn.close.assert_called_once()
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_connection_failure(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -318,7 +305,6 @@ def test_sqlserver_connection_failure(
     assert "Hint: ODBC Driver 18 for SQL Server is not installed." not in source._last_error
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.platform.system", return_value="Darwin")
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_missing_driver18_open_lib_adds_hint(
@@ -336,7 +322,6 @@ def test_sqlserver_missing_driver18_open_lib_adds_hint(
     assert "brew install msodbcsql18" in source._last_error
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.platform.system", return_value="Windows")
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_im002_with_driver18_adds_hint(
@@ -354,7 +339,6 @@ def test_sqlserver_im002_with_driver18_adds_hint(
     assert "download-odbc-driver-for-sql-server" in source._last_error
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.platform.system", return_value="Windows")
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_im002_for_dsn_does_not_add_driver18_hint(
@@ -372,7 +356,6 @@ def test_sqlserver_im002_for_dsn_does_not_add_driver18_hint(
     assert "Hint: ODBC Driver 18 for SQL Server is not installed." not in source._last_error
 
 
-@pytest.mark.unit
 @patch("feather_etl.sources.sqlserver.pyodbc")
 def test_sqlserver_check_success_clears_last_error(
     mock_pyodbc: MagicMock, source: SqlServerSource
@@ -394,7 +377,6 @@ def test_sqlserver_check_success_clears_last_error(
 # --- registry + config integration ---
 
 
-@pytest.mark.unit
 def test_registry_creates_sqlserver_source() -> None:
     """Registry creates SqlServerSource when type is 'sqlserver'."""
     from feather_etl.sources.registry import SOURCE_REGISTRY
@@ -403,7 +385,6 @@ def test_registry_creates_sqlserver_source() -> None:
     assert SOURCE_REGISTRY["sqlserver"] is SqlServerSource
 
 
-@pytest.mark.unit
 def test_sqlserver_connection_string_builder_trusts_self_signed_cert(tmp_path) -> None:
     """Regression for siraj-samsudeen/feather-etl#3.
 
@@ -442,7 +423,6 @@ def test_sqlserver_connection_string_builder_trusts_self_signed_cert(tmp_path) -
     assert "ODBC Driver 18 for SQL Server" in result.source.connection_string
 
 
-@pytest.mark.unit
 def test_config_validation_sqlserver_requires_connection_string(tmp_path) -> None:
     """Config validation rejects sqlserver without connection_string."""
     from feather_etl.config import load_config
@@ -468,20 +448,17 @@ def test_config_validation_sqlserver_requires_connection_string(tmp_path) -> Non
 # --- DatabaseSource._build_where_clause ---
 
 
-@pytest.mark.unit
 def test_build_where_clause_empty(source: SqlServerSource) -> None:
     """No filter or watermark returns empty string."""
     assert source._build_where_clause() == ""
 
 
-@pytest.mark.unit
 def test_build_where_clause_filter_only(source: SqlServerSource) -> None:
     """Filter alone produces WHERE with filter."""
     result = source._build_where_clause(filter="status = 'active'")
     assert result == " WHERE (status = 'active')"
 
 
-@pytest.mark.unit
 def test_build_where_clause_watermark_only(source: SqlServerSource) -> None:
     """Watermark alone produces WHERE with watermark condition."""
     result = source._build_where_clause(
@@ -490,7 +467,6 @@ def test_build_where_clause_watermark_only(source: SqlServerSource) -> None:
     assert result == " WHERE updated_at > '2026-01-01'"
 
 
-@pytest.mark.unit
 def test_build_where_clause_both(source: SqlServerSource) -> None:
     """Filter + watermark combines with AND."""
     result = source._build_where_clause(
