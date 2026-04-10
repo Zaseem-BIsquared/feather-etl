@@ -8,6 +8,7 @@ import pyarrow as pa
 import pytest
 
 from feather_etl.sources.sqlserver import SqlServerSource
+from tests.helpers import write_config
 
 FAKE_CONN_STR = "DRIVER={ODBC Driver 18};SERVER=fake;DATABASE=testdb"
 
@@ -357,50 +358,56 @@ def test_sqlserver_connection_string_builder_trusts_self_signed_cert(tmp_path) -
     so that on-prem ERP servers work out of the box. Users who want strict TLS
     can override by providing a raw `connection_string:` in feather.yaml.
     """
-    config_yaml = tmp_path / "feather.yaml"
-    config_yaml.write_text(
-        "source:\n"
-        "  type: sqlserver\n"
-        "  host: 10.0.0.1\n"
-        "  port: 1433\n"
-        "  database: mydb\n"
-        "  user: sa\n"
-        "  password: secret\n"
-        "destination:\n"
-        f"  path: {tmp_path}/dest.duckdb\n"
-        "tables:\n"
-        "  - name: orders\n"
-        "    source_table: dbo.orders\n"
-        "    strategy: full\n"
-        "    target_table: bronze.orders\n"
-    )
     from feather_etl.config import load_config
 
-    cfg = load_config(config_yaml)
-    assert cfg.source.connection_string is not None
-    assert "TrustServerCertificate=yes" in cfg.source.connection_string
-    assert "ODBC Driver 18 for SQL Server" in cfg.source.connection_string
+    cfg = {
+        "source": {
+            "type": "sqlserver",
+            "host": "10.0.0.1",
+            "port": 1433,
+            "database": "mydb",
+            "user": "sa",
+            "password": "secret",
+        },
+        "destination": {"path": str(tmp_path / "dest.duckdb")},
+        "tables": [
+            {
+                "name": "orders",
+                "source_table": "dbo.orders",
+                "strategy": "full",
+                "target_table": "bronze.orders",
+            }
+        ],
+    }
+    config_file = write_config(tmp_path, cfg)
+
+    result = load_config(config_file)
+    assert result.source.connection_string is not None
+    assert "TrustServerCertificate=yes" in result.source.connection_string
+    assert "ODBC Driver 18 for SQL Server" in result.source.connection_string
 
 
 @pytest.mark.unit
 def test_config_validation_sqlserver_requires_connection_string(tmp_path) -> None:
     """Config validation rejects sqlserver without connection_string."""
-    config_yaml = tmp_path / "feather.yaml"
-    config_yaml.write_text(
-        "source:\n"
-        "  type: sqlserver\n"
-        "destination:\n"
-        f"  path: {tmp_path}/dest.duckdb\n"
-        "tables:\n"
-        "  - name: orders\n"
-        "    source_table: dbo.orders\n"
-        "    strategy: full\n"
-        "    target_table: bronze.orders\n"
-    )
     from feather_etl.config import load_config
 
+    cfg = {
+        "source": {"type": "sqlserver"},
+        "destination": {"path": str(tmp_path / "dest.duckdb")},
+        "tables": [
+            {
+                "name": "orders",
+                "source_table": "dbo.orders",
+                "strategy": "full",
+                "target_table": "bronze.orders",
+            }
+        ],
+    }
+    config_file = write_config(tmp_path, cfg)
+
     with pytest.raises(ValueError, match="connection_string"):
-        load_config(config_yaml)
+        load_config(config_file)
 
 
 # --- DatabaseSource._build_where_clause ---

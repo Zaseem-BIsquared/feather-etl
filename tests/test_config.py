@@ -7,11 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-
-def _write_config(tmp_path: Path, config: dict) -> Path:
-    config_file = tmp_path / "feather.yaml"
-    config_file.write_text(yaml.dump(config, default_flow_style=False))
-    return config_file
+from tests.helpers import write_config
 
 
 def _minimal_config(tmp_path: Path, source_path: str | None = None) -> dict:
@@ -39,7 +35,7 @@ class TestConfigParsing:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.source.type == "duckdb"
         assert len(result.tables) == 1
@@ -53,7 +49,7 @@ class TestConfigParsing:
         try:
             cfg = _minimal_config(tmp_path)
             cfg["source"]["path"] = "${FEATHER_TEST_PATH}"
-            config_file = _write_config(tmp_path, cfg)
+            config_file = write_config(tmp_path, cfg)
             result = load_config(config_file)
             assert "${" not in str(result.source.path)
             assert "source.duckdb" in str(result.source.path)
@@ -70,7 +66,7 @@ class TestConfigParsing:
         cfg = _minimal_config(tmp_path)
         cfg["source"]["path"] = "./source.duckdb"
         cfg["destination"]["path"] = "./data.duckdb"
-        config_file = _write_config(subdir, cfg)
+        config_file = write_config(tmp_path, cfg, directory=subdir)
         result = load_config(config_file)
         assert result.source.path == subdir / "source.duckdb"
         assert result.destination.path == subdir / "data.duckdb"
@@ -80,7 +76,7 @@ class TestConfigParsing:
 
         cfg = _minimal_config(tmp_path)
         del cfg["tables"][0]["target_table"]
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.tables[0].target_table == ""  # mode-derived at runtime
 
@@ -101,7 +97,7 @@ class TestConfigParsing:
                 }
             ],
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
 
         tables_dir = tmp_path / "tables"
         tables_dir.mkdir()
@@ -127,7 +123,7 @@ class TestConfigParsing:
 
         cfg = _minimal_config(tmp_path)
         # No primary_key field at all
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.tables[0].primary_key is None
 
@@ -138,7 +134,7 @@ class TestConfigValidation:
 
         cfg = _minimal_config(tmp_path)
         cfg["source"]["type"] = "mongodb"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="Unsupported source type"):
             load_config(config_file)
 
@@ -147,7 +143,7 @@ class TestConfigValidation:
 
         cfg = _minimal_config(tmp_path)
         cfg["source"]["path"] = str(tmp_path / "nonexistent.duckdb")
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="does not exist"):
             load_config(config_file)
 
@@ -156,7 +152,7 @@ class TestConfigValidation:
 
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["strategy"] = "upsert"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="strategy"):
             load_config(config_file)
 
@@ -165,7 +161,7 @@ class TestConfigValidation:
 
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["target_table"] = "staging.test_table"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="schema"):
             load_config(config_file)
 
@@ -175,7 +171,7 @@ class TestValidationJson:
         from feather_etl.config import load_config, write_validation_json
 
         cfg = _minimal_config(tmp_path)
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         write_validation_json(config_file, result)
         vj = json.loads((tmp_path / "feather_validation.json").read_text())
@@ -201,7 +197,7 @@ class TestEnvVarEdgeCases:
 
         cfg = _minimal_config(tmp_path)
         cfg["defaults"] = {"overlap_window_minutes": 5, "batch_size": 50000}
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.defaults.overlap_window_minutes == 5
         assert result.defaults.batch_size == 50000
@@ -220,6 +216,7 @@ class TestEnvVarEdgeCases:
 
         # Ensure the var is NOT already in the environment
         monkeypatch.delenv("FEATHER_TEST_DOTENV_VAR", raising=False)
+        assert "FEATHER_TEST_DOTENV_VAR" not in os.environ  # must come from .env, not shell
 
         db = tmp_path / "source.duckdb"
         db.touch()
@@ -239,7 +236,7 @@ class TestEnvVarEdgeCases:
                 },
             ],
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
 
         result = load_config(config_file)
         # If .env was loaded, ${FEATHER_TEST_DOTENV_VAR} resolved to "bronze"
@@ -256,7 +253,7 @@ class TestEnvVarEdgeCases:
         """
         from feather_etl.config import load_config
 
-        # Shell/CI already set this — should win
+        # Simulate CI env variable setup
         monkeypatch.setenv("FEATHER_TEST_OVERRIDE_VAR", "gold")
 
         db = tmp_path / "source.duckdb"
@@ -275,7 +272,7 @@ class TestEnvVarEdgeCases:
                 },
             ],
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
 
         result = load_config(config_file)
         assert result.tables[0].target_table == "gold.t"
@@ -298,7 +295,7 @@ class TestEnvVarEdgeCases:
                 },
             ],
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="MISSING_DEST_PATH"):
             load_config(config_file)
 
@@ -320,7 +317,7 @@ class TestConfigValidationExtended:
                 },
             ],
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="Unsupported source type"):
             load_config(config_file)
 
@@ -341,7 +338,7 @@ class TestConfigValidationExtended:
                 },  # strategy missing
             ],
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="missing required field"):
             load_config(config_file)
 
@@ -353,7 +350,7 @@ class TestConfigValidationExtended:
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [],
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="Missing required config section"):
             load_config(config_file)
 
@@ -377,7 +374,7 @@ class TestConfigValidationExtended:
                 },
             ],
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="Destination directory does not exist"):
             load_config(config_file)
 
@@ -389,7 +386,7 @@ class TestConfigValidationExtended:
         db.touch()
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["target_table"] = "bronze.my-hyphenated-table"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="invalid characters"):
             load_config(config_file)
 
@@ -399,7 +396,7 @@ class TestConfigValidationExtended:
 
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["target_table"] = "no_schema_table"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="must include a schema prefix"):
             load_config(config_file)
 
@@ -410,7 +407,7 @@ class TestConfigValidationExtended:
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["strategy"] = "incremental"
         # No timestamp_column
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="timestamp_column"):
             load_config(config_file)
 
@@ -421,7 +418,7 @@ class TestConfigValidationExtended:
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["strategy"] = "incremental"
         cfg["tables"][0]["timestamp_column"] = "modified_date"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.tables[0].strategy == "incremental"
 
@@ -431,7 +428,7 @@ class TestConfigValidationExtended:
 
         cfg = _minimal_config(tmp_path)
         cfg["defaults"] = {"overlap_window_minutes": -5}
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="overlap_window_minutes"):
             load_config(config_file)
 
@@ -441,7 +438,7 @@ class TestConfigValidationExtended:
 
         cfg = _minimal_config(tmp_path)
         cfg["defaults"] = {"overlap_window_minutes": 0}
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.defaults.overlap_window_minutes == 0
 
@@ -451,7 +448,7 @@ class TestConfigValidationExtended:
 
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["source_table"] = "main.test; DROP TABLE foo"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="source_table.*invalid"):
             load_config(config_file)
 
@@ -461,7 +458,7 @@ class TestConfigValidationExtended:
 
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["source_table"] = "main.test--comment"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="source_table.*invalid"):
             load_config(config_file)
 
@@ -472,7 +469,7 @@ class TestConfigValidationExtended:
         # schema.table format (DuckDB)
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["source_table"] = "erp.SalesInvoice"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.tables[0].source_table == "erp.SalesInvoice"
 
@@ -485,7 +482,7 @@ class TestConfigValidationExtended:
         cfg = _minimal_config(tmp_path)
         cfg["source"] = {"type": "csv", "path": str(csv_dir)}
         cfg["tables"][0]["source_table"] = "orders.csv"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.tables[0].source_table == "orders.csv"
 
@@ -495,7 +492,7 @@ class TestConfigValidationExtended:
 
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["source_table"] = "just_a_table"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="source_table.*schema\\.table"):
             load_config(config_file)
 
@@ -505,7 +502,7 @@ class TestConfigValidationExtended:
 
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["source_table"] = "erp.Sales Invoice"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="source_table.*invalid"):
             load_config(config_file)
 
@@ -515,7 +512,7 @@ class TestConfigValidationExtended:
 
         cfg = _minimal_config(tmp_path)
         cfg["tables"][0]["source_table"] = "erp.test()"
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="source_table.*invalid"):
             load_config(config_file)
 
@@ -525,7 +522,7 @@ class TestAlertsConfig:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.alerts is None
 
@@ -540,7 +537,7 @@ class TestAlertsConfig:
             "smtp_password": "secret",
             "alert_to": "ops@example.com",
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.alerts is not None
         assert result.alerts.smtp_host == "smtp.example.com"
@@ -559,7 +556,7 @@ class TestAlertsConfig:
             "smtp_password": "secret",
             "alert_to": "ops@example.com",
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.alerts.alert_from == "user@example.com"
 
@@ -575,7 +572,7 @@ class TestAlertsConfig:
             "alert_to": "ops@example.com",
             "alert_from": "noreply@example.com",
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.alerts.alert_from == "noreply@example.com"
 
@@ -587,7 +584,7 @@ class TestAlertsConfig:
             "smtp_host": "smtp.example.com",
             # missing smtp_port, smtp_user, smtp_password, alert_to
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="alerts.*missing"):
             load_config(config_file)
 
@@ -603,6 +600,6 @@ class TestAlertsConfig:
             "smtp_password": "${TEST_SMTP_PASS}",
             "alert_to": "ops@example.com",
         }
-        config_file = _write_config(tmp_path, cfg)
+        config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
         assert result.alerts.smtp_password == "env_secret"
