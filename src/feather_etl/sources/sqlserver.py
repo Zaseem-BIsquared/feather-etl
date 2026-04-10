@@ -88,7 +88,34 @@ class SqlServerSource(DatabaseSource):
             con.close()
             return True
         except pyodbc.Error as e:
-            self._last_error = str(e)
+            msg = str(e)
+            _driver_missing = (
+                "Can't open lib" in msg          # unixODBC: driver .so not found
+                or "file not found" in msg        # unixODBC: alternate phrasing
+                or "IM002" in msg                 # Windows ODBC DM: driver not registered
+                or "data source name not found" in msg.lower()  # Windows ODBC DM: full message
+            )
+            if _driver_missing:
+                import platform
+                if platform.system() == "Darwin":
+                    hint = (
+                        "\n  Hint: ODBC Driver 18 for SQL Server is not installed."
+                        "\n  Fix:  brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release"
+                        "\n        HOMEBREW_ACCEPT_EULA=Y brew install msodbcsql18"
+                        "\n        odbcinst -q -d  # verify"
+                    )
+                elif platform.system() == "Windows":
+                    hint = (
+                        "\n  Hint: ODBC Driver 18 for SQL Server is not installed."
+                        "\n  See:  https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server"
+                    )
+                else:
+                    hint = (
+                        "\n  Hint: ODBC Driver 18 for SQL Server is not installed."
+                        "\n  See:  https://learn.microsoft.com/en-us/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server"
+                    )
+                msg += hint
+            self._last_error = msg
             return False
 
     def discover(self) -> list[StreamSchema]:
