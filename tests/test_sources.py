@@ -661,6 +661,40 @@ class TestFileSourceValidateSourceTable:
         assert errs and "schema.table" in errs[0]
 
 
+class TestLazyRegistry:
+    def test_get_source_class_returns_class_by_name(self):
+        from feather_etl.sources.csv import CsvSource
+        from feather_etl.sources.registry import get_source_class
+
+        assert get_source_class("csv") is CsvSource
+
+    def test_get_source_class_unknown_raises(self):
+        from feather_etl.sources.registry import get_source_class
+
+        with pytest.raises(ValueError, match="not implemented"):
+            get_source_class("oracle")
+
+    def test_only_referenced_modules_imported(self):
+        """Importing the registry alone must NOT import every source connector.
+
+        This is the closing condition for issue #4 — pyodbc / psycopg2 stay
+        unimported until a sqlserver/postgres source is requested.
+        """
+        import importlib
+        import sys
+
+        for mod_name in list(sys.modules):
+            if mod_name.startswith("feather_etl.sources"):
+                del sys.modules[mod_name]
+
+        importlib.import_module("feather_etl.sources.registry")
+        loaded = {m for m in sys.modules if m.startswith("feather_etl.sources")}
+
+        assert "feather_etl.sources.sqlserver" not in loaded
+        assert "feather_etl.sources.postgres" not in loaded
+        assert "feather_etl.sources.csv" not in loaded
+
+
 class TestFileSourcesRejectDbFields:
     """Every file source must reject DB fields in its YAML entry with the
     correct type name in the error message."""
