@@ -47,6 +47,19 @@ def resolved_source_name(cfg: "SourceConfig") -> str:
     return _sanitize(f"{cfg.type}-{host}")
 
 
+def schema_output_path(cfg: "SourceConfig") -> Path:
+    """Return the target Path for `feather discover` JSON output.
+
+    Format:
+      - DB source:   ./schema_<name>_<database>.json
+      - File source: ./schema_<name>.json
+    """
+    parts = [f"schema_{resolved_source_name(cfg)}"]
+    if cfg.database:
+        parts.append(_sanitize(cfg.database))
+    return Path(f"{'_'.join(parts)}.json")
+
+
 VALID_STRATEGIES = {"full", "incremental", "append"}
 VALID_SCHEMA_PREFIXES = {"bronze", "silver", "gold"}
 VALID_MODES = {"dev", "prod", "test"}

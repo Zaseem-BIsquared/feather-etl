@@ -107,3 +107,52 @@ class TestResolvedSourceName:
 
         cfg = self._cfg(type="csv", path=None)
         assert resolved_source_name(cfg) == "csv-unknown"
+
+
+class TestSchemaOutputPath:
+    def _cfg(self, **kwargs):
+        from feather_etl.config import SourceConfig
+
+        return SourceConfig(**kwargs)
+
+    def test_db_source_includes_database_suffix(self):
+        from pathlib import Path
+
+        from feather_etl.config import schema_output_path
+
+        cfg = self._cfg(type="sqlserver", host="192.168.2.62", database="ZAKYA")
+        assert schema_output_path(cfg) == Path("schema_sqlserver-192.168.2.62_ZAKYA.json")
+
+    def test_db_source_sanitizes_database(self):
+        from pathlib import Path
+
+        from feather_etl.config import schema_output_path
+
+        cfg = self._cfg(type="sqlserver", host="db.internal", database="My DB")
+        assert schema_output_path(cfg) == Path("schema_sqlserver-db.internal_My_DB.json")
+
+    def test_db_source_without_database(self):
+        from pathlib import Path
+
+        from feather_etl.config import schema_output_path
+
+        cfg = self._cfg(type="sqlserver", host="db.internal")
+        assert schema_output_path(cfg) == Path("schema_sqlserver-db.internal.json")
+
+    def test_file_source_has_no_database_suffix(self, tmp_path):
+        from pathlib import Path
+
+        from feather_etl.config import schema_output_path
+
+        sqlite_file = tmp_path / "source.sqlite"
+        sqlite_file.touch()
+        cfg = self._cfg(type="sqlite", path=sqlite_file)
+        assert schema_output_path(cfg) == Path("schema_sqlite-source.json")
+
+    def test_user_name_used_in_path(self):
+        from pathlib import Path
+
+        from feather_etl.config import schema_output_path
+
+        cfg = self._cfg(type="sqlserver", name="prod-erp", host="db", database="ZAKYA")
+        assert schema_output_path(cfg) == Path("schema_prod-erp_ZAKYA.json")
