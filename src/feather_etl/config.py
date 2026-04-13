@@ -13,6 +13,14 @@ import yaml
 from dotenv import load_dotenv
 
 FILE_SOURCE_TYPES = {"duckdb", "sqlite", "csv", "excel", "json"}
+_UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _sanitize(segment: str) -> str:
+    """Replace any char outside [A-Za-z0-9._-] with underscore. Preserves dots and hyphens."""
+    return _UNSAFE_CHARS.sub("_", segment)
+
+
 VALID_STRATEGIES = {"full", "incremental", "append"}
 VALID_SCHEMA_PREFIXES = {"bronze", "silver", "gold"}
 VALID_MODES = {"dev", "prod", "test"}
