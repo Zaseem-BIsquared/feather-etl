@@ -160,6 +160,19 @@ All commands accept `--config PATH` (default: `feather.yaml`). `run` and `setup`
 
 **Note:** `feather setup --mode prod` applies gold transforms as materialized tables, which requires bronze/silver data to already exist. Run `feather run` first, then `feather setup --mode prod` to materialize gold.
 
+### Browsing a source schema
+
+`feather --json discover` emits NDJSON one table per line. For a visual browser of the result, drop `scripts/schema_viewer.html` next to the output file and serve the folder:
+
+```bash
+feather --json discover > schema.json
+cp /path/to/feather-etl/scripts/schema_viewer.html .
+python -m http.server 8000
+# open http://localhost:8000/schema_viewer.html
+```
+
+The viewer auto-discovers every `schema*.json` in the same folder, so multiple databases can be browsed side by side. Zero dependencies, works offline, falls back to drag-drop when opened via `file://`. See GH issue #16 for planned `feather discover --viewer` integration.
+
 ## Client Project Layout
 
 `feather init` generates this structure (one repo per client):
