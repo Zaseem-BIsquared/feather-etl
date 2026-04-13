@@ -594,6 +594,7 @@ class TestSqlServerListDatabases:
 
         assert result == ["SALES", "INVENTORY", "HR"]
         assert "sys.databases" in captured_sql[0]
+        assert "NOT IN" in captured_sql[0]
         for sysdb in ("master", "tempdb", "model", "msdb"):
             assert f"'{sysdb}'" in captured_sql[0]
 

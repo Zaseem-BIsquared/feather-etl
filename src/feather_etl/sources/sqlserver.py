@@ -173,7 +173,10 @@ class SqlServerSource(DatabaseSource):
         return []
 
     def list_databases(self) -> list[str]:
-        """Return user databases on the server (excludes master, tempdb, model, msdb)."""
+        """Return user databases on the server (excludes master, tempdb, model, msdb).
+
+        Raises pyodbc.Error on connection/query failure (caller handles).
+        """
         con = pyodbc.connect(self.connection_string, timeout=10)
         try:
             cursor = con.cursor()
