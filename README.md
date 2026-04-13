@@ -85,11 +85,7 @@ All three strategies are idempotent — safe to re-run after partial failures.
 
 ## This Repo vs Client Projects
 
-**feather-etl** (this repo) is a Python package only — no client config, no client data. Install it as a dependency:
-
-```bash
-uv add feather-etl
-```
+**feather-etl** (this repo) is a Python package only — no client config, no client data. See [Installation](#installation) for install options.
 
 Each client lives in its own GitHub repository, scaffolded with `feather init`:
 
@@ -98,6 +94,49 @@ feather init client-abc
 # → creates client-abc/ with feather.yaml, pyproject.toml, .gitignore, .env.example
 # → creates transforms/silver/, transforms/gold/, tables/, extracts/ directories
 ```
+
+## Installation
+
+> The PyPI package is named `feather-etl`; the installed command is `feather`.
+
+### Recommended — global CLI tool
+
+For most users (scaffolding clients, running pipelines locally), install feather-etl as a global `uv` tool:
+
+```bash
+uv tool install feather-etl
+feather --help
+```
+
+Upgrade or pin to a specific version:
+
+```bash
+uv tool upgrade feather-etl
+uv tool install feather-etl@X.Y.Z
+```
+
+### Alternative — project dependency
+
+For teams that need per-project version pinning or reproducibility, add feather-etl to a client project's `pyproject.toml`:
+
+```bash
+uv add feather-etl
+uv run feather --help
+```
+
+Every command then runs via `uv run feather …`.
+
+### One-off — no install
+
+Run any feather command without installing, using `uvx`:
+
+```bash
+uvx feather-etl init client-abc     # scaffold a new client
+uvx feather-etl validate            # validate a config
+uvx feather-etl run                 # run the pipeline
+```
+
+`uvx` downloads feather-etl into a throwaway environment for each invocation, so nothing is left on your PATH and there's no `feather` command afterwards — every call must be prefixed with `uvx feather-etl …`. Good for CI, quick trials, and scaffolding the very first client. For day-to-day use, prefer the global install above.
 
 ## CLI
 
