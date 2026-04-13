@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from pathlib import Path
+from typing import ClassVar, Protocol
 
 import pyarrow as pa
 
@@ -29,6 +30,23 @@ class ChangeResult:
 
 class Source(Protocol):
     """Any class with these methods is a valid feather-etl source."""
+
+    name: str
+    type: ClassVar[str]
+
+    @classmethod
+    def from_yaml(cls, entry: dict, config_dir: Path) -> "Source":
+        """Parse one `sources:` list entry and return a configured instance.
+
+        All per-type rules live here: port defaults, connection-string template,
+        path resolution, database/databases XOR validation. Side-effect free —
+        does not open connections.
+        """
+        ...
+
+    def validate_source_table(self, source_table: str) -> list[str]:
+        """Return error messages for this source_table string. Empty list = valid."""
+        ...
 
     def check(self) -> bool: ...
 
