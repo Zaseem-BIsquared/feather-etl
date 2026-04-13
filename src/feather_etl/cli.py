@@ -117,9 +117,7 @@ def validate(
 
 
 @app.command()
-def discover(
-    ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")
-) -> None:
+def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
     """Save source schema (tables + columns) to an auto-named JSON file in the current directory."""
     import json
 
