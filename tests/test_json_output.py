@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 from typer.testing import CliRunner
 
+from tests.commands.conftest import cli_config
 from tests.conftest import FIXTURES_DIR
 
 
@@ -145,93 +146,15 @@ class TestOutputHelper:
         assert "2026-03-28" in parsed["ts"]
 
 
-# --- CLI --json integration tests ---
-
 runner = CliRunner()
 
 
-def _cli_config(tmp_path: Path) -> Path:
-    """Create a config for CLI --json tests."""
-    client_db = tmp_path / "client.duckdb"
-    shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
-    config = {
-        "source": {"type": "duckdb", "path": str(client_db)},
-        "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        "tables": [
-            {
-                "name": "inventory_group",
-                "source_table": "icube.InventoryGroup",
-                "target_table": "bronze.inventory_group",
-                "strategy": "full",
-            }
-        ],
-    }
-    config_file = tmp_path / "feather.yaml"
-    config_file.write_text(yaml.dump(config, default_flow_style=False))
-    return config_file
-
-
 class TestCliJsonFlag:
-    def test_run_json_outputs_ndjson(self, tmp_path: Path):
-        from feather_etl.cli import app
-
-        config_file = _cli_config(tmp_path)
-        result = runner.invoke(app, ["--json", "run", "--config", str(config_file)])
-        assert result.exit_code == 0
-        lines = [line for line in result.output.strip().split("\n") if line.strip()]
-        # Should have at least one JSON line per table
-        assert len(lines) >= 1
-        parsed = json.loads(lines[0])
-        assert "table_name" in parsed
-        assert "status" in parsed
-
-    def test_status_json_outputs_ndjson(self, tmp_path: Path):
-        """AC-FR11.d: feather status --json outputs NDJSON with required fields."""
-        from feather_etl.cli import app
-
-        config_file = _cli_config(tmp_path)
-        # Run first to create state
-        runner.invoke(app, ["run", "--config", str(config_file)])
-
-        result = runner.invoke(app, ["--json", "status", "--config", str(config_file)])
-        assert result.exit_code == 0
-        lines = [line for line in result.output.strip().split("\n") if line.strip()]
-        assert len(lines) >= 1
-        parsed = json.loads(lines[0])
-        assert "table_name" in parsed
-        assert "status" in parsed
-
-    def test_validate_json_outputs_json(self, tmp_path: Path):
-        from feather_etl.cli import app
-
-        config_file = _cli_config(tmp_path)
-        result = runner.invoke(
-            app, ["--json", "validate", "--config", str(config_file)]
-        )
-        assert result.exit_code == 0
-        parsed = json.loads(result.output.strip())
-        assert parsed["valid"] is True
-        assert "tables_count" in parsed
-
-    def test_history_json_outputs_ndjson(self, tmp_path: Path):
-        from feather_etl.cli import app
-
-        config_file = _cli_config(tmp_path)
-        runner.invoke(app, ["run", "--config", str(config_file)])
-
-        result = runner.invoke(app, ["--json", "history", "--config", str(config_file)])
-        assert result.exit_code == 0
-        lines = [line for line in result.output.strip().split("\n") if line.strip()]
-        assert len(lines) >= 1
-        parsed = json.loads(lines[0])
-        assert "run_id" in parsed
-        assert "table_name" in parsed
-
     def test_default_output_unchanged(self, tmp_path: Path):
         """Default (no --json) output should still be human-readable."""
         from feather_etl.cli import app
 
-        config_file = _cli_config(tmp_path)
+        config_file = cli_config(tmp_path)
         result = runner.invoke(app, ["validate", "--config", str(config_file)])
         assert result.exit_code == 0
         # Should have human text, not JSON
