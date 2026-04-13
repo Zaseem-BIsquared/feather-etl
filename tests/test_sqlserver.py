@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
@@ -481,3 +482,82 @@ def test_build_where_clause_both(source: SqlServerSource) -> None:
         watermark_value="2026-01-01",
     )
     assert result == " WHERE (status = 'active') AND updated_at > '2026-01-01'"
+
+
+class TestSqlServerFromYaml:
+    def test_minimal_db_entry_builds_connection_string(self):
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        entry = {
+            "name": "erp",
+            "type": "sqlserver",
+            "host": "db.example.com",
+            "user": "u",
+            "password": "p",
+            "database": "SALES",
+        }
+        src = SqlServerSource.from_yaml(entry, Path("."))
+        assert src.name == "erp"
+        assert src.host == "db.example.com"
+        assert src.port == 1433
+        assert src.database == "SALES"
+        assert src.databases is None
+        assert "SERVER=db.example.com,1433" in src.connection_string
+        assert "DATABASE=SALES" in src.connection_string
+
+    def test_explicit_port(self):
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        entry = {"name": "erp", "type": "sqlserver", "host": "h",
+                 "port": 1444, "user": "u", "password": "p", "database": "X"}
+        src = SqlServerSource.from_yaml(entry, Path("."))
+        assert src.port == 1444
+        assert "SERVER=h,1444" in src.connection_string
+
+    def test_databases_list(self):
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        entry = {"name": "erp", "type": "sqlserver", "host": "h",
+                 "user": "u", "password": "p", "databases": ["A", "B"]}
+        src = SqlServerSource.from_yaml(entry, Path("."))
+        assert src.database is None
+        assert src.databases == ["A", "B"]
+
+    def test_database_xor_databases_both(self):
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        entry = {"name": "erp", "type": "sqlserver", "host": "h",
+                 "user": "u", "password": "p", "database": "A",
+                 "databases": ["B"]}
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            SqlServerSource.from_yaml(entry, Path("."))
+
+    def test_databases_empty_list(self):
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        entry = {"name": "erp", "type": "sqlserver", "host": "h",
+                 "user": "u", "password": "p", "databases": []}
+        with pytest.raises(ValueError, match="non-empty"):
+            SqlServerSource.from_yaml(entry, Path("."))
+
+    def test_explicit_connection_string_overrides(self):
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        entry = {"name": "erp", "type": "sqlserver",
+                 "connection_string": "DRIVER={X};SERVER=raw"}
+        src = SqlServerSource.from_yaml(entry, Path("."))
+        assert src.connection_string == "DRIVER={X};SERVER=raw"
+
+
+class TestSqlServerValidateSourceTable:
+    def test_schema_dot_table_ok(self):
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        src = SqlServerSource(connection_string="dummy", name="x")
+        assert src.validate_source_table("dbo.MyTable") == []
+
+    def test_plain_table_ok(self):
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        src = SqlServerSource(connection_string="dummy", name="x")
+        assert src.validate_source_table("MyTable") == []

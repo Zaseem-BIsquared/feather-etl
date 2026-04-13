@@ -6,12 +6,20 @@ import datetime
 import decimal
 import platform
 import uuid
+from pathlib import Path
+from typing import ClassVar
 
 import pyarrow as pa
 import pyodbc
 
 from feather_etl.sources import ChangeResult, StreamSchema
 from feather_etl.sources.database_source import DatabaseSource
+
+_SQLSERVER_CONN_TEMPLATE = (
+    "DRIVER={{ODBC Driver 18 for SQL Server}};"
+    "SERVER={host},{port};DATABASE={database};UID={user};PWD={password};"
+    "TrustServerCertificate=yes"
+)
 
 # pyodbc type code → PyArrow type mapping
 # pyodbc cursor.description[1] returns Python types — map them all
@@ -88,10 +96,85 @@ def _is_missing_odbc_driver_18_error(message: str, connection_string: str) -> bo
 class SqlServerSource(DatabaseSource):
     """Source that reads tables from SQL Server via pyodbc."""
 
-    def __init__(self, connection_string: str, batch_size: int = 120_000) -> None:
+    type: ClassVar[str] = "sqlserver"
+
+    def __init__(
+        self,
+        connection_string: str,
+        *,
+        name: str = "",
+        host: str | None = None,
+        port: int | None = None,
+        user: str | None = None,
+        password: str | None = None,
+        database: str | None = None,
+        databases: list[str] | None = None,
+        batch_size: int = 120_000,
+    ) -> None:
         super().__init__(connection_string)
+        self.name = name
+        self.host = host
+        self.port = port
+        self.user = user
+        self.password = password
+        self.database = database
+        self.databases = databases
         self.batch_size = batch_size
         self._last_error: str | None = None
+
+    @classmethod
+    def from_yaml(cls, entry: dict, config_dir: Path) -> "SqlServerSource":
+        name = entry.get("name", "")
+        explicit_conn = entry.get("connection_string")
+        host = entry.get("host")
+        port = entry.get("port", 1433)
+        user = entry.get("user")
+        password = entry.get("password")
+        database = entry.get("database")
+        databases = entry.get("databases")
+
+        if database is not None and databases is not None:
+            raise ValueError(
+                "database and databases are mutually exclusive; use one."
+            )
+        if databases is not None and not databases:
+            raise ValueError("databases list must be non-empty.")
+
+        if explicit_conn:
+            conn_str = explicit_conn
+        elif host:
+            conn_str = _SQLSERVER_CONN_TEMPLATE.format(
+                host=host,
+                port=port,
+                database=database or "",
+                user=user or "",
+                password=password or "",
+            )
+        else:
+            raise ValueError(
+                "sqlserver source requires either 'connection_string' or "
+                "'host' (with user/password/database)."
+            )
+
+        return cls(
+            connection_string=conn_str,
+            name=name,
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            databases=databases,
+        )
+
+    def validate_source_table(self, source_table: str) -> list[str]:
+        # SQL Server: lenient — allow 'schema.table' or 'table'. Real
+        # validation happens at extract time when the server rejects bad SQL.
+        return []
+
+    def list_databases(self) -> list[str]:
+        """Stub — implemented in Task 1.3."""
+        raise NotImplementedError
 
     def _format_watermark(self, value: str) -> str:
         """SQL Server datetime: replace ISO 'T' separator, truncate to 3ms precision."""
