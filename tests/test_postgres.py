@@ -390,6 +390,19 @@ class TestPostgresListDatabases:
 
         assert result == ["warehouse", "analytics"]
         sql = captured_sql[0]
+        assert "NOT IN" in sql
+        assert "= false" in sql
         assert "pg_database" in sql
         assert "datistemplate" in sql or "template" in sql
         assert "postgres" in sql  # 'postgres' default DB filtered out
+
+    def test_propagates_psycopg2_error(self, monkeypatch):
+        from feather_etl.sources import postgres as pg
+
+        def raise_(*a, **k):
+            raise pg.psycopg2.Error("connection refused")
+
+        monkeypatch.setattr(pg.psycopg2, "connect", raise_)
+        src = pg.PostgresSource(connection_string="dummy", name="x")
+        with pytest.raises(pg.psycopg2.Error):
+            src.list_databases()
