@@ -164,14 +164,26 @@ class TestValidate:
 
 
 class TestDiscover:
-    def test_lists_tables(self, cli_env: tuple[Path, Path]):
+    def test_writes_json_with_tables(self, cli_env: tuple[Path, Path], monkeypatch):
+        import json
+
         from feather_etl.cli import app
 
-        config_path, _ = cli_env
+        config_path, tmp_path = cli_env
+        monkeypatch.chdir(tmp_path)
+
         result = runner.invoke(app, ["discover", "--config", str(config_path)])
         assert result.exit_code == 0
-        assert "SALESINVOICE" in result.output
-        assert "CUSTOMERMASTER" in result.output
+        # Output is the single-line summary pointing at the written file.
+        assert "Wrote" in result.output
+
+        # The JSON file exists in tmp_path; parse it and check the tables we expect.
+        schema_files = list(tmp_path.glob("schema_*.json"))
+        assert len(schema_files) == 1
+        payload = json.loads(schema_files[0].read_text())
+        table_names = [entry["table_name"] for entry in payload]
+        assert any("SALESINVOICE" in t for t in table_names)
+        assert any("CUSTOMERMASTER" in t for t in table_names)
 
     def test_discover_bad_source_fails(self, tmp_path: Path):
         from feather_etl.cli import app

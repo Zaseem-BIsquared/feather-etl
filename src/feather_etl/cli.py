@@ -113,7 +113,10 @@ def validate(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--
 
 @app.command()
 def discover(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")) -> None:
-    """List tables and columns available in the configured source."""
+    """Save source schema (tables + columns) to an auto-named JSON file in the current directory."""
+    import json
+
+    from feather_etl.config import schema_output_path
     from feather_etl.sources.registry import create_source
 
     cfg = _load_and_validate(config)
@@ -124,24 +127,16 @@ def discover(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--
         raise typer.Exit(code=2)
 
     schemas = source.discover()
-    if _is_json(ctx):
-        emit(
-            [
-                {
-                    "table_name": s.name,
-                    "columns": [{"name": c[0], "type": c[1]} for c in s.columns],
-                }
-                for s in schemas
-            ],
-            json_mode=True,
-        )
-    else:
-        typer.echo(f"Found {len(schemas)} table(s):\n")
-        for s in schemas:
-            typer.echo(f"  {s.name}")
-            for col_name, col_type in s.columns:
-                typer.echo(f"    {col_name}: {col_type}")
-            typer.echo()
+    payload = [
+        {
+            "table_name": s.name,
+            "columns": [{"name": c[0], "type": c[1]} for c in s.columns],
+        }
+        for s in schemas
+    ]
+    out_path = schema_output_path(cfg.source)
+    out_path.write_text(json.dumps(payload, indent=2))
+    typer.echo(f"Wrote {len(schemas)} table(s) to ./{out_path}")
 
 
 @app.command()

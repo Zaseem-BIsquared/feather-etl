@@ -12,7 +12,7 @@ from tests.conftest import FIXTURES_DIR
 runner = CliRunner()
 
 
-def test_full_onboarding_flow(tmp_path: Path):
+def test_full_onboarding_flow(tmp_path: Path, monkeypatch):
     """init → validate → discover → setup → run → status → run again."""
     from feather_etl.cli import app
 
@@ -63,11 +63,19 @@ def test_full_onboarding_flow(tmp_path: Path):
     assert vj_path.exists()
 
     # --- 4. feather discover ---
+    monkeypatch.chdir(project_dir)
     result = runner.invoke(app, ["discover", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
-    assert "SALESINVOICE" in result.output
-    assert "CUSTOMERMASTER" in result.output
-    assert "InventoryGroup" in result.output
+    assert "Wrote" in result.output
+
+    import json
+    schema_files = list(project_dir.glob("schema_*.json"))
+    assert len(schema_files) == 1, f"Expected one schema file, found: {schema_files}"
+    payload = json.loads(schema_files[0].read_text())
+    table_names = [entry["table_name"] for entry in payload]
+    assert any("SALESINVOICE" in t for t in table_names)
+    assert any("CUSTOMERMASTER" in t for t in table_names)
+    assert any("InventoryGroup" in t for t in table_names)
 
     # --- 5. feather setup ---
     result = runner.invoke(app, ["setup", "--config", str(config_path)])
