@@ -5,12 +5,17 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import ClassVar
 
 import duckdb
 import pyarrow as pa
 
 from feather_etl.sources import ChangeResult, StreamSchema
-from feather_etl.sources.file_source import FileSource
+from feather_etl.sources.file_source import (
+    FileSource,
+    _reject_db_fields,
+    _resolve_file_path,
+)
 
 
 def _is_glob(table: str) -> bool:
@@ -25,8 +30,23 @@ class CsvSource(FileSource):
     for multi-file tables. Glob tables use per-file change detection.
     """
 
-    def __init__(self, path: Path) -> None:
+    type: ClassVar[str] = "csv"
+
+    def __init__(self, path: Path, *, name: str = "") -> None:
         super().__init__(path)
+        self.name = name
+
+    @classmethod
+    def from_yaml(cls, entry: dict, config_dir: Path) -> "CsvSource":
+        _reject_db_fields(entry, cls.type)
+        path = _resolve_file_path(entry, config_dir)
+        if not path.is_dir():
+            raise ValueError(f"CSV source path must be a directory: {path}")
+        return cls(path=path, name=entry.get("name", ""))
+
+    def validate_source_table(self, source_table: str) -> list[str]:
+        # CSV: filename or glob pattern; no SQL identifier rule.
+        return []
 
     def _resolve_glob_files(self, table: str) -> list[Path]:
         """Resolve glob pattern to sorted list of matching files."""

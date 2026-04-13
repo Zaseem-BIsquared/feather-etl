@@ -541,3 +541,113 @@ class TestSourceProtocol:
         assert PostgresSource.type == "postgres"
         assert SqliteSource.type == "sqlite"
         assert SqlServerSource.type == "sqlserver"
+
+
+class TestFileSourceFromYaml:
+    @pytest.fixture
+    def csv_dir(self, tmp_path):
+        d = tmp_path / "data"
+        d.mkdir()
+        (d / "orders.csv").write_text("id,amt\n1,10\n")
+        return d
+
+    @pytest.fixture
+    def sqlite_file(self, tmp_path):
+        f = tmp_path / "src.sqlite"
+        f.write_bytes(b"")
+        return f
+
+    def test_csv_from_yaml(self, csv_dir):
+        from feather_etl.sources.csv import CsvSource
+
+        entry = {"name": "sheets", "type": "csv", "path": str(csv_dir)}
+        src = CsvSource.from_yaml(entry, csv_dir.parent)
+        assert src.name == "sheets"
+        assert src.path == csv_dir
+
+    def test_csv_relative_path_resolves_against_config_dir(self, tmp_path):
+        from feather_etl.sources.csv import CsvSource
+
+        d = tmp_path / "rel" / "csvs"
+        d.mkdir(parents=True)
+        entry = {"name": "x", "type": "csv", "path": "rel/csvs"}
+        src = CsvSource.from_yaml(entry, tmp_path)
+        assert src.path == d.resolve()
+
+    def test_csv_path_required(self, tmp_path):
+        from feather_etl.sources.csv import CsvSource
+
+        with pytest.raises(ValueError, match="path"):
+            CsvSource.from_yaml({"name": "x", "type": "csv"}, tmp_path)
+
+    def test_csv_rejects_database_field(self, csv_dir):
+        from feather_etl.sources.csv import CsvSource
+
+        entry = {"name": "x", "type": "csv", "path": str(csv_dir),
+                 "database": "BAD"}
+        with pytest.raises(ValueError, match="not supported for source type csv"):
+            CsvSource.from_yaml(entry, csv_dir.parent)
+
+    def test_sqlite_from_yaml(self, sqlite_file):
+        from feather_etl.sources.sqlite import SqliteSource
+
+        entry = {"name": "db", "type": "sqlite", "path": str(sqlite_file)}
+        src = SqliteSource.from_yaml(entry, sqlite_file.parent)
+        assert src.path == sqlite_file
+
+    def test_duckdb_from_yaml(self, tmp_path):
+        from feather_etl.sources.duckdb_file import DuckDBFileSource
+
+        f = tmp_path / "src.duckdb"
+        f.write_bytes(b"")
+        entry = {"name": "d", "type": "duckdb", "path": str(f)}
+        src = DuckDBFileSource.from_yaml(entry, tmp_path)
+        assert src.path == f
+
+    def test_excel_from_yaml(self, tmp_path):
+        from feather_etl.sources.excel import ExcelSource
+
+        d = tmp_path / "xlsx"
+        d.mkdir()
+        src = ExcelSource.from_yaml(
+            {"name": "e", "type": "excel", "path": str(d)}, tmp_path
+        )
+        assert src.path == d
+
+    def test_json_from_yaml(self, tmp_path):
+        from feather_etl.sources.json_source import JsonSource
+
+        d = tmp_path / "json"
+        d.mkdir()
+        src = JsonSource.from_yaml(
+            {"name": "j", "type": "json", "path": str(d)}, tmp_path
+        )
+        assert src.path == d
+
+
+class TestFileSourceValidateSourceTable:
+    def test_csv_accepts_filename(self, tmp_path):
+        from feather_etl.sources.csv import CsvSource
+
+        src = CsvSource(path=tmp_path, name="x")
+        assert src.validate_source_table("orders.csv") == []
+
+    def test_csv_accepts_glob(self, tmp_path):
+        from feather_etl.sources.csv import CsvSource
+
+        src = CsvSource(path=tmp_path, name="x")
+        assert src.validate_source_table("sales_*.csv") == []
+
+    def test_sqlite_rejects_dotted(self, tmp_path):
+        from feather_etl.sources.sqlite import SqliteSource
+
+        src = SqliteSource(path=tmp_path / "x.sqlite", name="x")
+        errs = src.validate_source_table("schema.table")
+        assert errs and "identifier" in errs[0].lower()
+
+    def test_duckdb_requires_dotted(self, tmp_path):
+        from feather_etl.sources.duckdb_file import DuckDBFileSource
+
+        src = DuckDBFileSource(path=tmp_path / "x.duckdb", name="x")
+        errs = src.validate_source_table("plain")
+        assert errs and "schema.table" in errs[0]

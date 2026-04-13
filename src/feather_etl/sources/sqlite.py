@@ -3,19 +3,42 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import duckdb
 import pyarrow as pa
 
 from feather_etl.sources import StreamSchema
-from feather_etl.sources.file_source import FileSource
+from feather_etl.sources.file_source import (
+    FileSource,
+    _SQL_IDENTIFIER_RE,
+    _reject_db_fields,
+    _resolve_file_path,
+)
 
 
 class SqliteSource(FileSource):
     """Source that reads tables from a SQLite database file."""
 
-    def __init__(self, path: Path) -> None:
+    type: ClassVar[str] = "sqlite"
+
+    def __init__(self, path: Path, *, name: str = "") -> None:
         super().__init__(path)
+        self.name = name
+
+    @classmethod
+    def from_yaml(cls, entry: dict, config_dir: Path) -> "SqliteSource":
+        _reject_db_fields(entry, cls.type)
+        path = _resolve_file_path(entry, config_dir)
+        return cls(path=path, name=entry.get("name", ""))
+
+    def validate_source_table(self, source_table: str) -> list[str]:
+        if not _SQL_IDENTIFIER_RE.match(source_table):
+            return [
+                f"source_table '{source_table}' contains invalid identifier "
+                f"characters. Use letters, digits, and underscores only."
+            ]
+        return []
 
     def _connect(self) -> duckdb.DuckDBPyConnection:
         """In-memory connection with sqlite_scanner loaded."""

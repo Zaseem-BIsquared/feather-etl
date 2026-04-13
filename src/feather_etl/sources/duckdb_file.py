@@ -3,19 +3,48 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import duckdb
 import pyarrow as pa
 
 from feather_etl.sources import StreamSchema
-from feather_etl.sources.file_source import FileSource
+from feather_etl.sources.file_source import (
+    FileSource,
+    _SQL_IDENTIFIER_RE,
+    _reject_db_fields,
+    _resolve_file_path,
+)
 
 
 class DuckDBFileSource(FileSource):
     """Source that reads tables from a DuckDB file using ATTACH."""
 
-    def __init__(self, path: Path) -> None:
+    type: ClassVar[str] = "duckdb"
+
+    def __init__(self, path: Path, *, name: str = "") -> None:
         super().__init__(path)
+        self.name = name
+
+    @classmethod
+    def from_yaml(cls, entry: dict, config_dir: Path) -> "DuckDBFileSource":
+        _reject_db_fields(entry, cls.type)
+        path = _resolve_file_path(entry, config_dir)
+        return cls(path=path, name=entry.get("name", ""))
+
+    def validate_source_table(self, source_table: str) -> list[str]:
+        if "." not in source_table:
+            return [
+                f"source_table '{source_table}' must be in schema.table "
+                f"format for DuckDB sources."
+            ]
+        st_schema, st_table = source_table.split(".", 1)
+        if not _SQL_IDENTIFIER_RE.match(st_schema) or not _SQL_IDENTIFIER_RE.match(st_table):
+            return [
+                f"source_table '{source_table}' contains invalid identifier "
+                f"characters. Use letters, digits, and underscores only."
+            ]
+        return []
 
     def _connect_direct(self) -> duckdb.DuckDBPyConnection:
         """Connect directly to the source DB (read-only) for metadata queries."""

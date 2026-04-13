@@ -3,19 +3,39 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import duckdb
 import pyarrow as pa
 
 from feather_etl.sources import StreamSchema
-from feather_etl.sources.file_source import FileSource
+from feather_etl.sources.file_source import (
+    FileSource,
+    _reject_db_fields,
+    _resolve_file_path,
+)
 
 
 class JsonSource(FileSource):
     """Source that reads JSON files from a directory."""
 
-    def __init__(self, path: Path) -> None:
+    type: ClassVar[str] = "json"
+
+    def __init__(self, path: Path, *, name: str = "") -> None:
         super().__init__(path)
+        self.name = name
+
+    @classmethod
+    def from_yaml(cls, entry: dict, config_dir: Path) -> "JsonSource":
+        _reject_db_fields(entry, cls.type)
+        path = _resolve_file_path(entry, config_dir)
+        if not path.is_dir():
+            raise ValueError(f"JSON source path must be a directory: {path}")
+        return cls(path=path, name=entry.get("name", ""))
+
+    def validate_source_table(self, source_table: str) -> list[str]:
+        # JSON: filename; no SQL identifier rule.
+        return []
 
     def _source_path_for_table(self, table: str) -> Path:
         """JSON: each table is a separate file in the directory."""
