@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 
 from feather_etl.commands.discover import register as register_discover
@@ -33,4 +31,3 @@ register_setup(app)
 register_run(app)
 register_history(app)
 register_status(app)
-
