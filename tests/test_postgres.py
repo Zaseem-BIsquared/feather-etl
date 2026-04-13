@@ -270,3 +270,76 @@ class TestPostgresSourceIntegration:
         result = source.detect_changes("erp.sales", last_state=last_state)
         assert result.changed is True
         assert result.reason == "incremental"
+
+
+# ---------------------------------------------------------------------------
+# PostgresSource.from_yaml — unit tests (no DB needed)
+# ---------------------------------------------------------------------------
+
+
+class TestPostgresFromYaml:
+    def test_minimal_entry_builds_conn_string(self):
+        from pathlib import Path
+
+        from feather_etl.sources.postgres import PostgresSource
+
+        entry = {"name": "wh", "type": "postgres", "host": "db.example.com",
+                 "user": "u", "password": "p", "database": "warehouse"}
+        src = PostgresSource.from_yaml(entry, Path("."))
+        assert src.name == "wh"
+        assert src.host == "db.example.com"
+        assert src.port == 5432
+        assert src.database == "warehouse"
+        assert "host=db.example.com" in src.connection_string
+        assert "port=5432" in src.connection_string
+        assert "dbname=warehouse" in src.connection_string
+
+    def test_explicit_port(self):
+        from pathlib import Path
+
+        from feather_etl.sources.postgres import PostgresSource
+
+        entry = {"name": "wh", "type": "postgres", "host": "h", "port": 5499,
+                 "user": "u", "password": "p", "database": "X"}
+        src = PostgresSource.from_yaml(entry, Path("."))
+        assert src.port == 5499
+        assert "port=5499" in src.connection_string
+
+    def test_databases_list_and_xor_rules(self):
+        from pathlib import Path
+
+        from feather_etl.sources.postgres import PostgresSource
+
+        ok = {"name": "wh", "type": "postgres", "host": "h",
+              "user": "u", "password": "p", "databases": ["A", "B"]}
+        src = PostgresSource.from_yaml(ok, Path("."))
+        assert src.databases == ["A", "B"]
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            PostgresSource.from_yaml(
+                {**ok, "database": "C"}, Path(".")
+            )
+
+        with pytest.raises(ValueError, match="non-empty"):
+            PostgresSource.from_yaml(
+                {**ok, "databases": []}, Path(".")
+            )
+
+
+# ---------------------------------------------------------------------------
+# PostgresSource.validate_source_table — unit tests (no DB needed)
+# ---------------------------------------------------------------------------
+
+
+class TestPostgresValidateSourceTable:
+    def test_schema_dot_table_ok(self):
+        from feather_etl.sources.postgres import PostgresSource
+
+        src = PostgresSource(connection_string="dummy", name="x")
+        assert src.validate_source_table("public.orders") == []
+
+    def test_plain_table_ok(self):
+        from feather_etl.sources.postgres import PostgresSource
+
+        src = PostgresSource(connection_string="dummy", name="x")
+        assert src.validate_source_table("orders") == []

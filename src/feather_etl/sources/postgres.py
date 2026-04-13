@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import decimal
+from pathlib import Path
+from typing import ClassVar
 
 import psycopg2
 import psycopg2.extras
@@ -59,6 +61,11 @@ _PG_TYPE_MAP: dict[str, pa.DataType] = {
 }
 
 
+_PG_CONN_TEMPLATE = (
+    "host={host} port={port} dbname={database} user={user} password={password}"
+)
+
+
 def _psycopg2_type_to_arrow(type_code: int) -> pa.DataType:
     """Map a psycopg2 OID type_code to a PyArrow type."""
     return _PSYCOPG2_TYPE_MAP.get(type_code, pa.string())
@@ -67,10 +74,78 @@ def _psycopg2_type_to_arrow(type_code: int) -> pa.DataType:
 class PostgresSource(DatabaseSource):
     """Source that reads tables from PostgreSQL via psycopg2."""
 
-    def __init__(self, connection_string: str, batch_size: int = 120_000) -> None:
+    type: ClassVar[str] = "postgres"
+
+    def __init__(
+        self,
+        connection_string: str,
+        *,
+        name: str = "",
+        host: str | None = None,
+        port: int | None = None,
+        user: str | None = None,
+        password: str | None = None,
+        database: str | None = None,
+        databases: list[str] | None = None,
+        batch_size: int = 120_000,
+    ) -> None:
         super().__init__(connection_string)
+        self.name = name
+        self.host = host
+        self.port = port
+        self.user = user
+        self.password = password
+        self.database = database
+        self.databases = databases
         self.batch_size = batch_size
         self._last_error: str | None = None
+
+    @classmethod
+    def from_yaml(cls, entry: dict, config_dir: Path) -> "PostgresSource":
+        name = entry.get("name", "")
+        explicit_conn = entry.get("connection_string")
+        host = entry.get("host")
+        port = entry.get("port", 5432)
+        user = entry.get("user")
+        password = entry.get("password")
+        database = entry.get("database")
+        databases = entry.get("databases")
+
+        if database is not None and databases is not None:
+            raise ValueError(
+                "database and databases are mutually exclusive; use one."
+            )
+        if databases is not None and not databases:
+            raise ValueError("databases list must be non-empty.")
+
+        if explicit_conn:
+            conn_str = explicit_conn
+        elif host:
+            conn_str = _PG_CONN_TEMPLATE.format(
+                host=host,
+                port=port,
+                database=database or "",
+                user=user or "",
+                password=password or "",
+            )
+        else:
+            raise ValueError(
+                "postgres source requires either 'connection_string' or 'host'."
+            )
+
+        return cls(
+            connection_string=conn_str,
+            name=name,
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=database,
+            databases=databases,
+        )
+
+    def validate_source_table(self, source_table: str) -> list[str]:
+        return []
 
     # _format_watermark: uses base class default (ISO value passed through unchanged)
 
