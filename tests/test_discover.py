@@ -89,7 +89,9 @@ class TestDiscoverSavesJson:
         assert (tmp_path / "schema_prod-erp.json").exists()
         assert not (tmp_path / "schema_sqlite-source.json").exists()
 
-    def test_user_name_with_unsafe_chars_is_sanitized(self, tmp_path: Path, monkeypatch):
+    def test_user_name_with_unsafe_chars_is_sanitized(
+        self, tmp_path: Path, monkeypatch
+    ):
         from feather_etl.cli import app
 
         config_path = _write_sqlite_config(tmp_path, source_name="prod/erp")

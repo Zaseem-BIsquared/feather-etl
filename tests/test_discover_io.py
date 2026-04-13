@@ -121,7 +121,9 @@ class TestSchemaOutputPath:
         from feather_etl.config import schema_output_path
 
         cfg = self._cfg(type="sqlserver", host="192.168.2.62", database="ZAKYA")
-        assert schema_output_path(cfg) == Path("schema_sqlserver-192.168.2.62_ZAKYA.json")
+        assert schema_output_path(cfg) == Path(
+            "schema_sqlserver-192.168.2.62_ZAKYA.json"
+        )
 
     def test_db_source_sanitizes_database(self):
         from pathlib import Path
@@ -129,7 +131,9 @@ class TestSchemaOutputPath:
         from feather_etl.config import schema_output_path
 
         cfg = self._cfg(type="sqlserver", host="db.internal", database="My DB")
-        assert schema_output_path(cfg) == Path("schema_sqlserver-db.internal_My_DB.json")
+        assert schema_output_path(cfg) == Path(
+            "schema_sqlserver-db.internal_My_DB.json"
+        )
 
     def test_db_source_without_database(self):
         from pathlib import Path
