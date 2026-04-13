@@ -561,3 +561,49 @@ class TestSqlServerValidateSourceTable:
 
         src = SqlServerSource(connection_string="dummy", name="x")
         assert src.validate_source_table("MyTable") == []
+
+
+class TestSqlServerListDatabases:
+    def test_query_filters_system_dbs(self, monkeypatch):
+        """Should run a query against sys.databases excluding master/tempdb/model/msdb."""
+        from feather_etl.sources import sqlserver as ss
+
+        captured_sql: list[str] = []
+
+        class FakeCursor:
+            def execute(self, sql, *_):
+                captured_sql.append(sql)
+
+            def fetchall(self):
+                return [("SALES",), ("INVENTORY",), ("HR",)]
+
+            def close(self):
+                pass
+
+        class FakeConn:
+            def cursor(self):
+                return FakeCursor()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(ss.pyodbc, "connect", lambda *a, **k: FakeConn())
+
+        src = ss.SqlServerSource(connection_string="dummy", name="x")
+        result = src.list_databases()
+
+        assert result == ["SALES", "INVENTORY", "HR"]
+        assert "sys.databases" in captured_sql[0]
+        for sysdb in ("master", "tempdb", "model", "msdb"):
+            assert f"'{sysdb}'" in captured_sql[0]
+
+    def test_propagates_pyodbc_error(self, monkeypatch):
+        from feather_etl.sources import sqlserver as ss
+
+        def raise_(*a, **k):
+            raise ss.pyodbc.Error("Login failed")
+
+        monkeypatch.setattr(ss.pyodbc, "connect", raise_)
+        src = ss.SqlServerSource(connection_string="dummy", name="x")
+        with pytest.raises(ss.pyodbc.Error):
+            src.list_databases()

@@ -173,8 +173,20 @@ class SqlServerSource(DatabaseSource):
         return []
 
     def list_databases(self) -> list[str]:
-        """Stub — implemented in Task 1.3."""
-        raise NotImplementedError
+        """Return user databases on the server (excludes master, tempdb, model, msdb)."""
+        con = pyodbc.connect(self.connection_string, timeout=10)
+        try:
+            cursor = con.cursor()
+            cursor.execute(
+                "SELECT name FROM sys.databases "
+                "WHERE name NOT IN ('master', 'tempdb', 'model', 'msdb') "
+                "ORDER BY name"
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+            return [r[0] for r in rows]
+        finally:
+            con.close()
 
     def _format_watermark(self, value: str) -> str:
         """SQL Server datetime: replace ISO 'T' separator, truncate to 3ms precision."""
