@@ -145,6 +145,8 @@ class PostgresSource(DatabaseSource):
         )
 
     def validate_source_table(self, source_table: str) -> list[str]:
+        # Postgres: lenient — real validation happens at extract time when
+        # the server rejects bad SQL.
         return []
 
     # _format_watermark: uses base class default (ISO value passed through unchanged)

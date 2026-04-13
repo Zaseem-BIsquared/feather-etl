@@ -325,6 +325,16 @@ class TestPostgresFromYaml:
                 {**ok, "databases": []}, Path(".")
             )
 
+    def test_explicit_connection_string_overrides(self):
+        from pathlib import Path
+
+        from feather_etl.sources.postgres import PostgresSource
+
+        entry = {"name": "wh", "type": "postgres",
+                 "connection_string": "host=raw dbname=verbatim"}
+        src = PostgresSource.from_yaml(entry, Path("."))
+        assert src.connection_string == "host=raw dbname=verbatim"
+
 
 # ---------------------------------------------------------------------------
 # PostgresSource.validate_source_table — unit tests (no DB needed)
