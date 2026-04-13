@@ -9,7 +9,7 @@ Run both test suites and confirm green:
 
 ```bash
 uv run pytest -q               # currently: 341 tests
-bash scripts/hands_on_test.sh  # currently: 72 checks
+bash scripts/hands_on_test.sh  # currently: 67 checks
 ```
 
 If anything is red before you touch anything, report immediately.

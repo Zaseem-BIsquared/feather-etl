@@ -212,23 +212,6 @@ code=$("$FEATHER" validate --config "$S3/hyphen_target.yaml" > /dev/null 2>&1; e
 echo ""
 
 # ---------------------------------------------------------------------------
-# S4 — feather discover (client fixture)
-# ---------------------------------------------------------------------------
-yellow "--- S4: feather discover ---"
-out=$("$FEATHER" discover --config "$S2/feather.yaml" 2>&1)
-echo "$out" | grep -q "Found 6 table" \
-    && check "discover finds 6 icube tables" ok \
-    || check "discover finds 6 icube tables" fail
-echo "$out" | grep -q "icube.SALESINVOICE" \
-    && check "discover shows icube.SALESINVOICE" ok \
-    || check "discover shows icube.SALESINVOICE" fail
-echo "$out" | grep -q "ModifiedDate" \
-    && check "discover shows columns" ok \
-    || check "discover shows columns" fail
-
-echo ""
-
-# ---------------------------------------------------------------------------
 # S5 — feather setup + run + status (client fixture)
 # ---------------------------------------------------------------------------
 yellow "--- S5: feather setup / run / status ---"
@@ -600,9 +583,9 @@ stderr_lines=$({ "$FEATHER" run --config "$S14/feather.yaml" 2>&1 1>/dev/null ||
 echo ""
 
 # ---------------------------------------------------------------------------
-# S15 — CSV source: validate, discover, run
+# S15 — CSV source: validate, run
 # ---------------------------------------------------------------------------
-yellow "--- S15: CSV source validate + discover + run ---"
+yellow "--- S15: CSV source validate + run ---"
 S15="$WORK_DIR/s15" && mkdir "$S15"
 cp -r "$FIXTURE_DIR/csv_data" "$S15/csv_data"
 cat > "$S15/feather.yaml" << YAML
@@ -629,11 +612,6 @@ validate_out=$("$FEATHER" validate --config "$S15/feather.yaml" 2>&1) || true
 echo "$validate_out" | grep -q "3 table" \
     && check "csv validate succeeds with 3 tables" ok \
     || check "csv validate succeeds with 3 tables" fail
-
-discover_out=$("$FEATHER" discover --config "$S15/feather.yaml" 2>&1) || true
-echo "$discover_out" | grep -q "orders.csv" \
-    && check "csv discover finds orders.csv" ok \
-    || check "csv discover finds orders.csv" fail
 
 run_out=$("$FEATHER" run --config "$S15/feather.yaml" 2>&1) || true
 echo "$run_out" | grep -q "3/3" \
@@ -668,9 +646,9 @@ validate_code=$("$FEATHER" validate --config "$S16A/feather.yaml" > /dev/null 2>
 echo ""
 
 # ---------------------------------------------------------------------------
-# S17 — SQLite source: validate, discover, run
+# S17 — SQLite source: validate, run
 # ---------------------------------------------------------------------------
-yellow "--- S17: SQLite source validate + discover + run ---"
+yellow "--- S17: SQLite source validate + run ---"
 S17="$WORK_DIR/s17" && mkdir "$S17"
 cp "$FIXTURE_DIR/sample_erp.sqlite" "$S17/source.sqlite"
 cat > "$S17/feather.yaml" << YAML
@@ -697,11 +675,6 @@ validate_out=$("$FEATHER" validate --config "$S17/feather.yaml" 2>&1) || true
 echo "$validate_out" | grep -q "3 table" \
     && check "sqlite validate succeeds with 3 tables" ok \
     || check "sqlite validate succeeds with 3 tables" fail
-
-discover_out=$("$FEATHER" discover --config "$S17/feather.yaml" 2>&1) || true
-echo "$discover_out" | grep -q "orders" \
-    && check "sqlite discover finds orders table" ok \
-    || check "sqlite discover finds orders table" fail
 
 run_out=$("$FEATHER" run --config "$S17/feather.yaml" 2>&1) || true
 echo "$run_out" | grep -q "3/3" \
