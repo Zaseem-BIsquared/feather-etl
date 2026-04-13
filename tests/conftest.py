@@ -10,18 +10,14 @@ import yaml
 
 def pytest_configure(config):
     """Start PostgreSQL before test collection (so skipif checks see it)."""
-    try:
+    if shutil.which("pg_ctl"):
         subprocess.run(["pg_ctl", "start", "-l", "/dev/null"], capture_output=True)
-    except FileNotFoundError:
-        pass  # pg_ctl not installed, skip PostgreSQL startup
 
 
 def pytest_unconfigure(config):
     """Stop PostgreSQL after the test session."""
-    try:
+    if shutil.which("pg_ctl"):
         subprocess.run(["pg_ctl", "stop"], capture_output=True)
-    except FileNotFoundError:
-        pass  # pg_ctl not installed, skip PostgreSQL shutdown
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
