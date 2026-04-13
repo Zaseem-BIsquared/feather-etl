@@ -8,11 +8,14 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 from dotenv import load_dotenv
 
-FILE_SOURCE_TYPES = {"duckdb", "sqlite", "csv", "excel", "json"}
+if TYPE_CHECKING:
+    from feather_etl.sources import Source
+
 _UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -21,7 +24,7 @@ def _sanitize(segment: str) -> str:
     return _UNSAFE_CHARS.sub("_", segment)
 
 
-def resolved_source_name(cfg: "SourceConfig") -> str:
+def resolved_source_name(cfg: "Source") -> str:
     """Return the sanitized identity used in discover output filenames.
 
     If cfg.name is set, sanitize and return it. Otherwise derive:
@@ -33,21 +36,21 @@ def resolved_source_name(cfg: "SourceConfig") -> str:
     if cfg.name:
         return _sanitize(cfg.name)
 
-    if cfg.type in FILE_SOURCE_TYPES:
-        if cfg.path is None:
-            return _sanitize(f"{cfg.type}-unknown")
+    # File source — has .path
+    path = getattr(cfg, "path", None)
+    if path is not None:
         if cfg.type == "csv":
-            basename = cfg.path.name
+            basename = path.name
         else:
-            basename = cfg.path.stem
+            basename = path.stem
         return _sanitize(f"{cfg.type}-{basename}")
 
-    # DB source
-    host = cfg.host or "unknown"
+    # DB source — has .host
+    host = getattr(cfg, "host", None) or "unknown"
     return _sanitize(f"{cfg.type}-{host}")
 
 
-def schema_output_path(cfg: "SourceConfig") -> Path:
+def schema_output_path(cfg: "Source") -> Path:
     """Return the target Path for `feather discover` JSON output.
 
     Format:
@@ -55,8 +58,9 @@ def schema_output_path(cfg: "SourceConfig") -> Path:
       - File source: ./schema_<name>.json
     """
     parts = [f"schema_{resolved_source_name(cfg)}"]
-    if cfg.database:
-        parts.append(_sanitize(cfg.database))
+    database = getattr(cfg, "database", None)
+    if database:
+        parts.append(_sanitize(database))
     return Path(f"{'_'.join(parts)}.json")
 
 
@@ -65,39 +69,6 @@ VALID_SCHEMA_PREFIXES = {"bronze", "silver", "gold"}
 VALID_MODES = {"dev", "prod", "test"}
 _SQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _UNRESOLVED_ENV_RE = re.compile(r"\$\{([^}]+)\}")
-
-
-# Default connection-string templates for database sources.
-#
-# SQL Server note: ODBC Driver 18 enforces TLS certificate validation by
-# default, so connections to servers with self-signed or internally-issued
-# certs fail with "SSL Provider: certificate verify failed". We default to
-# TrustServerCertificate=yes because most on-prem ERP SQL Servers ship with
-# self-signed certs. Users whose server presents a publicly-trusted cert can
-# override by providing a raw `connection_string:` in feather.yaml.
-DB_CONNECTION_BUILDERS: dict[str, str] = {
-    "sqlserver": (
-        "DRIVER={{ODBC Driver 18 for SQL Server}};"
-        "SERVER={host},{port};DATABASE={database};UID={user};PWD={password};"
-        "TrustServerCertificate=yes"
-    ),
-    "postgres": (
-        "host={host} port={port} dbname={database} user={user} password={password}"
-    ),
-}
-
-
-@dataclass
-class SourceConfig:
-    type: str
-    name: str | None = None
-    path: Path | None = None
-    connection_string: str | None = None
-    host: str | None = None
-    port: int | None = None
-    database: str | None = None
-    user: str | None = None
-    password: str | None = None
 
 
 @dataclass
@@ -141,7 +112,7 @@ class AlertsConfig:
 
 @dataclass
 class FeatherConfig:
-    source: SourceConfig
+    source: "Source"
     destination: DestinationConfig
     tables: list[TableConfig]
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
@@ -220,33 +191,18 @@ def _merge_tables_dir(config_dir: Path, tables: list[dict]) -> list[dict]:
 
 def _validate(config: FeatherConfig) -> list[str]:
     """Validate config, return list of error messages."""
-    from feather_etl.sources.registry import SOURCE_REGISTRY
-
     errors: list[str] = []
 
-    if config.source.type not in SOURCE_REGISTRY:
-        errors.append(
-            f"Unsupported source type '{config.source.type}'. "
-            f"Supported: {sorted(SOURCE_REGISTRY)}"
-        )
-
-    if config.source.type in FILE_SOURCE_TYPES and config.source.path:
+    # File source path existence check
+    source_path = getattr(config.source, "path", None)
+    if source_path is not None:
         if config.source.type == "csv":
-            if not config.source.path.is_dir():
+            if not source_path.is_dir():
                 errors.append(
-                    f"CSV source path must be a directory: {config.source.path}"
+                    f"CSV source path must be a directory: {source_path}"
                 )
-        elif not config.source.path.exists():
-            errors.append(f"Source path does not exist: {config.source.path}")
-
-    if (
-        config.source.type not in FILE_SOURCE_TYPES
-        and not config.source.connection_string
-    ):
-        errors.append(
-            f"Source type '{config.source.type}' requires either "
-            f"host/database/user/password fields or a connection_string."
-        )
+        elif not source_path.exists():
+            errors.append(f"Source path does not exist: {source_path}")
 
     if not config.destination.path.parent.exists():
         errors.append(
@@ -298,33 +254,9 @@ def _validate(config: FeatherConfig) -> list[str]:
                 f"exclusive — use one or the other."
             )
 
-        # Source-type-aware source_table validation (R-1)
-        if config.source.type == "duckdb":
-            # DuckDB: must be schema.table with valid SQL identifiers
-            if "." not in table.source_table:
-                errors.append(
-                    f"Table '{table.name}': source_table '{table.source_table}' "
-                    f"must be in schema.table format for DuckDB sources."
-                )
-            else:
-                st_schema, st_table = table.source_table.split(".", 1)
-                if not _SQL_IDENTIFIER_RE.match(
-                    st_schema
-                ) or not _SQL_IDENTIFIER_RE.match(st_table):
-                    errors.append(
-                        f"Table '{table.name}': source_table '{table.source_table}' "
-                        f"contains invalid identifier characters. "
-                        f"Use letters, digits, and underscores only."
-                    )
-        elif config.source.type == "sqlite":
-            # SQLite: plain table name, valid identifier
-            if not _SQL_IDENTIFIER_RE.match(table.source_table):
-                errors.append(
-                    f"Table '{table.name}': source_table '{table.source_table}' "
-                    f"contains invalid identifier characters. "
-                    f"Use letters, digits, and underscores only."
-                )
-        # CSV/other file types: filename validation — no SQL injection risk
+        # Source-type-aware source_table validation — delegated to the source class.
+        for err in config.source.validate_source_table(table.source_table):
+            errors.append(f"Table '{table.name}': {err}")
 
     return errors
 
@@ -379,35 +311,12 @@ def load_config(
         if key not in raw:
             raise ValueError(f"Missing required config section: '{key}'")
 
+    from feather_etl.sources.registry import get_source_class
+
     source_raw = raw["source"]
     src_type = source_raw["type"]
-
-    # Assemble connection_string from individual fields if not provided directly
-    conn_str = source_raw.get("connection_string")
-    host = source_raw.get("host")
-    if not conn_str and host and src_type in DB_CONNECTION_BUILDERS:
-        port = source_raw.get("port", 1433 if src_type == "sqlserver" else 5432)
-        conn_str = DB_CONNECTION_BUILDERS[src_type].format(
-            host=host,
-            port=port,
-            database=source_raw.get("database", ""),
-            user=source_raw.get("user", ""),
-            password=source_raw.get("password", ""),
-        )
-
-    source = SourceConfig(
-        type=src_type,
-        name=source_raw.get("name"),
-        path=_resolve_path(config_dir, source_raw["path"])
-        if "path" in source_raw
-        else None,
-        connection_string=conn_str,
-        host=host,
-        port=source_raw.get("port"),
-        database=source_raw.get("database"),
-        user=source_raw.get("user"),
-        password=source_raw.get("password"),
-    )
+    source_cls = get_source_class(src_type)
+    source = source_cls.from_yaml(source_raw, config_dir)
 
     dest = DestinationConfig(
         path=_resolve_path(config_dir, raw["destination"]["path"]),
@@ -500,8 +409,8 @@ def write_validation_json(
         "errors": errors,
         "tables_count": len(config.tables) if config else 0,
         "resolved_paths": {
-            "source": str(config.source.path)
-            if config and config.source.path
+            "source": str(getattr(config.source, "path", None))
+            if config and getattr(config.source, "path", None)
             else None,
             "destination": str(config.destination.path) if config else None,
             "config_dir": str(config.config_dir) if config else None,

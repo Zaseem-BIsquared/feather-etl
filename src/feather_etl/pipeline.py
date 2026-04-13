@@ -20,7 +20,6 @@ from feather_etl.alerts import (
 )
 from feather_etl.config import FeatherConfig, TableConfig
 from feather_etl.destinations.duckdb import DuckDBDestination
-from feather_etl.sources.registry import create_source
 from feather_etl.state import StateManager
 
 logger = logging.getLogger(__name__)
@@ -206,7 +205,7 @@ def run_table(
     dest = DuckDBDestination(path=config.destination.path)
     dest.setup_schemas()
 
-    source = create_source(config.source)
+    source = config.source
     effective_target = _resolve_target(table, config.mode)
 
     # Prod mode with column_map: extract only mapped columns

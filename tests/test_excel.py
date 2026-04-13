@@ -23,16 +23,15 @@ def excel_dir(tmp_path: Path) -> Path:
 
 class TestExcelSourceRegistry:
     def test_source_in_registry(self):
-        from feather_etl.sources.registry import SOURCE_REGISTRY
+        from feather_etl.sources.excel import ExcelSource
+        from feather_etl.sources.registry import get_source_class
+
+        assert get_source_class("excel") is ExcelSource
+
+    def test_excel_type_attr(self):
         from feather_etl.sources.excel import ExcelSource
 
-        assert "excel" in SOURCE_REGISTRY
-        assert SOURCE_REGISTRY["excel"] is ExcelSource
-
-    def test_excel_in_file_source_types(self):
-        from feather_etl.config import FILE_SOURCE_TYPES
-
-        assert "excel" in FILE_SOURCE_TYPES
+        assert ExcelSource.type == "excel"
 
 
 class TestExcelSourceCheck:

@@ -14,10 +14,9 @@ def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
     import json
 
     from feather_etl.config import schema_output_path
-    from feather_etl.sources.registry import create_source
 
     cfg = _load_and_validate(config)
-    source = create_source(cfg.source)
+    source = cfg.source
 
     if not source.check():
         typer.echo("Source connection failed.", err=True)

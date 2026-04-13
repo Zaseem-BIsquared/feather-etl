@@ -385,11 +385,11 @@ def test_sqlserver_check_success_clears_last_error(
 
 
 def test_registry_creates_sqlserver_source() -> None:
-    """Registry creates SqlServerSource when type is 'sqlserver'."""
-    from feather_etl.sources.registry import SOURCE_REGISTRY
+    """Registry resolves SqlServerSource when type is 'sqlserver'."""
+    from feather_etl.sources.registry import get_source_class
+    from feather_etl.sources.sqlserver import SqlServerSource as _Cls
 
-    assert "sqlserver" in SOURCE_REGISTRY
-    assert SOURCE_REGISTRY["sqlserver"] is SqlServerSource
+    assert get_source_class("sqlserver") is _Cls
 
 
 def test_sqlserver_connection_string_builder_trusts_self_signed_cert(tmp_path) -> None:

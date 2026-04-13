@@ -131,7 +131,7 @@ class TestConfigValidation:
         cfg = _minimal_config(tmp_path)
         cfg["source"]["type"] = "mongodb"
         config_file = write_config(tmp_path, cfg)
-        with pytest.raises(ValueError, match="Unsupported source type"):
+        with pytest.raises(ValueError, match="not implemented"):
             load_config(config_file)
 
     def test_missing_source_path_for_file_source(self, tmp_path: Path):
@@ -275,7 +275,7 @@ class TestConfigValidationExtended:
             ],
         }
         config_file = write_config(tmp_path, cfg)
-        with pytest.raises(ValueError, match="Unsupported source type"):
+        with pytest.raises(ValueError, match="not implemented"):
             load_config(config_file)
 
     def test_missing_table_field_gives_friendly_error(self, tmp_path: Path):
@@ -569,7 +569,7 @@ class TestSourceName:
         cfg_dict = _minimal_config(tmp_path)
         config_file = write_config(tmp_path, cfg_dict)
         result = load_config(config_file, validate=False)
-        assert result.source.name is None
+        assert not result.source.name  # empty string or None both indicate no name set
 
     def test_source_name_is_accepted(self, tmp_path: Path):
         from feather_etl.config import load_config

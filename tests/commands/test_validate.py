@@ -56,19 +56,24 @@ class TestValidate:
         """
         from feather_etl.cli import app
 
+        import feather_etl.config as _config_mod
+
+        real_load = _config_mod.load_config
+
         class FakeFailingSource:
             def __init__(self):
                 self._last_error = "TLS Provider: certificate verify failed"
+                self.type = "duckdb"
 
             def check(self) -> bool:
                 return False
 
-        def fake_create_source(_source_cfg):
-            return FakeFailingSource()
+        def fake_load_config(path, **kwargs):
+            cfg = real_load(path, **kwargs)
+            cfg.source = FakeFailingSource()
+            return cfg
 
-        monkeypatch.setattr(
-            "feather_etl.sources.registry.create_source", fake_create_source
-        )
+        monkeypatch.setattr(_config_mod, "load_config", fake_load_config)
 
         config_path, _ = cli_env
         result = runner.invoke(

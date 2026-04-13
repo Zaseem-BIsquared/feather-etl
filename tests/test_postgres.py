@@ -76,11 +76,10 @@ class TestDatabaseSourceFormatWatermark:
 
 class TestPostgresSourceUnit:
     def test_source_in_registry(self):
-        from feather_etl.sources.registry import SOURCE_REGISTRY
         from feather_etl.sources.postgres import PostgresSource
+        from feather_etl.sources.registry import get_source_class
 
-        assert "postgres" in SOURCE_REGISTRY
-        assert SOURCE_REGISTRY["postgres"] is PostgresSource
+        assert get_source_class("postgres") is PostgresSource
 
     def test_watermark_passthrough(self):
         """PostgresSource uses the default _format_watermark (ISO unchanged)."""

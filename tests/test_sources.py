@@ -485,37 +485,34 @@ class TestSqliteSource:
 class TestSourceRegistry:
     def test_registry_resolves_duckdb(self):
         from feather_etl.sources.duckdb_file import DuckDBFileSource
-        from feather_etl.sources.registry import SOURCE_REGISTRY
+        from feather_etl.sources.registry import get_source_class
 
-        assert SOURCE_REGISTRY["duckdb"] is DuckDBFileSource
+        assert get_source_class("duckdb") is DuckDBFileSource
 
     def test_registry_resolves_csv(self):
         from feather_etl.sources.csv import CsvSource
-        from feather_etl.sources.registry import SOURCE_REGISTRY
+        from feather_etl.sources.registry import get_source_class
 
-        assert SOURCE_REGISTRY["csv"] is CsvSource
+        assert get_source_class("csv") is CsvSource
 
     def test_registry_resolves_sqlite(self):
-        from feather_etl.sources.registry import SOURCE_REGISTRY
+        from feather_etl.sources.registry import get_source_class
         from feather_etl.sources.sqlite import SqliteSource
 
-        assert SOURCE_REGISTRY["sqlite"] is SqliteSource
+        assert get_source_class("sqlite") is SqliteSource
 
-    def test_create_source(self, client_db: Path):
-        from feather_etl.config import SourceConfig
-        from feather_etl.sources.registry import create_source
+    def test_get_source_class_and_instantiate(self, client_db: Path):
+        from feather_etl.sources.registry import get_source_class
 
-        cfg = SourceConfig(type="duckdb", path=client_db)
-        source = create_source(cfg)
+        cls = get_source_class("duckdb")
+        source = cls(path=client_db)
         assert source.check() is True
 
-    def test_create_source_unknown_type(self):
-        from feather_etl.config import SourceConfig
-        from feather_etl.sources.registry import create_source
+    def test_get_source_class_unknown_type(self):
+        from feather_etl.sources.registry import get_source_class
 
-        cfg = SourceConfig(type="cassandra", path=None)
         with pytest.raises(ValueError, match="not implemented"):
-            create_source(cfg)
+            get_source_class("cassandra")
 
 
 class TestSourceProtocol:
@@ -683,16 +680,25 @@ class TestLazyRegistry:
         import importlib
         import sys
 
-        for mod_name in list(sys.modules):
-            if mod_name.startswith("feather_etl.sources"):
-                del sys.modules[mod_name]
+        # Snapshot and restore sys.modules so clearing for this test does not
+        # break module-level imports in other test files (e.g. test_sqlserver.py
+        # imports SqlServerSource at the top level, and mock.patch targets that
+        # same module object).
+        snapshot = dict(sys.modules)
 
-        importlib.import_module("feather_etl.sources.registry")
-        loaded = {m for m in sys.modules if m.startswith("feather_etl.sources")}
+        try:
+            for mod_name in list(sys.modules):
+                if mod_name.startswith("feather_etl.sources"):
+                    del sys.modules[mod_name]
 
-        assert "feather_etl.sources.sqlserver" not in loaded
-        assert "feather_etl.sources.postgres" not in loaded
-        assert "feather_etl.sources.csv" not in loaded
+            importlib.import_module("feather_etl.sources.registry")
+            loaded = {m for m in sys.modules if m.startswith("feather_etl.sources")}
+
+            assert "feather_etl.sources.sqlserver" not in loaded
+            assert "feather_etl.sources.postgres" not in loaded
+            assert "feather_etl.sources.csv" not in loaded
+        finally:
+            sys.modules.update(snapshot)
 
 
 class TestFileSourcesRejectDbFields:

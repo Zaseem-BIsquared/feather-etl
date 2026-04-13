@@ -14,12 +14,10 @@ def validate(
     ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")
 ) -> None:
     """Validate config, test source connection, and write feather_validation.json."""
-    from feather_etl.sources.registry import create_source
-
     cfg = _load_and_validate(config)
 
     # Test source connection
-    source = create_source(cfg.source)
+    source = cfg.source
     source_ok = source.check()
 
     if _is_json(ctx):
@@ -36,7 +34,11 @@ def validate(
         )
     else:
         typer.echo(f"Config valid: {len(cfg.tables)} table(s)")
-        source_label = cfg.source.path or cfg.source.host or "configured"
+        source_label = (
+            getattr(cfg.source, "path", None)
+            or getattr(cfg.source, "host", None)
+            or "configured"
+        )
         conn_status = "connected" if source_ok else "FAILED"
         typer.echo(f"  Source: {cfg.source.type} ({source_label}) — {conn_status}")
         typer.echo(f"  Destination: {cfg.destination.path}")

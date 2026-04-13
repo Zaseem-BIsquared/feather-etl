@@ -23,16 +23,15 @@ def json_dir(tmp_path: Path) -> Path:
 
 class TestJsonSourceRegistry:
     def test_source_in_registry(self):
-        from feather_etl.sources.registry import SOURCE_REGISTRY
+        from feather_etl.sources.json_source import JsonSource
+        from feather_etl.sources.registry import get_source_class
+
+        assert get_source_class("json") is JsonSource
+
+    def test_json_type_attr(self):
         from feather_etl.sources.json_source import JsonSource
 
-        assert "json" in SOURCE_REGISTRY
-        assert SOURCE_REGISTRY["json"] is JsonSource
-
-    def test_json_in_file_source_types(self):
-        from feather_etl.config import FILE_SOURCE_TYPES
-
-        assert "json" in FILE_SOURCE_TYPES
+        assert JsonSource.type == "json"
 
 
 class TestJsonSourceCheck:
