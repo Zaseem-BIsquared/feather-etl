@@ -43,6 +43,7 @@ DB_CONNECTION_BUILDERS: dict[str, str] = {
 @dataclass
 class SourceConfig:
     type: str
+    name: str | None = None
     path: Path | None = None
     connection_string: str | None = None
     host: str | None = None
@@ -349,6 +350,7 @@ def load_config(
 
     source = SourceConfig(
         type=src_type,
+        name=source_raw.get("name"),
         path=_resolve_path(config_dir, source_raw["path"])
         if "path" in source_raw
         else None,

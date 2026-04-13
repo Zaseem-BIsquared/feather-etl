@@ -562,3 +562,22 @@ class TestAlertsConfig:
         config_file = write_config(tmp_path, cfg)
         result = load_config(config_file, validate=False)
         assert result.alerts.smtp_password == "env_secret"
+
+
+class TestSourceName:
+    def test_source_name_is_optional(self, tmp_path: Path):
+        from feather_etl.config import load_config
+
+        cfg_dict = _minimal_config(tmp_path)
+        config_file = write_config(tmp_path, cfg_dict)
+        result = load_config(config_file, validate=False)
+        assert result.source.name is None
+
+    def test_source_name_is_accepted(self, tmp_path: Path):
+        from feather_etl.config import load_config
+
+        cfg_dict = _minimal_config(tmp_path)
+        cfg_dict["source"]["name"] = "prod-erp"
+        config_file = write_config(tmp_path, cfg_dict)
+        result = load_config(config_file, validate=False)
+        assert result.source.name == "prod-erp"
