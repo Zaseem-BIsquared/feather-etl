@@ -21,6 +21,32 @@ def _sanitize(segment: str) -> str:
     return _UNSAFE_CHARS.sub("_", segment)
 
 
+def resolved_source_name(cfg: "SourceConfig") -> str:
+    """Return the sanitized identity used in discover output filenames.
+
+    If cfg.name is set, sanitize and return it. Otherwise derive:
+      - DB sources (sqlserver, postgres): '<type>-<host>'
+      - CSV (path is a directory): 'csv-<dirname>'
+      - Other file sources (sqlite, duckdb, excel, json): '<type>-<basename-without-ext>'
+    Falls back to '<type>-unknown' when the relevant field is missing.
+    """
+    if cfg.name:
+        return _sanitize(cfg.name)
+
+    if cfg.type in FILE_SOURCE_TYPES:
+        if cfg.path is None:
+            return _sanitize(f"{cfg.type}-unknown")
+        if cfg.type == "csv":
+            basename = cfg.path.name
+        else:
+            basename = cfg.path.stem
+        return _sanitize(f"{cfg.type}-{basename}")
+
+    # DB source
+    host = cfg.host or "unknown"
+    return _sanitize(f"{cfg.type}-{host}")
+
+
 VALID_STRATEGIES = {"full", "incremental", "append"}
 VALID_SCHEMA_PREFIXES = {"bronze", "silver", "gold"}
 VALID_MODES = {"dev", "prod", "test"}

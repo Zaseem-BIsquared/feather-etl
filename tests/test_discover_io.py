@@ -18,3 +18,92 @@ class TestSanitize:
         from feather_etl.config import _sanitize
 
         assert _sanitize("db.internal-prod") == "db.internal-prod"
+
+
+class TestResolvedSourceName:
+    def _cfg(self, **kwargs):
+        from feather_etl.config import SourceConfig
+
+        return SourceConfig(**kwargs)
+
+    def test_user_name_wins_over_auto(self):
+        from feather_etl.config import resolved_source_name
+
+        cfg = self._cfg(type="sqlserver", name="prod-erp", host="db.internal")
+        assert resolved_source_name(cfg) == "prod-erp"
+
+    def test_user_name_is_sanitized(self):
+        from feather_etl.config import resolved_source_name
+
+        cfg = self._cfg(type="sqlserver", name="prod/erp", host="db.internal")
+        assert resolved_source_name(cfg) == "prod_erp"
+
+    def test_sqlserver_auto_uses_type_and_host(self):
+        from feather_etl.config import resolved_source_name
+
+        cfg = self._cfg(type="sqlserver", host="192.168.2.62")
+        assert resolved_source_name(cfg) == "sqlserver-192.168.2.62"
+
+    def test_sqlserver_auto_sanitizes_host(self):
+        from feather_etl.config import resolved_source_name
+
+        cfg = self._cfg(type="sqlserver", host="192.168.2.62:1433")
+        assert resolved_source_name(cfg) == "sqlserver-192.168.2.62_1433"
+
+    def test_postgres_auto_uses_type_and_host(self):
+        from feather_etl.config import resolved_source_name
+
+        cfg = self._cfg(type="postgres", host="db.internal")
+        assert resolved_source_name(cfg) == "postgres-db.internal"
+
+    def test_csv_auto_uses_directory_basename(self, tmp_path):
+        from feather_etl.config import resolved_source_name
+
+        csv_dir = tmp_path / "csv_data"
+        csv_dir.mkdir()
+        cfg = self._cfg(type="csv", path=csv_dir)
+        assert resolved_source_name(cfg) == "csv-csv_data"
+
+    def test_sqlite_auto_uses_file_basename_without_ext(self, tmp_path):
+        from feather_etl.config import resolved_source_name
+
+        sqlite_file = tmp_path / "source.sqlite"
+        sqlite_file.touch()
+        cfg = self._cfg(type="sqlite", path=sqlite_file)
+        assert resolved_source_name(cfg) == "sqlite-source"
+
+    def test_duckdb_auto_uses_file_basename_without_ext(self, tmp_path):
+        from feather_etl.config import resolved_source_name
+
+        duck_file = tmp_path / "my_data.duckdb"
+        duck_file.touch()
+        cfg = self._cfg(type="duckdb", path=duck_file)
+        assert resolved_source_name(cfg) == "duckdb-my_data"
+
+    def test_excel_auto_uses_file_basename_without_ext(self, tmp_path):
+        from feather_etl.config import resolved_source_name
+
+        xl = tmp_path / "sheet.xlsx"
+        xl.touch()
+        cfg = self._cfg(type="excel", path=xl)
+        assert resolved_source_name(cfg) == "excel-sheet"
+
+    def test_json_auto_uses_file_basename_without_ext(self, tmp_path):
+        from feather_etl.config import resolved_source_name
+
+        js = tmp_path / "events.json"
+        js.touch()
+        cfg = self._cfg(type="json", path=js)
+        assert resolved_source_name(cfg) == "json-events"
+
+    def test_db_source_without_host_falls_back_to_unknown(self):
+        from feather_etl.config import resolved_source_name
+
+        cfg = self._cfg(type="sqlserver", host=None)
+        assert resolved_source_name(cfg) == "sqlserver-unknown"
+
+    def test_file_source_without_path_falls_back_to_unknown(self):
+        from feather_etl.config import resolved_source_name
+
+        cfg = self._cfg(type="csv", path=None)
+        assert resolved_source_name(cfg) == "csv-unknown"
