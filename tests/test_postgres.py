@@ -353,3 +353,43 @@ class TestPostgresValidateSourceTable:
 
         src = PostgresSource(connection_string="dummy", name="x")
         assert src.validate_source_table("orders") == []
+
+
+# ---------------------------------------------------------------------------
+# PostgresSource.list_databases — unit tests (mocked psycopg2)
+# ---------------------------------------------------------------------------
+
+
+class TestPostgresListDatabases:
+    def test_query_filters_template_dbs(self, monkeypatch):
+        from feather_etl.sources import postgres as pg
+
+        captured_sql: list[str] = []
+
+        class FakeCursor:
+            def execute(self, sql, *_):
+                captured_sql.append(sql)
+
+            def fetchall(self):
+                return [("warehouse",), ("analytics",)]
+
+            def close(self):
+                pass
+
+        class FakeConn:
+            def cursor(self):
+                return FakeCursor()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(pg.psycopg2, "connect", lambda *a, **k: FakeConn())
+
+        src = pg.PostgresSource(connection_string="dummy", name="x")
+        result = src.list_databases()
+
+        assert result == ["warehouse", "analytics"]
+        sql = captured_sql[0]
+        assert "pg_database" in sql
+        assert "datistemplate" in sql or "template" in sql
+        assert "postgres" in sql  # 'postgres' default DB filtered out

@@ -149,6 +149,26 @@ class PostgresSource(DatabaseSource):
         # the server rejects bad SQL.
         return []
 
+    def list_databases(self) -> list[str]:
+        """Return user databases on the cluster (excludes templates and 'postgres').
+
+        Raises psycopg2.Error on connection/query failure (caller handles).
+        """
+        conn = psycopg2.connect(self.connection_string, connect_timeout=10)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT datname FROM pg_database "
+                "WHERE datistemplate = false "
+                "AND datname NOT IN ('postgres') "
+                "ORDER BY datname"
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+            return [r[0] for r in rows]
+        finally:
+            conn.close()
+
     # _format_watermark: uses base class default (ISO value passed through unchanged)
 
     def check(self) -> bool:
