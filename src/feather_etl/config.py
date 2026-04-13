@@ -193,17 +193,6 @@ def _validate(config: FeatherConfig) -> list[str]:
     """Validate config, return list of error messages."""
     errors: list[str] = []
 
-    # File source path existence check
-    source_path = getattr(config.source, "path", None)
-    if source_path is not None:
-        if config.source.type == "csv":
-            if not source_path.is_dir():
-                errors.append(
-                    f"CSV source path must be a directory: {source_path}"
-                )
-        elif not source_path.exists():
-            errors.append(f"Source path does not exist: {source_path}")
-
     if not config.destination.path.parent.exists():
         errors.append(
             f"Destination directory does not exist: {config.destination.path.parent}"

@@ -135,13 +135,19 @@ class TestConfigValidation:
             load_config(config_file)
 
     def test_missing_source_path_for_file_source(self, tmp_path: Path):
+        """Load succeeds but source.check() reports the path is unreachable.
+
+        Per Task 1.8 / spec §5.2 (side-effect-free from_yaml): path-existence
+        is a runtime concern handled by source.check(), not a load-time check.
+        """
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
         cfg["source"]["path"] = str(tmp_path / "nonexistent.duckdb")
+        # do NOT create the file
         config_file = write_config(tmp_path, cfg)
-        with pytest.raises(ValueError, match="does not exist"):
-            load_config(config_file)
+        cfg_result = load_config(config_file)  # now succeeds
+        assert cfg_result.source.check() is False
 
     def test_bad_strategy(self, tmp_path: Path):
         from feather_etl.config import load_config
