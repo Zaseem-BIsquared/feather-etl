@@ -301,7 +301,9 @@ def _check_unresolved_env_vars(data: dict | list | str, path: str = "") -> list[
 
 
 def load_config(
-    config_path: Path, mode_override: str | None = None
+    config_path: Path,
+    mode_override: str | None = None,
+    validate: bool = True,
 ) -> FeatherConfig:
     """Load and validate feather.yaml, raising ValueError on invalid config.
 
@@ -421,9 +423,10 @@ def load_config(
         alerts=alerts,
     )
 
-    errors = _validate(config)
-    if errors:
-        raise ValueError("; ".join(errors))
+    if validate:
+        errors = _validate(config)
+        if errors:
+            raise ValueError("; ".join(errors))
 
     return config
 

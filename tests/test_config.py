@@ -36,7 +36,7 @@ class TestConfigParsing:
 
         cfg = _minimal_config(tmp_path)
         config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.source.type == "duckdb"
         assert len(result.tables) == 1
         assert result.tables[0].name == "test_table"
@@ -45,12 +45,11 @@ class TestConfigParsing:
         from feather_etl.config import load_config
 
         os.environ["FEATHER_TEST_PATH"] = str(tmp_path / "source.duckdb")
-        (tmp_path / "source.duckdb").touch()
         try:
             cfg = _minimal_config(tmp_path)
             cfg["source"]["path"] = "${FEATHER_TEST_PATH}"
             config_file = write_config(tmp_path, cfg)
-            result = load_config(config_file)
+            result = load_config(config_file, validate=False)
             assert "${" not in str(result.source.path)
             assert "source.duckdb" in str(result.source.path)
         finally:
@@ -61,13 +60,11 @@ class TestConfigParsing:
 
         subdir = tmp_path / "project"
         subdir.mkdir()
-        db = subdir / "source.duckdb"
-        db.touch()
         cfg = _minimal_config(tmp_path)
         cfg["source"]["path"] = "./source.duckdb"
         cfg["destination"]["path"] = "./data.duckdb"
         config_file = write_config(tmp_path, cfg, directory=subdir)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.source.path == subdir / "source.duckdb"
         assert result.destination.path == subdir / "data.duckdb"
 
@@ -77,14 +74,13 @@ class TestConfigParsing:
         cfg = _minimal_config(tmp_path)
         del cfg["tables"][0]["target_table"]
         config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.tables[0].target_table == ""  # mode-derived at runtime
 
     def test_tables_directory_merge(self, tmp_path: Path):
         from feather_etl.config import load_config
 
         db = tmp_path / "source.duckdb"
-        db.touch()
         cfg = {
             "source": {"type": "duckdb", "path": str(db)},
             "destination": {"path": str(tmp_path / "data.duckdb")},
@@ -113,7 +109,7 @@ class TestConfigParsing:
         }
         (tables_dir / "extra.yaml").write_text(yaml.dump(extra))
 
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         names = {t.name for t in result.tables}
         assert names == {"inline_table", "dir_table"}
 
@@ -124,7 +120,7 @@ class TestConfigParsing:
         cfg = _minimal_config(tmp_path)
         # No primary_key field at all
         config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.tables[0].primary_key is None
 
 
@@ -198,7 +194,7 @@ class TestEnvVarEdgeCases:
         cfg = _minimal_config(tmp_path)
         cfg["defaults"] = {"overlap_window_minutes": 5, "batch_size": 50000}
         config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.defaults.overlap_window_minutes == 5
         assert result.defaults.batch_size == 50000
 
@@ -218,27 +214,14 @@ class TestEnvVarEdgeCases:
         monkeypatch.delenv("FEATHER_TEST_DOTENV_VAR", raising=False)
         assert "FEATHER_TEST_DOTENV_VAR" not in os.environ  # must come from .env, not shell
 
-        db = tmp_path / "source.duckdb"
-        db.touch()
-
         # Write .env alongside the config — this is what should get auto-loaded
         (tmp_path / ".env").write_text("FEATHER_TEST_DOTENV_VAR=bronze\n")
 
-        cfg = {
-            "source": {"type": "duckdb", "path": str(db)},
-            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "t",
-                    "source_table": "main.t",
-                    "target_table": "${FEATHER_TEST_DOTENV_VAR}.t",
-                    "strategy": "full",
-                },
-            ],
-        }
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["target_table"] = "${FEATHER_TEST_DOTENV_VAR}.t"
         config_file = write_config(tmp_path, cfg)
 
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         # If .env was loaded, ${FEATHER_TEST_DOTENV_VAR} resolved to "bronze"
         assert result.tables[0].target_table == "bronze.t"
 
@@ -256,48 +239,24 @@ class TestEnvVarEdgeCases:
         # Simulate CI env variable setup
         monkeypatch.setenv("FEATHER_TEST_OVERRIDE_VAR", "gold")
 
-        db = tmp_path / "source.duckdb"
-        db.touch()
         (tmp_path / ".env").write_text("FEATHER_TEST_OVERRIDE_VAR=bronze\n")
 
-        cfg = {
-            "source": {"type": "duckdb", "path": str(db)},
-            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "t",
-                    "source_table": "main.t",
-                    "target_table": "${FEATHER_TEST_OVERRIDE_VAR}.t",
-                    "strategy": "full",
-                },
-            ],
-        }
+        cfg = _minimal_config(tmp_path)
+        cfg["tables"][0]["target_table"] = "${FEATHER_TEST_OVERRIDE_VAR}.t"
         config_file = write_config(tmp_path, cfg)
 
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.tables[0].target_table == "gold.t"
 
     def test_unresolved_env_var_gives_clear_error(self, tmp_path: Path):
         """UX-4: Unset env vars should show which variable is missing."""
         from feather_etl.config import load_config
 
-        db = tmp_path / "source.duckdb"
-        db.touch()
-        cfg = {
-            "source": {"type": "duckdb", "path": str(db)},
-            "destination": {"path": "${MISSING_DEST_PATH}"},
-            "tables": [
-                {
-                    "name": "t",
-                    "source_table": "main.t",
-                    "target_table": "bronze.t",
-                    "strategy": "full",
-                },
-            ],
-        }
+        cfg = _minimal_config(tmp_path)
+        cfg["destination"]["path"] = "${MISSING_DEST_PATH}"
         config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="MISSING_DEST_PATH"):
-            load_config(config_file)
+            load_config(config_file, validate=False)
 
 
 class TestConfigValidationExtended:
@@ -523,7 +482,7 @@ class TestAlertsConfig:
 
         cfg = _minimal_config(tmp_path)
         config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.alerts is None
 
     def test_valid_alerts_section_parses(self, tmp_path: Path):
@@ -538,7 +497,7 @@ class TestAlertsConfig:
             "alert_to": "ops@example.com",
         }
         config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.alerts is not None
         assert result.alerts.smtp_host == "smtp.example.com"
         assert result.alerts.smtp_port == 587
@@ -557,7 +516,7 @@ class TestAlertsConfig:
             "alert_to": "ops@example.com",
         }
         config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.alerts.alert_from == "user@example.com"
 
     def test_explicit_alert_from(self, tmp_path: Path):
@@ -573,7 +532,7 @@ class TestAlertsConfig:
             "alert_from": "noreply@example.com",
         }
         config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.alerts.alert_from == "noreply@example.com"
 
     def test_missing_required_alert_field_raises(self, tmp_path: Path):
@@ -586,7 +545,7 @@ class TestAlertsConfig:
         }
         config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="alerts.*missing"):
-            load_config(config_file)
+            load_config(config_file, validate=False)
 
     def test_alerts_env_var_resolved(self, tmp_path: Path, monkeypatch):
         from feather_etl.config import load_config
@@ -601,5 +560,5 @@ class TestAlertsConfig:
             "alert_to": "ops@example.com",
         }
         config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file)
+        result = load_config(config_file, validate=False)
         assert result.alerts.smtp_password == "env_secret"
