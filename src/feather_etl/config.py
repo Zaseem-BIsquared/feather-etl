@@ -435,8 +435,7 @@ def load_config(
 
     if mode not in VALID_MODES:
         raise ValueError(
-            f"Invalid mode '{mode}' (from {mode_source}). "
-            f"Valid: {sorted(VALID_MODES)}"
+            f"Invalid mode '{mode}' (from {mode_source}). Valid: {sorted(VALID_MODES)}"
         )
 
     raw_tables = raw.get("tables", [])
@@ -447,7 +446,13 @@ def load_config(
     alerts: AlertsConfig | None = None
     alerts_raw = raw.get("alerts")
     if alerts_raw:
-        _ALERTS_REQUIRED = ("smtp_host", "smtp_port", "smtp_user", "smtp_password", "alert_to")
+        _ALERTS_REQUIRED = (
+            "smtp_host",
+            "smtp_port",
+            "smtp_user",
+            "smtp_password",
+            "alert_to",
+        )
         missing = [f for f in _ALERTS_REQUIRED if f not in alerts_raw]
         if missing:
             raise ValueError(

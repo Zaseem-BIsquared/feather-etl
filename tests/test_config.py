@@ -198,9 +198,7 @@ class TestEnvVarEdgeCases:
         assert result.defaults.overlap_window_minutes == 5
         assert result.defaults.batch_size == 50000
 
-    def test_dotenv_auto_loaded_from_config_dir(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_dotenv_auto_loaded_from_config_dir(self, tmp_path: Path, monkeypatch):
         """Regression for siraj-samsudeen/feather-etl#1.
 
         A `.env` file next to `feather.yaml` should be loaded automatically,
@@ -212,7 +210,9 @@ class TestEnvVarEdgeCases:
 
         # Ensure the var is NOT already in the environment
         monkeypatch.delenv("FEATHER_TEST_DOTENV_VAR", raising=False)
-        assert "FEATHER_TEST_DOTENV_VAR" not in os.environ  # must come from .env, not shell
+        assert (
+            "FEATHER_TEST_DOTENV_VAR" not in os.environ
+        )  # must come from .env, not shell
 
         # Write .env alongside the config — this is what should get auto-loaded
         (tmp_path / ".env").write_text("FEATHER_TEST_DOTENV_VAR=bronze\n")
@@ -225,9 +225,7 @@ class TestEnvVarEdgeCases:
         # If .env was loaded, ${FEATHER_TEST_DOTENV_VAR} resolved to "bronze"
         assert result.tables[0].target_table == "bronze.t"
 
-    def test_dotenv_does_not_override_existing_env(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_dotenv_does_not_override_existing_env(self, tmp_path: Path, monkeypatch):
         """Existing shell/CI env vars must win over .env (override=False).
 
         Important for CI/CD: secrets come from the environment, not a

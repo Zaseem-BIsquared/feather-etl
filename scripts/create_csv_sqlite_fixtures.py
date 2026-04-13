@@ -39,9 +39,7 @@ def create_csv_fixtures() -> None:
     con = duckdb.connect(str(SOURCE_DB), read_only=True)
     for schema, table in TABLES:
         csv_path = CSV_DIR / f"{table}.csv"
-        con.execute(
-            f"COPY {schema}.{table} TO '{csv_path}' (FORMAT CSV, HEADER)"
-        )
+        con.execute(f"COPY {schema}.{table} TO '{csv_path}' (FORMAT CSV, HEADER)")
         rows = con.execute(f"SELECT COUNT(*) FROM {schema}.{table}").fetchone()[0]
         print(f"  CSV: {csv_path.name:<20} {rows} rows")
     con.close()

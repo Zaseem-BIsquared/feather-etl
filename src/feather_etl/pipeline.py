@@ -13,7 +13,11 @@ import duckdb
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from feather_etl.alerts import alert_on_dq_failure, alert_on_failure, alert_on_schema_drift
+from feather_etl.alerts import (
+    alert_on_dq_failure,
+    alert_on_failure,
+    alert_on_schema_drift,
+)
 from feather_etl.config import FeatherConfig, TableConfig
 from feather_etl.destinations.duckdb import DuckDBDestination
 from feather_etl.sources.registry import create_source
@@ -27,7 +31,9 @@ class _JsonlFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         entry = {
-            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "timestamp": datetime.fromtimestamp(
+                record.created, tz=timezone.utc
+            ).isoformat(),
             "level": record.levelname,
             "event": record.getMessage(),
         }
@@ -45,7 +51,9 @@ def _setup_jsonl_logging(config_dir: Path) -> None:
 
     # Guard against duplicate handlers across multiple run_all() calls
     for h in feather_logger.handlers:
-        if isinstance(h, logging.FileHandler) and h.baseFilename == str(log_path.resolve()):
+        if isinstance(h, logging.FileHandler) and h.baseFilename == str(
+            log_path.resolve()
+        ):
             return
 
     handler = logging.FileHandler(str(log_path), mode="a")
@@ -133,11 +141,15 @@ def _apply_dedup(data: pa.Table, table: TableConfig) -> pa.Table:
     else:
         # dedup_columns: keep first occurrence per dedup key
         cols = ", ".join(f'"{c}"' for c in table.dedup_columns)
-        result = con.execute(
-            f"SELECT * FROM (SELECT *, ROW_NUMBER() OVER "
-            f"(PARTITION BY {cols} ORDER BY 1) AS _rn FROM _dedup_data) "
-            f"WHERE _rn = 1"
-        ).arrow().read_all()
+        result = (
+            con.execute(
+                f"SELECT * FROM (SELECT *, ROW_NUMBER() OVER "
+                f"(PARTITION BY {cols} ORDER BY 1) AS _rn FROM _dedup_data) "
+                f"WHERE _rn = 1"
+            )
+            .arrow()
+            .read_all()
+        )
         # Remove the _rn column
         idx = result.schema.get_field_index("_rn")
         result = result.remove_column(idx)
@@ -173,7 +185,9 @@ def run_table(
     if skip:
         ended_at = datetime.now(timezone.utc)
         error_msg = f"In backoff (previous failure: {skip_error})"
-        logger.info("Skipped (retry backoff)", extra={"table": table.name, "status": "skipped"})
+        logger.info(
+            "Skipped (retry backoff)", extra={"table": table.name, "status": "skipped"}
+        )
         state.record_run(
             run_id=run_id,
             table_name=table.name,
@@ -258,7 +272,8 @@ def run_table(
 
                     schema_changes_json = _json.dumps(drift.to_json_dict())
                     logger.info(
-                        "Schema drift detected: %s", schema_changes_json,
+                        "Schema drift detected: %s",
+                        schema_changes_json,
                         extra={"table": table.name},
                     )
                     alert_on_schema_drift(
@@ -275,7 +290,7 @@ def run_table(
                             for col_name, col_type in drift.added:
                                 try:
                                     dest_con.execute(
-                                        f'ALTER TABLE {effective_target} '
+                                        f"ALTER TABLE {effective_target} "
                                         f'ADD COLUMN "{col_name}" {col_type}'
                                     )
                                 except duckdb.CatalogException:
@@ -311,8 +326,11 @@ def run_table(
             # Boundary dedup: filter out rows already loaded in previous run
             prev_hashes = state.read_boundary_hashes(table.name)
             data, rows_skipped_boundary = _filter_boundary_rows(
-                data, table.primary_key, table.timestamp_column,
-                str(wm_last_value), prev_hashes,
+                data,
+                table.primary_key,
+                table.timestamp_column,
+                str(wm_last_value),
+                prev_hashes,
             )
 
             if data.num_rows == 0:
@@ -350,7 +368,9 @@ def run_table(
             )
         elif table.strategy == "append":
             # Append strategy: extract full source, insert without deleting existing rows
-            data = source.extract(table.source_table, columns=prod_columns, filter=table.filter)
+            data = source.extract(
+                table.source_table, columns=prod_columns, filter=table.filter
+            )
             if config.mode == "test" and config.defaults.row_limit:
                 data = data.slice(0, config.defaults.row_limit)
             if config.mode == "prod" and table.column_map:
@@ -360,7 +380,9 @@ def run_table(
         else:
             # Full strategy, or first incremental run (no watermark yet)
             if is_incremental and table.filter:
-                data = source.extract(table.source_table, columns=prod_columns, filter=table.filter)
+                data = source.extract(
+                    table.source_table, columns=prod_columns, filter=table.filter
+                )
             else:
                 data = source.extract(table.source_table, columns=prod_columns)
             if config.mode == "test" and config.defaults.row_limit:
@@ -377,8 +399,11 @@ def run_table(
             dq_con = dest._connect()
             try:
                 dq_results = run_dq_checks(
-                    dq_con, table.name, effective_target,
-                    table.quality_checks, run_id,
+                    dq_con,
+                    table.name,
+                    effective_target,
+                    table.quality_checks,
+                    run_id,
                     primary_key=table.primary_key,
                 )
             finally:
@@ -412,9 +437,17 @@ def run_table(
         watermark_after = new_last_value
 
         # Store boundary hashes for next run's dedup
-        if is_incremental and new_last_value and table.primary_key and data.num_rows > 0:
+        if (
+            is_incremental
+            and new_last_value
+            and table.primary_key
+            and data.num_rows > 0
+        ):
             new_hashes = _compute_pk_hashes(
-                data, table.primary_key, table.timestamp_column, new_last_value,
+                data,
+                table.primary_key,
+                table.timestamp_column,
+                new_last_value,
             )
             state.write_boundary_hashes(table.name, new_hashes)
 
@@ -443,8 +476,13 @@ def run_table(
         )
         state.reset_retry(table.name)
         logger.info(
-            "Loaded %d rows", rows_loaded,
-            extra={"table": table.name, "status": "success", "rows_loaded": rows_loaded},
+            "Loaded %d rows",
+            rows_loaded,
+            extra={
+                "table": table.name,
+                "status": "success",
+                "rows_loaded": rows_loaded,
+            },
         )
         return RunResult(
             table_name=table.name,
@@ -456,7 +494,8 @@ def run_table(
         ended_at = datetime.now(timezone.utc)
         error_msg = str(e)
         logger.error(
-            "Failed: %s", error_msg,
+            "Failed: %s",
+            error_msg,
             extra={"table": table.name, "status": "failure", "error": error_msg},
         )
         state.record_run(

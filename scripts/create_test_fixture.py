@@ -8,7 +8,10 @@ Output: tests/fixtures/client.duckdb (data before 2025-10-01)
 import duckdb
 from pathlib import Path
 
-SOURCE = Path.home() / "Desktop/NonDropBoxProjects/afans-reporting-dev/discovery/source_data.duckdb"
+SOURCE = (
+    Path.home()
+    / "Desktop/NonDropBoxProjects/afans-reporting-dev/discovery/source_data.duckdb"
+)
 FIXTURES = Path(__file__).parent.parent / "tests" / "fixtures"
 
 # Tables with timestamp columns: extract date-windowed subsets

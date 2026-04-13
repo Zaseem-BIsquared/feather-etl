@@ -81,7 +81,13 @@ class TestLoadIncremental:
         dest.load_full("bronze.sales", data1, "run_1")
 
         # Empty batch
-        empty = pa.table({"id": pa.array([], type=pa.int64()), "amount": pa.array([], type=pa.float64()), "modified_at": pa.array([], type=pa.timestamp("us"))})
+        empty = pa.table(
+            {
+                "id": pa.array([], type=pa.int64()),
+                "amount": pa.array([], type=pa.float64()),
+                "modified_at": pa.array([], type=pa.timestamp("us")),
+            }
+        )
         rows = dest.load_incremental("bronze.sales", empty, "run_2", "modified_at")
         assert rows == 0
 
@@ -254,7 +260,9 @@ class TestPipelineIncremental:
         wm = sm.read_watermark("orders")
         assert "2025-01-07" in str(wm["last_value"])
 
-    def test_run_after_incremental_no_new_rows_watermark_unchanged(self, tmp_path: Path):
+    def test_run_after_incremental_no_new_rows_watermark_unchanged(
+        self, tmp_path: Path
+    ):
         """PRD scenario 4: run after incremental, no new rows → watermark unchanged."""
         from feather_etl.pipeline import run_table
 

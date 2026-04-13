@@ -136,8 +136,12 @@ def test_config_empty_target_table_valid_with_mode(tmp_path):
 # --- Task 2: Pipeline mode-driven target + column_map ---
 
 
-def _run_pipeline(tmp_path: Path, mode: str, column_map: dict[str, str] | None = None,
-                  target_table: str | None = None) -> tuple:
+def _run_pipeline(
+    tmp_path: Path,
+    mode: str,
+    column_map: dict[str, str] | None = None,
+    target_table: str | None = None,
+) -> tuple:
     """Helper: run pipeline and return (config, results, dest_path)."""
     import shutil
 
@@ -197,17 +201,21 @@ def test_prod_extracts_to_silver(tmp_path):
 def test_prod_with_column_map(tmp_path):
     """Prod mode with column_map: only mapped columns, renamed, in silver."""
     _, results, dest_path = _run_pipeline(
-        tmp_path, mode="prod",
+        tmp_path,
+        mode="prod",
         column_map={"customer_id": "cust_id", "name": "cust_name"},
     )
 
     assert results[0].status == "success"
     con = duckdb.connect(str(dest_path))
-    cols = [row[0] for row in con.execute(
-        "SELECT column_name FROM information_schema.columns "
-        "WHERE table_schema='silver' AND table_name='customers' "
-        "ORDER BY ordinal_position"
-    ).fetchall()]
+    cols = [
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='silver' AND table_name='customers' "
+            "ORDER BY ordinal_position"
+        ).fetchall()
+    ]
     con.close()
 
     # Should have renamed columns + ETL metadata
@@ -220,17 +228,21 @@ def test_prod_with_column_map(tmp_path):
 def test_dev_with_column_map_ignores_it(tmp_path):
     """Dev mode ignores column_map — extracts all columns to bronze."""
     _, results, dest_path = _run_pipeline(
-        tmp_path, mode="dev",
+        tmp_path,
+        mode="dev",
         column_map={"customer_id": "cust_id", "name": "cust_name"},
     )
 
     assert results[0].status == "success"
     con = duckdb.connect(str(dest_path))
-    cols = [row[0] for row in con.execute(
-        "SELECT column_name FROM information_schema.columns "
-        "WHERE table_schema='bronze' AND table_name='customers' "
-        "ORDER BY ordinal_position"
-    ).fetchall()]
+    cols = [
+        row[0]
+        for row in con.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='bronze' AND table_name='customers' "
+            "ORDER BY ordinal_position"
+        ).fetchall()
+    ]
     con.close()
 
     # All original source columns present (not renamed)
@@ -242,7 +254,8 @@ def test_dev_with_column_map_ignores_it(tmp_path):
 def test_explicit_target_overrides_mode(tmp_path):
     """Explicit target_table in YAML overrides mode-derived target."""
     _, results, dest_path = _run_pipeline(
-        tmp_path, mode="prod",
+        tmp_path,
+        mode="prod",
         target_table="bronze.customers",  # explicit override
     )
 

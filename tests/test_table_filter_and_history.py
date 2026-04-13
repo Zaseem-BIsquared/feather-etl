@@ -70,13 +70,12 @@ class TestTableFilter:
             app, ["run", "--config", str(config_path), "--table", "nonexistent"]
         )
         assert result.exit_code == 1
-        assert "nonexistent" in result.output.lower() or "nonexistent" in (
-            result.stderr or ""
-        ).lower()
+        assert (
+            "nonexistent" in result.output.lower()
+            or "nonexistent" in (result.stderr or "").lower()
+        )
 
-    def test_no_table_flag_extracts_all_tables(
-        self, two_table_env: tuple[Path, Path]
-    ):
+    def test_no_table_flag_extracts_all_tables(self, two_table_env: tuple[Path, Path]):
         """Without --table, all configured tables are extracted."""
         from feather_etl.cli import app
 
@@ -135,9 +134,7 @@ class TestHistory:
         ]
         assert len(data_lines) <= 1
 
-    def test_history_empty_state_shows_message(
-        self, two_table_env: tuple[Path, Path]
-    ):
+    def test_history_empty_state_shows_message(self, two_table_env: tuple[Path, Path]):
         """feather history with no runs shows a friendly message."""
         from feather_etl.cli import app
 

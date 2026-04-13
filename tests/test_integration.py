@@ -36,6 +36,7 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def sample_erp_db(tmp_path) -> Path:
     """Copy sample_erp.duckdb to tmp_path."""
@@ -68,6 +69,7 @@ def _write_config(tmp_path: Path, source_db: Path, tables: list[dict]) -> Path:
 # ---------------------------------------------------------------------------
 # sample_erp fixture — basic correctness
 # ---------------------------------------------------------------------------
+
 
 class TestSampleErpFixture:
     """Tests using the synthetic sample_erp fixture."""
@@ -113,9 +115,24 @@ class TestSampleErpFullPipeline:
             tmp_path,
             sample_erp_db,
             [
-                {"name": "orders",    "source_table": "erp.orders",    "target_table": "bronze.orders",    "strategy": "full"},
-                {"name": "customers", "source_table": "erp.customers", "target_table": "bronze.customers", "strategy": "full"},
-                {"name": "products",  "source_table": "erp.products",  "target_table": "bronze.products",  "strategy": "full"},
+                {
+                    "name": "orders",
+                    "source_table": "erp.orders",
+                    "target_table": "bronze.orders",
+                    "strategy": "full",
+                },
+                {
+                    "name": "customers",
+                    "source_table": "erp.customers",
+                    "target_table": "bronze.customers",
+                    "strategy": "full",
+                },
+                {
+                    "name": "products",
+                    "source_table": "erp.products",
+                    "target_table": "bronze.products",
+                    "strategy": "full",
+                },
             ],
         )
 
@@ -193,7 +210,14 @@ class TestSampleErpFullPipeline:
             ).fetchall()
         }
         con.close()
-        expected = {"order_id", "customer_id", "order_date", "total_amount", "status", "created_at"}
+        expected = {
+            "order_id",
+            "customer_id",
+            "order_date",
+            "total_amount",
+            "status",
+            "created_at",
+        }
         assert expected.issubset(bronze_cols)
 
     def test_idempotency(self, config):
@@ -224,17 +248,17 @@ class TestSampleErpFullPipeline:
         ).fetchall()
         con.close()
         run_map = {r[0]: (r[1], r[2]) for r in runs}
-        assert run_map["orders"]    == ("success", 5)
+        assert run_map["orders"] == ("success", 5)
         assert run_map["customers"] == ("success", 4)
-        assert run_map["products"]  == ("success", 3)
+        assert run_map["products"] == ("success", 3)
 
 
 # ---------------------------------------------------------------------------
 # Icube client fixture — edge cases
 # ---------------------------------------------------------------------------
 
-class TestClientFixtureEdgeCases:
 
+class TestClientFixtureEdgeCases:
     def test_salesinvoicemaster_column_with_space(self, client_db_copy, tmp_path):
         """SALESINVOICEMASTER has a column called 'Round Off' (space in name).
         Arrow must preserve it without error or renaming."""
@@ -244,8 +268,14 @@ class TestClientFixtureEdgeCases:
         config = _write_config(
             tmp_path,
             client_db_copy,
-            [{"name": "sim", "source_table": "icube.SALESINVOICEMASTER",
-              "target_table": "bronze.sim", "strategy": "full"}],
+            [
+                {
+                    "name": "sim",
+                    "source_table": "icube.SALESINVOICEMASTER",
+                    "target_table": "bronze.sim",
+                    "strategy": "full",
+                }
+            ],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
@@ -270,8 +300,14 @@ class TestClientFixtureEdgeCases:
         config = _write_config(
             tmp_path,
             client_db_copy,
-            [{"name": "invitem", "source_table": "icube.INVITEM",
-              "target_table": "bronze.invitem", "strategy": "full"}],
+            [
+                {
+                    "name": "invitem",
+                    "source_table": "icube.INVITEM",
+                    "target_table": "bronze.invitem",
+                    "strategy": "full",
+                }
+            ],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
@@ -284,26 +320,57 @@ class TestClientFixtureEdgeCases:
         from feather_etl.pipeline import run_all
 
         tables = [
-            {"name": "sales_invoice",        "source_table": "icube.SALESINVOICE",        "target_table": "bronze.sales_invoice",        "strategy": "full"},
-            {"name": "customer_master",       "source_table": "icube.CUSTOMERMASTER",       "target_table": "bronze.customer_master",       "strategy": "full"},
-            {"name": "inventory_group",       "source_table": "icube.InventoryGroup",       "target_table": "bronze.inventory_group",       "strategy": "full"},
-            {"name": "inv_item",              "source_table": "icube.INVITEM",              "target_table": "bronze.inv_item",              "strategy": "full"},
-            {"name": "sales_invoice_master",  "source_table": "icube.SALESINVOICEMASTER",  "target_table": "bronze.sales_invoice_master",  "strategy": "full"},
-            {"name": "employee",              "source_table": "icube.EmployeeForm",         "target_table": "bronze.employee",              "strategy": "full"},
+            {
+                "name": "sales_invoice",
+                "source_table": "icube.SALESINVOICE",
+                "target_table": "bronze.sales_invoice",
+                "strategy": "full",
+            },
+            {
+                "name": "customer_master",
+                "source_table": "icube.CUSTOMERMASTER",
+                "target_table": "bronze.customer_master",
+                "strategy": "full",
+            },
+            {
+                "name": "inventory_group",
+                "source_table": "icube.InventoryGroup",
+                "target_table": "bronze.inventory_group",
+                "strategy": "full",
+            },
+            {
+                "name": "inv_item",
+                "source_table": "icube.INVITEM",
+                "target_table": "bronze.inv_item",
+                "strategy": "full",
+            },
+            {
+                "name": "sales_invoice_master",
+                "source_table": "icube.SALESINVOICEMASTER",
+                "target_table": "bronze.sales_invoice_master",
+                "strategy": "full",
+            },
+            {
+                "name": "employee",
+                "source_table": "icube.EmployeeForm",
+                "target_table": "bronze.employee",
+                "strategy": "full",
+            },
         ]
         config = _write_config(tmp_path, client_db_copy, tables)
         cfg = load_config(config)
         results = run_all(cfg, config)
 
-        assert all(r.status == "success" for r in results), \
-            [(r.table_name, r.error_message) for r in results if r.status != "success"]
+        assert all(r.status == "success" for r in results), [
+            (r.table_name, r.error_message) for r in results if r.status != "success"
+        ]
         row_map = {r.table_name: r.rows_loaded for r in results}
-        assert row_map["sales_invoice"]       == 11676
-        assert row_map["customer_master"]     == 1339
-        assert row_map["inventory_group"]     == 66
-        assert row_map["inv_item"]            == 1058
+        assert row_map["sales_invoice"] == 11676
+        assert row_map["customer_master"] == 1339
+        assert row_map["inventory_group"] == 66
+        assert row_map["inv_item"] == 1058
         assert row_map["sales_invoice_master"] == 335
-        assert row_map["employee"]            == 55
+        assert row_map["employee"] == 55
 
     def test_discover_icube_source(self, client_db_copy):
         """discover() returns all 6 Icube tables with column metadata."""
@@ -324,8 +391,8 @@ class TestClientFixtureEdgeCases:
 # Error isolation — a bad table must not stop good tables
 # ---------------------------------------------------------------------------
 
-class TestErrorIsolation:
 
+class TestErrorIsolation:
     def test_good_table_succeeds_despite_bad_table(self, sample_erp_db, tmp_path):
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
@@ -334,17 +401,27 @@ class TestErrorIsolation:
             tmp_path,
             sample_erp_db,
             [
-                {"name": "good", "source_table": "erp.orders",   "target_table": "bronze.good", "strategy": "full"},
-                {"name": "bad",  "source_table": "erp.NOSUCH",   "target_table": "bronze.bad",  "strategy": "full"},
+                {
+                    "name": "good",
+                    "source_table": "erp.orders",
+                    "target_table": "bronze.good",
+                    "strategy": "full",
+                },
+                {
+                    "name": "bad",
+                    "source_table": "erp.NOSUCH",
+                    "target_table": "bronze.bad",
+                    "strategy": "full",
+                },
             ],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
 
         good = next(r for r in results if r.table_name == "good")
-        bad  = next(r for r in results if r.table_name == "bad")
+        bad = next(r for r in results if r.table_name == "bad")
         assert good.status == "success", "good table should succeed"
-        assert bad.status == "failure",  "bad table should fail"
+        assert bad.status == "failure", "bad table should fail"
         assert good.rows_loaded == 5
 
     def test_failure_error_message_stored_in_state(self, sample_erp_db, tmp_path):
@@ -354,7 +431,14 @@ class TestErrorIsolation:
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [{"name": "bad", "source_table": "erp.NOSUCH", "target_table": "bronze.bad", "strategy": "full"}],
+            [
+                {
+                    "name": "bad",
+                    "source_table": "erp.NOSUCH",
+                    "target_table": "bronze.bad",
+                    "strategy": "full",
+                }
+            ],
         )
         cfg = load_config(config)
         run_all(cfg, config)
@@ -367,9 +451,13 @@ class TestErrorIsolation:
         con.close()
         assert row is not None
         assert row[0] == "failure"
-        assert row[1] is not None and len(row[1]) > 0, "error_message should be non-empty"
+        assert row[1] is not None and len(row[1]) > 0, (
+            "error_message should be non-empty"
+        )
 
-    def test_partial_failure_still_writes_good_table_to_bronze(self, sample_erp_db, tmp_path):
+    def test_partial_failure_still_writes_good_table_to_bronze(
+        self, sample_erp_db, tmp_path
+    ):
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
@@ -377,8 +465,18 @@ class TestErrorIsolation:
             tmp_path,
             sample_erp_db,
             [
-                {"name": "good", "source_table": "erp.orders", "target_table": "bronze.orders", "strategy": "full"},
-                {"name": "bad",  "source_table": "erp.NOSUCH", "target_table": "bronze.bad",    "strategy": "full"},
+                {
+                    "name": "good",
+                    "source_table": "erp.orders",
+                    "target_table": "bronze.orders",
+                    "strategy": "full",
+                },
+                {
+                    "name": "bad",
+                    "source_table": "erp.NOSUCH",
+                    "target_table": "bronze.bad",
+                    "strategy": "full",
+                },
             ],
         )
         cfg = load_config(config)
@@ -386,9 +484,12 @@ class TestErrorIsolation:
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
         assert con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0] == 5
-        tables = {r[0] for r in con.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema='bronze'"
-        ).fetchall()}
+        tables = {
+            r[0]
+            for r in con.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='bronze'"
+            ).fetchall()
+        }
         con.close()
         assert "orders" in tables
         assert "bad" not in tables  # failed table must not appear in bronze
@@ -398,22 +499,42 @@ class TestErrorIsolation:
 # Tables/ directory merge
 # ---------------------------------------------------------------------------
 
-class TestTablesDirectoryMerge:
 
+class TestTablesDirectoryMerge:
     def test_tables_in_subdir_are_discovered(self, sample_erp_db, tmp_path):
         """Tables defined in tables/*.yaml are merged with inline tables."""
         from feather_etl.config import load_config
 
         tables_dir = tmp_path / "tables"
         tables_dir.mkdir()
-        (tables_dir / "sales.yaml").write_text(yaml.dump({
-            "tables": [{"name": "orders", "source_table": "erp.orders",
-                        "target_table": "bronze.orders", "strategy": "full"}]
-        }))
-        (tables_dir / "master.yaml").write_text(yaml.dump({
-            "tables": [{"name": "customers", "source_table": "erp.customers",
-                        "target_table": "bronze.customers", "strategy": "full"}]
-        }))
+        (tables_dir / "sales.yaml").write_text(
+            yaml.dump(
+                {
+                    "tables": [
+                        {
+                            "name": "orders",
+                            "source_table": "erp.orders",
+                            "target_table": "bronze.orders",
+                            "strategy": "full",
+                        }
+                    ]
+                }
+            )
+        )
+        (tables_dir / "master.yaml").write_text(
+            yaml.dump(
+                {
+                    "tables": [
+                        {
+                            "name": "customers",
+                            "source_table": "erp.customers",
+                            "target_table": "bronze.customers",
+                            "strategy": "full",
+                        }
+                    ]
+                }
+            )
+        )
         cfg_dict = {
             "source": {"type": "duckdb", "path": str(sample_erp_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
@@ -434,15 +555,31 @@ class TestTablesDirectoryMerge:
 
         tables_dir = tmp_path / "tables"
         tables_dir.mkdir()
-        (tables_dir / "extra.yaml").write_text(yaml.dump({
-            "tables": [{"name": "products", "source_table": "erp.products",
-                        "target_table": "bronze.products", "strategy": "full"}]
-        }))
+        (tables_dir / "extra.yaml").write_text(
+            yaml.dump(
+                {
+                    "tables": [
+                        {
+                            "name": "products",
+                            "source_table": "erp.products",
+                            "target_table": "bronze.products",
+                            "strategy": "full",
+                        }
+                    ]
+                }
+            )
+        )
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [{"name": "orders", "source_table": "erp.orders",
-              "target_table": "bronze.orders", "strategy": "full"}],
+            [
+                {
+                    "name": "orders",
+                    "source_table": "erp.orders",
+                    "target_table": "bronze.orders",
+                    "strategy": "full",
+                }
+            ],
         )
         cfg = load_config(config)
         assert len(cfg.tables) == 2
@@ -454,6 +591,7 @@ class TestTablesDirectoryMerge:
 # ---------------------------------------------------------------------------
 # Validation guards — graduated from TestKnownBugs after fixes
 # ---------------------------------------------------------------------------
+
 
 class TestValidationGuards:
     """Tests that validate catches invalid config before runtime.
@@ -468,12 +606,22 @@ class TestValidationGuards:
         csv_dir.mkdir()
         (csv_dir / "orders.csv").write_text("id,name\n1,foo\n")
         config_path = tmp_path / "feather.yaml"
-        config_path.write_text(yaml.dump({
-            "source": {"type": "csv", "path": str(csv_dir)},
-            "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [{"name": "t", "source_table": "orders.csv",
-                        "target_table": "bronze.t", "strategy": "full"}],
-        }))
+        config_path.write_text(
+            yaml.dump(
+                {
+                    "source": {"type": "csv", "path": str(csv_dir)},
+                    "destination": {"path": str(tmp_path / "data.duckdb")},
+                    "tables": [
+                        {
+                            "name": "t",
+                            "source_table": "orders.csv",
+                            "target_table": "bronze.t",
+                            "strategy": "full",
+                        }
+                    ],
+                }
+            )
+        )
         cfg = load_config(config_path)
         assert cfg.source.type == "csv"
 
@@ -484,12 +632,22 @@ class TestValidationGuards:
         csv_file = tmp_path / "source.csv"
         csv_file.write_text("id,name\n1,foo\n")
         config_path = tmp_path / "feather.yaml"
-        config_path.write_text(yaml.dump({
-            "source": {"type": "csv", "path": str(csv_file)},
-            "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [{"name": "t", "source_table": "orders.csv",
-                        "target_table": "bronze.t", "strategy": "full"}],
-        }))
+        config_path.write_text(
+            yaml.dump(
+                {
+                    "source": {"type": "csv", "path": str(csv_file)},
+                    "destination": {"path": str(tmp_path / "data.duckdb")},
+                    "tables": [
+                        {
+                            "name": "t",
+                            "source_table": "orders.csv",
+                            "target_table": "bronze.t",
+                            "strategy": "full",
+                        }
+                    ],
+                }
+            )
+        )
         with pytest.raises(ValueError, match="CSV source path must be a directory"):
             load_config(config_path)
 
@@ -498,12 +656,22 @@ class TestValidationGuards:
         from feather_etl.config import load_config
 
         config_path = tmp_path / "feather.yaml"
-        config_path.write_text(yaml.dump({
-            "source": {"type": "csv", "path": str(tmp_path / "no_such_dir")},
-            "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [{"name": "t", "source_table": "orders.csv",
-                        "target_table": "bronze.t", "strategy": "full"}],
-        }))
+        config_path.write_text(
+            yaml.dump(
+                {
+                    "source": {"type": "csv", "path": str(tmp_path / "no_such_dir")},
+                    "destination": {"path": str(tmp_path / "data.duckdb")},
+                    "tables": [
+                        {
+                            "name": "t",
+                            "source_table": "orders.csv",
+                            "target_table": "bronze.t",
+                            "strategy": "full",
+                        }
+                    ],
+                }
+            )
+        )
         with pytest.raises(ValueError, match="CSV source path must be a directory"):
             load_config(config_path)
 
@@ -513,10 +681,14 @@ class TestValidationGuards:
         from feather_etl.config import load_config
 
         config_path = tmp_path / "feather.yaml"
-        config_path.write_text(yaml.dump({
-            "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [],
-        }))
+        config_path.write_text(
+            yaml.dump(
+                {
+                    "destination": {"path": str(tmp_path / "data.duckdb")},
+                    "tables": [],
+                }
+            )
+        )
         with pytest.raises(ValueError, match="Missing required config section"):
             load_config(config_path)
 
@@ -528,8 +700,9 @@ class TestValidationGuards:
         cfg_dict = {
             "source": {"type": "duckdb", "path": str(sample_erp_db)},
             "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [{"name": "t", "source_table": "erp.orders",
-                        "target_table": "bronze.t"}],  # strategy missing
+            "tables": [
+                {"name": "t", "source_table": "erp.orders", "target_table": "bronze.t"}
+            ],  # strategy missing
         }
         config_path = tmp_path / "feather.yaml"
         config_path.write_text(yaml.dump(cfg_dict))
@@ -544,8 +717,14 @@ class TestValidationGuards:
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [{"name": "t", "source_table": "erp.orders",
-              "target_table": "no_schema_table", "strategy": "full"}],
+            [
+                {
+                    "name": "t",
+                    "source_table": "erp.orders",
+                    "target_table": "no_schema_table",
+                    "strategy": "full",
+                }
+            ],
         )
         with pytest.raises(ValueError, match="must include a schema prefix"):
             load_config(config)
@@ -558,8 +737,14 @@ class TestValidationGuards:
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [{"name": "my-table", "source_table": "erp.orders",
-              "target_table": "bronze.my-table", "strategy": "full"}],
+            [
+                {
+                    "name": "my-table",
+                    "source_table": "erp.orders",
+                    "target_table": "bronze.my-table",
+                    "strategy": "full",
+                }
+            ],
         )
         with pytest.raises(ValueError, match="invalid characters"):
             load_config(config)
@@ -568,6 +753,7 @@ class TestValidationGuards:
 # ---------------------------------------------------------------------------
 # Error isolation (additional graduated tests)
 # ---------------------------------------------------------------------------
+
 
 class TestPipelineReturnsOnFailure:
     """run_all() returns RunResult list (no exception) even when tables fail.
@@ -581,7 +767,14 @@ class TestPipelineReturnsOnFailure:
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [{"name": "bad", "source_table": "erp.NOSUCH", "target_table": "bronze.bad", "strategy": "full"}],
+            [
+                {
+                    "name": "bad",
+                    "source_table": "erp.NOSUCH",
+                    "target_table": "bronze.bad",
+                    "strategy": "full",
+                }
+            ],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
@@ -593,10 +786,12 @@ class TestPipelineReturnsOnFailure:
 # Known bugs — remaining issues not yet fixed
 # ---------------------------------------------------------------------------
 
-class TestKnownBugs:
 
+class TestKnownBugs:
     # M-6 (strategy dispatch) — deferred to Slice 2
-    def test_M6_incremental_strategy_silently_does_full_load(self, sample_erp_db, tmp_path):
+    def test_M6_incremental_strategy_silently_does_full_load(
+        self, sample_erp_db, tmp_path
+    ):
         """M-6: strategy='incremental' (with timestamp_column) silently does a
         full load instead of incremental extraction.  The validation gap (BUG-8:
         incremental without timestamp_column) is now fixed.  This test documents
@@ -608,9 +803,15 @@ class TestKnownBugs:
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [{"name": "orders", "source_table": "erp.orders",
-              "target_table": "bronze.orders", "strategy": "incremental",
-              "timestamp_column": "created_at"}],
+            [
+                {
+                    "name": "orders",
+                    "source_table": "erp.orders",
+                    "target_table": "bronze.orders",
+                    "strategy": "incremental",
+                    "timestamp_column": "created_at",
+                }
+            ],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
@@ -619,12 +820,13 @@ class TestKnownBugs:
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
         count = con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0]
         con.close()
-        assert count == 5   # all 5 rows loaded — full load, not incremental
+        assert count == 5  # all 5 rows loaded — full load, not incremental
 
 
 # ---------------------------------------------------------------------------
 # CSV source — full pipeline integration
 # ---------------------------------------------------------------------------
+
 
 def _write_csv_config(tmp_path: Path, csv_dir: Path, tables: list[dict]) -> Path:
     cfg = {
@@ -652,9 +854,24 @@ class TestCsvFullPipeline:
     """Full pipeline run using CSV source."""
 
     CSV_TABLES = [
-        {"name": "orders",    "source_table": "orders.csv",    "target_table": "bronze.orders",    "strategy": "full"},
-        {"name": "customers", "source_table": "customers.csv", "target_table": "bronze.customers", "strategy": "full"},
-        {"name": "products",  "source_table": "products.csv",  "target_table": "bronze.products",  "strategy": "full"},
+        {
+            "name": "orders",
+            "source_table": "orders.csv",
+            "target_table": "bronze.orders",
+            "strategy": "full",
+        },
+        {
+            "name": "customers",
+            "source_table": "customers.csv",
+            "target_table": "bronze.customers",
+            "strategy": "full",
+        },
+        {
+            "name": "products",
+            "source_table": "products.csv",
+            "target_table": "bronze.products",
+            "strategy": "full",
+        },
     ]
 
     @pytest.fixture
@@ -713,10 +930,13 @@ class TestCsvFullPipeline:
         run_all(cfg, config)
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
-        cols = {r[0] for r in con.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'bronze' AND table_name = 'orders'"
-        ).fetchall()}
+        cols = {
+            r[0]
+            for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'bronze' AND table_name = 'orders'"
+            ).fetchall()
+        }
         con.close()
         assert "_etl_loaded_at" in cols
         assert "_etl_run_id" in cols
@@ -726,13 +946,29 @@ class TestCsvFullPipeline:
 # SQLite source — full pipeline integration
 # ---------------------------------------------------------------------------
 
+
 class TestSqliteFullPipeline:
     """Full pipeline run using SQLite source."""
 
     SQLITE_TABLES = [
-        {"name": "orders",    "source_table": "orders",    "target_table": "bronze.orders",    "strategy": "full"},
-        {"name": "customers", "source_table": "customers", "target_table": "bronze.customers", "strategy": "full"},
-        {"name": "products",  "source_table": "products",  "target_table": "bronze.products",  "strategy": "full"},
+        {
+            "name": "orders",
+            "source_table": "orders",
+            "target_table": "bronze.orders",
+            "strategy": "full",
+        },
+        {
+            "name": "customers",
+            "source_table": "customers",
+            "target_table": "bronze.customers",
+            "strategy": "full",
+        },
+        {
+            "name": "products",
+            "source_table": "products",
+            "target_table": "bronze.products",
+            "strategy": "full",
+        },
     ]
 
     @pytest.fixture
@@ -791,10 +1027,13 @@ class TestSqliteFullPipeline:
         run_all(cfg, config)
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
-        cols = {r[0] for r in con.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'bronze' AND table_name = 'orders'"
-        ).fetchall()}
+        cols = {
+            r[0]
+            for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'bronze' AND table_name = 'orders'"
+            ).fetchall()
+        }
         con.close()
         assert "_etl_loaded_at" in cols
         assert "_etl_run_id" in cols

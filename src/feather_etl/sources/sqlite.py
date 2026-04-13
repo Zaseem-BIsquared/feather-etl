@@ -10,6 +10,7 @@ import pyarrow as pa
 from feather_etl.sources import StreamSchema
 from feather_etl.sources.file_source import FileSource
 
+
 class SqliteSource(FileSource):
     """Source that reads tables from a SQLite database file."""
 

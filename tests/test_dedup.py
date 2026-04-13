@@ -7,7 +7,6 @@ from pathlib import Path
 import yaml
 
 
-
 class TestDedupConfig:
     def test_dedup_and_dedup_columns_mutually_exclusive(self, tmp_path: Path):
         """Validation rejects both dedup and dedup_columns set."""
@@ -17,13 +16,15 @@ class TestDedupConfig:
         config = {
             "source": {"type": "csv", "path": str(tmp_path)},
             "destination": {"path": str(tmp_path / "out.duckdb")},
-            "tables": [{
-                "name": "orders",
-                "source_table": "orders.csv",
-                "strategy": "full",
-                "dedup": True,
-                "dedup_columns": ["order_id"],
-            }],
+            "tables": [
+                {
+                    "name": "orders",
+                    "source_table": "orders.csv",
+                    "strategy": "full",
+                    "dedup": True,
+                    "dedup_columns": ["order_id"],
+                }
+            ],
         }
         # Create empty csv dir and file to avoid path validation error
         (tmp_path / "orders.csv").write_text("order_id,name\n1,A\n")
@@ -48,13 +49,15 @@ class TestDedupExtraction:
         config = {
             "source": {"type": "csv", "path": str(csv_dir)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "orders",
-                "source_table": "orders.csv",
-                "target_table": "bronze.orders",
-                "strategy": "full",
-                "dedup": True,
-            }],
+            "tables": [
+                {
+                    "name": "orders",
+                    "source_table": "orders.csv",
+                    "target_table": "bronze.orders",
+                    "strategy": "full",
+                    "dedup": True,
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -76,13 +79,15 @@ class TestDedupExtraction:
         config = {
             "source": {"type": "csv", "path": str(csv_dir)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "orders",
-                "source_table": "orders.csv",
-                "target_table": "bronze.orders",
-                "strategy": "full",
-                "dedup_columns": ["order_id"],
-            }],
+            "tables": [
+                {
+                    "name": "orders",
+                    "source_table": "orders.csv",
+                    "target_table": "bronze.orders",
+                    "strategy": "full",
+                    "dedup_columns": ["order_id"],
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -104,12 +109,14 @@ class TestDedupExtraction:
         config = {
             "source": {"type": "csv", "path": str(csv_dir)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "orders",
-                "source_table": "orders.csv",
-                "target_table": "bronze.orders",
-                "strategy": "full",
-            }],
+            "tables": [
+                {
+                    "name": "orders",
+                    "source_table": "orders.csv",
+                    "target_table": "bronze.orders",
+                    "strategy": "full",
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -131,13 +138,15 @@ class TestDedupExtraction:
         config = {
             "source": {"type": "json", "path": str(json_dir)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "orders",
-                "source_table": "orders.json",
-                "target_table": "bronze.orders",
-                "strategy": "full",
-                "dedup": True,
-            }],
+            "tables": [
+                {
+                    "name": "orders",
+                    "source_table": "orders.json",
+                    "target_table": "bronze.orders",
+                    "strategy": "full",
+                    "dedup": True,
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")

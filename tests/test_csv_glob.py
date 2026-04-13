@@ -24,12 +24,14 @@ class TestCsvGlobExtraction:
         config = {
             "source": {"type": "csv", "path": str(data_dir)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "sales",
-                "source_table": "sales_*.csv",
-                "target_table": "bronze.sales",
-                "strategy": "full",
-            }],
+            "tables": [
+                {
+                    "name": "sales",
+                    "source_table": "sales_*.csv",
+                    "target_table": "bronze.sales",
+                    "strategy": "full",
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -49,12 +51,14 @@ class TestCsvGlobExtraction:
         config = {
             "source": {"type": "csv", "path": str(data_dir)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "sales",
-                "source_table": "sales_*.csv",
-                "target_table": "bronze.sales",
-                "strategy": "full",
-            }],
+            "tables": [
+                {
+                    "name": "sales",
+                    "source_table": "sales_*.csv",
+                    "target_table": "bronze.sales",
+                    "strategy": "full",
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -75,12 +79,14 @@ class TestCsvGlobChangeDetection:
         config = {
             "source": {"type": "csv", "path": str(data_dir)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "sales",
-                "source_table": "sales_*.csv",
-                "target_table": "bronze.sales",
-                "strategy": "full",
-            }],
+            "tables": [
+                {
+                    "name": "sales",
+                    "source_table": "sales_*.csv",
+                    "target_table": "bronze.sales",
+                    "strategy": "full",
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -99,12 +105,14 @@ class TestCsvGlobChangeDetection:
         config = {
             "source": {"type": "csv", "path": str(data_dir)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "sales",
-                "source_table": "sales_*.csv",
-                "target_table": "bronze.sales",
-                "strategy": "full",
-            }],
+            "tables": [
+                {
+                    "name": "sales",
+                    "source_table": "sales_*.csv",
+                    "target_table": "bronze.sales",
+                    "strategy": "full",
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -112,7 +120,9 @@ class TestCsvGlobChangeDetection:
         run_table(cfg, cfg.tables[0], tmp_path)
 
         # Add a new file
-        (data_dir / "sales_mar.csv").write_text("order_id,customer,amount,month\n6,Frank,400,mar\n")
+        (data_dir / "sales_mar.csv").write_text(
+            "order_id,customer,amount,month\n6,Frank,400,mar\n"
+        )
 
         result2 = run_table(cfg, cfg.tables[0], tmp_path)
         assert result2.status == "success"
@@ -129,12 +139,14 @@ class TestCsvGlobChangeDetection:
         config = {
             "source": {"type": "csv", "path": str(data_dir)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "sales",
-                "source_table": "sales_*.csv",
-                "target_table": "bronze.sales",
-                "strategy": "full",
-            }],
+            "tables": [
+                {
+                    "name": "sales",
+                    "source_table": "sales_*.csv",
+                    "target_table": "bronze.sales",
+                    "strategy": "full",
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")

@@ -102,11 +102,15 @@ class TestValidate:
         from feather_etl.cli import app
 
         bad_config = tmp_path / "feather.yaml"
-        bad_config.write_text(yaml.dump({
-            "source": {"type": "mongodb", "path": "/nope"},
-            "destination": {"path": "./data.duckdb"},
-            "tables": [],
-        }))
+        bad_config.write_text(
+            yaml.dump(
+                {
+                    "source": {"type": "mongodb", "path": "/nope"},
+                    "destination": {"path": "./data.duckdb"},
+                    "tables": [],
+                }
+            )
+        )
         result = runner.invoke(app, ["validate", "--config", str(bad_config)])
         assert result.exit_code != 0
 
@@ -114,7 +118,9 @@ class TestValidate:
         """BUG-3: Missing feather.yaml should not show a Python traceback."""
         from feather_etl.cli import app
 
-        result = runner.invoke(app, ["validate", "--config", str(tmp_path / "nope.yaml")])
+        result = runner.invoke(
+            app, ["validate", "--config", str(tmp_path / "nope.yaml")]
+        )
         assert result.exit_code != 0
         assert "Config file not found" in result.output
 
@@ -193,10 +199,19 @@ class TestDiscover:
         config = {
             "source": {"type": "duckdb", "path": str(db)},
             "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [{"name": "t", "source_table": "main.t", "target_table": "bronze.t", "strategy": "full"}],
+            "tables": [
+                {
+                    "name": "t",
+                    "source_table": "main.t",
+                    "target_table": "bronze.t",
+                    "strategy": "full",
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
-        result = runner.invoke(app, ["discover", "--config", str(tmp_path / "feather.yaml")])
+        result = runner.invoke(
+            app, ["discover", "--config", str(tmp_path / "feather.yaml")]
+        )
         assert result.exit_code != 0
         assert "Source connection failed" in result.output
 
@@ -229,7 +244,12 @@ class TestRun:
             "source": {"type": "duckdb", "path": str(client_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
-                {"name": "bad_table", "source_table": "icube.NONEXISTENT", "target_table": "bronze.bad_table", "strategy": "full"},
+                {
+                    "name": "bad_table",
+                    "source_table": "icube.NONEXISTENT",
+                    "target_table": "bronze.bad_table",
+                    "strategy": "full",
+                },
             ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
@@ -247,18 +267,32 @@ class TestRun:
             "source": {"type": "duckdb", "path": str(client_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
-                {"name": "good_table", "source_table": "icube.SALESINVOICE", "target_table": "bronze.good_table", "strategy": "full"},
-                {"name": "bad_table", "source_table": "nonexistent.NOPE", "target_table": "bronze.bad_table", "strategy": "full"},
+                {
+                    "name": "good_table",
+                    "source_table": "icube.SALESINVOICE",
+                    "target_table": "bronze.good_table",
+                    "strategy": "full",
+                },
+                {
+                    "name": "bad_table",
+                    "source_table": "nonexistent.NOPE",
+                    "target_table": "bronze.bad_table",
+                    "strategy": "full",
+                },
             ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
 
         # First run: bad_table fails, good_table succeeds
-        result1 = runner.invoke(app, ["run", "--config", str(tmp_path / "feather.yaml")])
+        result1 = runner.invoke(
+            app, ["run", "--config", str(tmp_path / "feather.yaml")]
+        )
         assert result1.exit_code == 1
 
         # Second run: bad_table is in backoff (skipped with error), good_table skipped (unchanged)
-        result2 = runner.invoke(app, ["run", "--config", str(tmp_path / "feather.yaml")])
+        result2 = runner.invoke(
+            app, ["run", "--config", str(tmp_path / "feather.yaml")]
+        )
         assert result2.exit_code == 1, (
             f"Expected non-zero exit when table is backoff-skipped, got 0. Output: {result2.output}"
         )
@@ -302,8 +336,12 @@ class TestStatus:
             "source": {"type": "duckdb", "path": str(client_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
-                {"name": "bad_table", "source_table": "icube.NONEXISTENT",
-                 "target_table": "bronze.bad_table", "strategy": "full"},
+                {
+                    "name": "bad_table",
+                    "source_table": "icube.NONEXISTENT",
+                    "target_table": "bronze.bad_table",
+                    "strategy": "full",
+                },
             ],
         }
         config_path = tmp_path / "feather.yaml"
@@ -327,8 +365,12 @@ class TestStatus:
             "source": {"type": "duckdb", "path": str(client_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
-                {"name": "inventory_group", "source_table": "icube.InventoryGroup",
-                 "target_table": "bronze.inventory_group", "strategy": "full"},
+                {
+                    "name": "inventory_group",
+                    "source_table": "icube.InventoryGroup",
+                    "target_table": "bronze.inventory_group",
+                    "strategy": "full",
+                },
             ],
         }
         config_path = tmp_path / "feather.yaml"
@@ -340,8 +382,12 @@ class TestStatus:
             "source": {"type": "duckdb", "path": str(client_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
-                {"name": "customer_master", "source_table": "icube.CUSTOMERMASTER",
-                 "target_table": "bronze.customer_master", "strategy": "full"},
+                {
+                    "name": "customer_master",
+                    "source_table": "icube.CUSTOMERMASTER",
+                    "target_table": "bronze.customer_master",
+                    "strategy": "full",
+                },
             ],
         }
         config_path.write_text(yaml.dump(config_b, default_flow_style=False))
@@ -355,7 +401,9 @@ class TestStatus:
 
 
 class TestRunAutoCreates:
-    def test_run_without_setup_auto_creates_state_and_data(self, cli_env: tuple[Path, Path]):
+    def test_run_without_setup_auto_creates_state_and_data(
+        self, cli_env: tuple[Path, Path]
+    ):
         """UX-7: feather run creates state/data DBs automatically. setup is optional."""
         from feather_etl.cli import app
 

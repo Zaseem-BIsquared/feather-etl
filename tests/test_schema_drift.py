@@ -113,12 +113,14 @@ class TestPipelineIntegration:
         config = {
             "source": {"type": "duckdb", "path": str(client_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "customers",
-                "source_table": "erp.customers",
-                "target_table": "bronze.customers",
-                "strategy": "full",
-            }],
+            "tables": [
+                {
+                    "name": "customers",
+                    "source_table": "erp.customers",
+                    "target_table": "bronze.customers",
+                    "strategy": "full",
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -148,12 +150,14 @@ class TestPipelineIntegration:
         config = {
             "source": {"type": "duckdb", "path": str(client_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "customers",
-                "source_table": "erp.customers",
-                "target_table": "bronze.customers",
-                "strategy": "full",
-            }],
+            "tables": [
+                {
+                    "name": "customers",
+                    "source_table": "erp.customers",
+                    "target_table": "bronze.customers",
+                    "strategy": "full",
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -169,6 +173,7 @@ class TestPipelineIntegration:
         # Ensure mtime changes so change detection triggers re-extraction
         import time
         import os
+
         time.sleep(0.1)
         os.utime(str(client_db), None)
 

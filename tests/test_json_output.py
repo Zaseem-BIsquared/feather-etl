@@ -205,7 +205,9 @@ class TestCliJsonFlag:
         from feather_etl.cli import app
 
         config_file = _cli_config(tmp_path)
-        result = runner.invoke(app, ["--json", "validate", "--config", str(config_file)])
+        result = runner.invoke(
+            app, ["--json", "validate", "--config", str(config_file)]
+        )
         assert result.exit_code == 0
         parsed = json.loads(result.output.strip())
         assert parsed["valid"] is True

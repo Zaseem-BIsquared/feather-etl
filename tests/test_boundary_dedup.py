@@ -8,7 +8,6 @@ from pathlib import Path
 import pyarrow as pa
 
 
-
 def _pk_hash(*values) -> str:
     """Compute PK hash the same way the pipeline should."""
     key = "|".join(str(v) for v in values)
@@ -66,11 +65,13 @@ class TestBoundaryHashComputation:
     def test_compute_pk_hashes(self):
         from feather_etl.pipeline import _compute_pk_hashes
 
-        data = pa.table({
-            "id": [1, 2, 3],
-            "ts": ["2026-01-01", "2026-01-01", "2026-01-02"],
-            "value": [10, 20, 30],
-        })
+        data = pa.table(
+            {
+                "id": [1, 2, 3],
+                "ts": ["2026-01-01", "2026-01-01", "2026-01-02"],
+                "value": [10, 20, 30],
+            }
+        )
         hashes = _compute_pk_hashes(data, ["id"], "ts", "2026-01-01")
         assert len(hashes) == 2
         assert _pk_hash(1) in hashes
@@ -79,11 +80,13 @@ class TestBoundaryHashComputation:
     def test_multi_column_pk(self):
         from feather_etl.pipeline import _compute_pk_hashes
 
-        data = pa.table({
-            "id1": [1, 1],
-            "id2": ["a", "b"],
-            "ts": ["2026-01-01", "2026-01-01"],
-        })
+        data = pa.table(
+            {
+                "id1": [1, 1],
+                "id2": ["a", "b"],
+                "ts": ["2026-01-01", "2026-01-01"],
+            }
+        )
         hashes = _compute_pk_hashes(data, ["id1", "id2"], "ts", "2026-01-01")
         assert len(hashes) == 2
         assert _pk_hash(1, "a") in hashes
@@ -92,10 +95,12 @@ class TestBoundaryHashComputation:
     def test_no_rows_at_boundary(self):
         from feather_etl.pipeline import _compute_pk_hashes
 
-        data = pa.table({
-            "id": [1, 2],
-            "ts": ["2026-01-01", "2026-01-02"],
-        })
+        data = pa.table(
+            {
+                "id": [1, 2],
+                "ts": ["2026-01-01", "2026-01-02"],
+            }
+        )
         hashes = _compute_pk_hashes(data, ["id"], "ts", "2026-01-03")
         assert hashes == []
 
@@ -104,11 +109,13 @@ class TestBoundaryFiltering:
     def test_filter_boundary_rows(self):
         from feather_etl.pipeline import _filter_boundary_rows
 
-        data = pa.table({
-            "id": [1, 2, 3, 4],
-            "ts": ["2026-01-01", "2026-01-01", "2026-01-02", "2026-01-02"],
-            "value": [10, 20, 30, 40],
-        })
+        data = pa.table(
+            {
+                "id": [1, 2, 3, 4],
+                "ts": ["2026-01-01", "2026-01-01", "2026-01-02", "2026-01-02"],
+                "value": [10, 20, 30, 40],
+            }
+        )
         # Previous boundary hashes: row with id=1 at old watermark "2026-01-01"
         prev_hashes = [_pk_hash(1)]
         old_watermark = "2026-01-01"
@@ -123,23 +130,25 @@ class TestBoundaryFiltering:
     def test_no_filtering_when_no_prev_hashes(self):
         from feather_etl.pipeline import _filter_boundary_rows
 
-        data = pa.table({
-            "id": [1, 2],
-            "ts": ["2026-01-01", "2026-01-02"],
-        })
-        filtered, skipped = _filter_boundary_rows(
-            data, ["id"], "ts", "2026-01-01", []
+        data = pa.table(
+            {
+                "id": [1, 2],
+                "ts": ["2026-01-01", "2026-01-02"],
+            }
         )
+        filtered, skipped = _filter_boundary_rows(data, ["id"], "ts", "2026-01-01", [])
         assert filtered.num_rows == 2
         assert skipped == 0
 
     def test_no_filtering_when_no_pk(self):
         from feather_etl.pipeline import _filter_boundary_rows
 
-        data = pa.table({
-            "id": [1, 2],
-            "ts": ["2026-01-01", "2026-01-01"],
-        })
+        data = pa.table(
+            {
+                "id": [1, 2],
+                "ts": ["2026-01-01", "2026-01-01"],
+            }
+        )
         filtered, skipped = _filter_boundary_rows(
             data, None, "ts", "2026-01-01", [_pk_hash(1)]
         )

@@ -109,7 +109,9 @@ class TestDuckDBDestination:
 
         db_path = tmp_path / "data.duckdb"
         dest = DuckDBDestination(path=db_path)
-        with patch("feather_etl.destinations.duckdb.os.chmod", side_effect=OSError("denied")):
+        with patch(
+            "feather_etl.destinations.duckdb.os.chmod", side_effect=OSError("denied")
+        ):
             dest.setup_schemas()  # should not raise
         assert db_path.exists()
 

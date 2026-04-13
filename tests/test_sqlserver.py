@@ -302,7 +302,10 @@ def test_sqlserver_connection_failure(
     assert source.check() is False
     assert source._last_error is not None
     assert "Connection refused" in source._last_error
-    assert "Hint: ODBC Driver 18 for SQL Server is not installed." not in source._last_error
+    assert (
+        "Hint: ODBC Driver 18 for SQL Server is not installed."
+        not in source._last_error
+    )
 
 
 @patch("feather_etl.sources.sqlserver.platform.system", return_value="Darwin")
@@ -353,7 +356,10 @@ def test_sqlserver_im002_for_dsn_does_not_add_driver18_hint(
 
     assert source.check() is False
     assert source._last_error is not None
-    assert "Hint: ODBC Driver 18 for SQL Server is not installed." not in source._last_error
+    assert (
+        "Hint: ODBC Driver 18 for SQL Server is not installed."
+        not in source._last_error
+    )
 
 
 @patch("feather_etl.sources.sqlserver.pyodbc")

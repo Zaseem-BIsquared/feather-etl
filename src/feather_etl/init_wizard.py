@@ -103,6 +103,7 @@ ENV_EXAMPLE_TEMPLATE = """\
 # ALERT_EMAIL_PASSWORD=
 """
 
+
 def scaffold_project(project_path: Path) -> list[str]:
     """Create a new client project directory with template files."""
     project_path.mkdir(parents=True, exist_ok=True)

@@ -51,7 +51,9 @@ def detect_drift(
     stored_map = {name: dtype for name, dtype in stored_schema}
 
     added = [(name, dtype) for name, dtype in current_schema if name not in stored_map]
-    removed = [(name, dtype) for name, dtype in stored_schema if name not in current_map]
+    removed = [
+        (name, dtype) for name, dtype in stored_schema if name not in current_map
+    ]
     type_changed = [
         (name, stored_map[name], current_map[name])
         for name in current_map

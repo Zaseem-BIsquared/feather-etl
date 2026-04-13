@@ -48,7 +48,9 @@ def alert_on_failure(
     """Send a CRITICAL alert on pipeline failure."""
     if config is None:
         return
-    send_alert("CRITICAL", table_name, f"Pipeline failure: {error_message}", config=config)
+    send_alert(
+        "CRITICAL", table_name, f"Pipeline failure: {error_message}", config=config
+    )
 
 
 def alert_on_dq_failure(

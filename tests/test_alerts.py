@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
 
-
 @dataclass
 class FakeAlertsConfig:
     smtp_host: str = "smtp.example.com"

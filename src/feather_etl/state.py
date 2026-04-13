@@ -115,7 +115,11 @@ class StateManager:
             if row is None:
                 con.execute(
                     "INSERT INTO _state_meta VALUES (?, ?, ?)",
-                    [SCHEMA_VERSION, datetime.now(timezone.utc), feather_etl.__version__],
+                    [
+                        SCHEMA_VERSION,
+                        datetime.now(timezone.utc),
+                        feather_etl.__version__,
+                    ],
                 )
             elif row[0] > SCHEMA_VERSION:
                 raise RuntimeError(
@@ -303,9 +307,7 @@ class StateManager:
         finally:
             con.close()
 
-    def get_schema_snapshot(
-        self, table_name: str
-    ) -> list[tuple[str, str]] | None:
+    def get_schema_snapshot(self, table_name: str) -> list[tuple[str, str]] | None:
         """Read stored schema snapshot. Returns None if no snapshot exists."""
         con = self._connect()
         try:

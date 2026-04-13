@@ -65,13 +65,18 @@ def init(
 
     files_created = scaffold_project(project_path)
     if _is_json(ctx):
-        emit_line({"project": str(project_path), "files_created": files_created}, json_mode=True)
+        emit_line(
+            {"project": str(project_path), "files_created": files_created},
+            json_mode=True,
+        )
     else:
         typer.echo(f"Project scaffolded at {project_path}")
 
 
 @app.command()
-def validate(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")) -> None:
+def validate(
+    ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")
+) -> None:
     """Validate config, test source connection, and write feather_validation.json."""
     from feather_etl.sources.registry import create_source
 
@@ -112,7 +117,9 @@ def validate(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--
 
 
 @app.command()
-def discover(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")) -> None:
+def discover(
+    ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")
+) -> None:
     """Save source schema (tables + columns) to an auto-named JSON file in the current directory."""
     import json
 
@@ -278,7 +285,8 @@ def run(
         typer.echo(f"\n{', '.join(parts)}.")
 
     failures = sum(
-        1 for r in results
+        1
+        for r in results
         if r.status == "failure" or (r.status == "skipped" and r.error_message)
     )
     if failures > 0:
@@ -327,7 +335,9 @@ def history(
             json_mode=True,
         )
     else:
-        typer.echo(f"{'Table':<30} {'Status':<12} {'Rows':<10} {'Started':<28} {'Run ID'}")
+        typer.echo(
+            f"{'Table':<30} {'Status':<12} {'Rows':<10} {'Started':<28} {'Run ID'}"
+        )
         typer.echo("-" * 100)
         for row in rows:
             typer.echo(
@@ -343,7 +353,9 @@ def history(
 
 
 @app.command()
-def status(ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")) -> None:
+def status(
+    ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")
+) -> None:
     """Show last run status for all tables."""
     from feather_etl.state import StateManager
 

@@ -168,9 +168,7 @@ class TestPipelineAppendDispatch:
         assert all(r.status == "success" for r in results2)
 
         dest_con = duckdb.connect(str(tmp_path / "feather_data.duckdb"), read_only=True)
-        count = dest_con.execute(
-            "SELECT COUNT(*) FROM bronze.customers"
-        ).fetchone()[0]
+        count = dest_con.execute("SELECT COUNT(*) FROM bronze.customers").fetchone()[0]
         dest_con.close()
         # First run: 4 rows. Second run appends 5 rows (source now has 5). Total: 9.
         assert count == 9
@@ -193,8 +191,6 @@ class TestPipelineAppendDispatch:
 
         # Rows must still be 4 (not doubled)
         dest_con = duckdb.connect(str(tmp_path / "feather_data.duckdb"), read_only=True)
-        count = dest_con.execute(
-            "SELECT COUNT(*) FROM bronze.customers"
-        ).fetchone()[0]
+        count = dest_con.execute("SELECT COUNT(*) FROM bronze.customers").fetchone()[0]
         dest_con.close()
         assert count == 4

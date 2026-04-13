@@ -39,8 +39,11 @@ class TestNotNull:
     def test_not_null_fails_on_nulls(self, dq_db: Path):
         con = duckdb.connect(str(dq_db))
         results = run_dq_checks(
-            con, "orders", "bronze.orders",
-            {"not_null": ["customer_code"]}, "run_1",
+            con,
+            "orders",
+            "bronze.orders",
+            {"not_null": ["customer_code"]},
+            "run_1",
         )
         con.close()
         not_null = [r for r in results if r.check_type == "not_null"]
@@ -51,8 +54,11 @@ class TestNotNull:
     def test_not_null_passes_on_clean_column(self, dq_db: Path):
         con = duckdb.connect(str(dq_db))
         results = run_dq_checks(
-            con, "orders", "bronze.orders",
-            {"not_null": ["order_id"]}, "run_1",
+            con,
+            "orders",
+            "bronze.orders",
+            {"not_null": ["order_id"]},
+            "run_1",
         )
         con.close()
         not_null = [r for r in results if r.check_type == "not_null"]
@@ -64,8 +70,11 @@ class TestUnique:
     def test_unique_fails_on_duplicates(self, dq_db: Path):
         con = duckdb.connect(str(dq_db))
         results = run_dq_checks(
-            con, "orders", "bronze.orders",
-            {"unique": ["order_id"]}, "run_1",
+            con,
+            "orders",
+            "bronze.orders",
+            {"unique": ["order_id"]},
+            "run_1",
         )
         con.close()
         unique = [r for r in results if r.check_type == "unique"]
@@ -79,8 +88,11 @@ class TestUnique:
         con.execute("CREATE TABLE bronze.items (id INTEGER, name VARCHAR)")
         con.execute("INSERT INTO bronze.items VALUES (1, 'A'), (2, 'B'), (3, 'C')")
         results = run_dq_checks(
-            con, "items", "bronze.items",
-            {"unique": ["id"]}, "run_1",
+            con,
+            "items",
+            "bronze.items",
+            {"unique": ["id"]},
+            "run_1",
         )
         con.close()
         unique = [r for r in results if r.check_type == "unique"]
@@ -116,8 +128,11 @@ class TestDuplicate:
         """quality_checks: {duplicate: true} detects exact duplicate rows."""
         con = duckdb.connect(str(dq_db))
         results = run_dq_checks(
-            con, "orders", "bronze.orders",
-            {"duplicate": True}, "run_1",
+            con,
+            "orders",
+            "bronze.orders",
+            {"duplicate": True},
+            "run_1",
         )
         con.close()
         dup = [r for r in results if r.check_type == "duplicate"]
@@ -128,8 +143,12 @@ class TestDuplicate:
     def test_pk_based_duplicate_detects_pk_duplicates(self, dq_db: Path):
         con = duckdb.connect(str(dq_db))
         results = run_dq_checks(
-            con, "orders", "bronze.orders",
-            {}, "run_1", primary_key=["order_id"],
+            con,
+            "orders",
+            "bronze.orders",
+            {},
+            "run_1",
+            primary_key=["order_id"],
         )
         con.close()
         dup = [r for r in results if r.check_type == "duplicate"]
@@ -143,7 +162,12 @@ class TestDuplicate:
         con.execute("CREATE TABLE bronze.clean (id INTEGER, name VARCHAR)")
         con.execute("INSERT INTO bronze.clean VALUES (1, 'A'), (2, 'B'), (3, 'C')")
         results = run_dq_checks(
-            con, "clean", "bronze.clean", {}, "run_1", primary_key=["id"],
+            con,
+            "clean",
+            "bronze.clean",
+            {},
+            "run_1",
+            primary_key=["id"],
         )
         con.close()
         dup = [r for r in results if r.check_type == "duplicate"]
@@ -167,13 +191,15 @@ class TestPipelineIntegration:
         config = {
             "source": {"type": "duckdb", "path": str(client_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "customers",
-                "source_table": "erp.customers",
-                "target_table": "bronze.customers",
-                "strategy": "full",
-                "quality_checks": {"not_null": ["name"]},
-            }],
+            "tables": [
+                {
+                    "name": "customers",
+                    "source_table": "erp.customers",
+                    "target_table": "bronze.customers",
+                    "strategy": "full",
+                    "quality_checks": {"not_null": ["name"]},
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")
@@ -184,7 +210,9 @@ class TestPipelineIntegration:
         # Check _dq_results has entries
         sm = StateManager(tmp_path / "feather_state.duckdb")
         con = sm._connect()
-        rows = con.execute("SELECT * FROM _dq_results WHERE table_name = 'customers'").fetchall()
+        rows = con.execute(
+            "SELECT * FROM _dq_results WHERE table_name = 'customers'"
+        ).fetchall()
         con.close()
         # Should have at least row_count + not_null checks
         assert len(rows) >= 2
@@ -203,15 +231,17 @@ class TestPipelineIntegration:
         config = {
             "source": {"type": "duckdb", "path": str(client_db)},
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [{
-                "name": "customers",
-                "source_table": "erp.customers",
-                "target_table": "bronze.customers",
-                "strategy": "full",
-                # name column has some NULLs in sample_erp — force a check on id
-                # that will pass, confirming pipeline completes
-                "quality_checks": {"unique": ["name"]},
-            }],
+            "tables": [
+                {
+                    "name": "customers",
+                    "source_table": "erp.customers",
+                    "target_table": "bronze.customers",
+                    "strategy": "full",
+                    # name column has some NULLs in sample_erp — force a check on id
+                    # that will pass, confirming pipeline completes
+                    "quality_checks": {"unique": ["name"]},
+                }
+            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
         cfg = load_config(tmp_path / "feather.yaml")

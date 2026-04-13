@@ -13,24 +13,24 @@ from feather_etl.sources.database_source import DatabaseSource
 
 # psycopg2 cursor.description[1] is a PostgreSQL OID integer → PyArrow type
 _PSYCOPG2_TYPE_MAP: dict[int, pa.DataType] = {
-    16: pa.bool_(),          # bool
-    17: pa.binary(),         # bytea
-    20: pa.int64(),          # int8
-    21: pa.int16(),          # int2
-    23: pa.int64(),          # int4
-    25: pa.string(),         # text
-    114: pa.string(),        # json
-    700: pa.float32(),       # float4
-    701: pa.float64(),       # float8
-    1042: pa.string(),       # bpchar (fixed-length char)
-    1043: pa.string(),       # varchar
-    1082: pa.date32(),       # date
-    1083: pa.time64("us"),   # time
-    1114: pa.timestamp("us"),    # timestamp
+    16: pa.bool_(),  # bool
+    17: pa.binary(),  # bytea
+    20: pa.int64(),  # int8
+    21: pa.int16(),  # int2
+    23: pa.int64(),  # int4
+    25: pa.string(),  # text
+    114: pa.string(),  # json
+    700: pa.float32(),  # float4
+    701: pa.float64(),  # float8
+    1042: pa.string(),  # bpchar (fixed-length char)
+    1043: pa.string(),  # varchar
+    1082: pa.date32(),  # date
+    1083: pa.time64("us"),  # time
+    1114: pa.timestamp("us"),  # timestamp
     1184: pa.timestamp("us", tz="UTC"),  # timestamptz
-    1700: pa.float64(),      # numeric/decimal
-    2950: pa.string(),       # uuid
-    3802: pa.string(),       # jsonb
+    1700: pa.float64(),  # numeric/decimal
+    2950: pa.string(),  # uuid
+    3802: pa.string(),  # jsonb
 }
 
 # INFORMATION_SCHEMA data_type string → PyArrow type
@@ -262,10 +262,9 @@ class PostgresSource(DatabaseSource):
                 },
             )
 
-        if (
-            current_checksum == last_state.get("last_checksum")
-            and current_row_count == last_state.get("last_row_count")
-        ):
+        if current_checksum == last_state.get(
+            "last_checksum"
+        ) and current_row_count == last_state.get("last_row_count"):
             return ChangeResult(changed=False, reason="unchanged")
 
         return ChangeResult(

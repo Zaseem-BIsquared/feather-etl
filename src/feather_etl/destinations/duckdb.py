@@ -125,9 +125,7 @@ class DuckDBDestination:
 
         con.execute("BEGIN TRANSACTION")
         try:
-            con.execute(
-                f"DELETE FROM {final} WHERE {timestamp_column} >= ?", [min_ts]
-            )
+            con.execute(f"DELETE FROM {final} WHERE {timestamp_column} >= ?", [min_ts])
             con.execute(
                 f"INSERT INTO {final} "
                 f"SELECT *, CURRENT_TIMESTAMP AS _etl_loaded_at, "

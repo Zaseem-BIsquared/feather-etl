@@ -116,10 +116,10 @@ def create_fixture(path: Path) -> None:
     con.close()
 
     con_r = duckdb.connect(str(path), read_only=True)
-    orders_n    = con_r.execute("SELECT COUNT(*) FROM erp.orders").fetchone()[0]
+    orders_n = con_r.execute("SELECT COUNT(*) FROM erp.orders").fetchone()[0]
     customers_n = con_r.execute("SELECT COUNT(*) FROM erp.customers").fetchone()[0]
-    products_n  = con_r.execute("SELECT COUNT(*) FROM erp.products").fetchone()[0]
-    sales_n     = con_r.execute("SELECT COUNT(*) FROM erp.sales").fetchone()[0]
+    products_n = con_r.execute("SELECT COUNT(*) FROM erp.products").fetchone()[0]
+    sales_n = con_r.execute("SELECT COUNT(*) FROM erp.sales").fetchone()[0]
     con_r.close()
 
     print(f"Created {path}")

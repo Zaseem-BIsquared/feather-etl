@@ -69,6 +69,7 @@ def test_full_onboarding_flow(tmp_path: Path, monkeypatch):
     assert "Wrote" in result.output
 
     import json
+
     schema_files = list(project_dir.glob("schema_*.json"))
     assert len(schema_files) == 1, f"Expected one schema file, found: {schema_files}"
     payload = json.loads(schema_files[0].read_text())
