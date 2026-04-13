@@ -39,7 +39,9 @@ This slice delivers **config-schema multi-source** (issue #8's YAML design) but 
 | Discover `--json` mode | Dropped (no-op today; discover always writes files per #16) |
 | Discover retry semantics (D1) | Resume by default: cached sources skipped, failed retried, new discovered |
 | Add/remove detection (AD2) | Detect both; removed entries marked in state, cleaned with `--prune` |
-| Flags | `--refresh`, `--retry-failed`, `--prune` (no `--yes`; scope of damage is recoverable) |
+| Rename detection | Each state entry stores a fingerprint (type+host+port+database / type+path); rename inferred on fingerprint match |
+| Rename UX | TTY prompts `[Y/n]`; non-TTY exits `3` with guidance; `--yes` auto-accepts; `--no-renames` marks as `orphaned` |
+| Flags | `--refresh`, `--retry-failed`, `--prune`, `--yes`, `--no-renames` |
 | Backward compatibility (BC1) | Hard migration; `source:` singular raises clear error |
 | Testing (T1) | Per-code-unit edge-case tests in existing files + one new happy-path E2E file |
 
@@ -252,14 +254,22 @@ Clean up the removed entry (deletes ./schema_erp_archive.json):
 
 ### 6.3 Flag matrix
 
-| Flag | cached | failed | new | removed |
-|------|--------|--------|-----|---------|
-| *(none)* | skip | retry | discover | mark in state |
-| `--refresh` | re-run | re-run | discover | mark in state |
-| `--retry-failed` | skip | retry | skip | ignore |
-| `--prune` | skip | skip | skip | delete state entry + delete orphaned JSON file |
+| Flag | cached | failed | new | removed | orphaned | rename detected |
+|------|--------|--------|-----|---------|----------|-----------------|
+| *(none)* + TTY | skip | retry | discover | mark | mark | prompt `[Y/n]` |
+| *(none)* + non-TTY | — | — | — | — | — | exit 3, print decision flags |
+| `--refresh` | re-run | re-run | discover | mark | mark | ignore state entirely |
+| `--retry-failed` | skip | retry | skip | ignore | ignore | prompt (TTY) / exit 3 (non-TTY) |
+| `--prune` | skip | skip | skip | delete state + JSON file | delete state + JSON file | ignore |
+| `--yes` (modifier) | (as base) | (as base) | — | — | — | auto-accept rename |
+| `--no-renames` (modifier) | (as base) | (as base) | — | — | — | reject; entries become `orphaned` |
 
-No `--yes` flag. `--prune` deletes immediately; the action is recoverable via `--refresh`.
+`--prune` deletes immediately; no separate `--yes` gate. The action is recoverable via `--refresh`.
+
+**Exit codes:**
+- `0` — all sources succeeded or were skipped cleanly
+- `2` — one or more sources failed (`status: failed`)
+- `3` — rename decision required from a non-TTY caller; rerun with `--yes` or `--no-renames`
 
 ### 6.4 Failure handling
 
@@ -278,6 +288,56 @@ If SQL Server `list_databases()` returns an empty list or fails with an auth err
 ### 6.6 `--json` mode
 
 Dropped as a separate code path. The per-source JSON files ARE the JSON output. Global `--json` flag remains honored by `run`/`validate`/etc. For `discover`, it becomes a no-op; optionally emit a one-line JSON summary (`{written: [paths], failed: [...]}`) to stdout so scripts can still capture the result set.
+
+### 6.7 Rename detection
+
+State keys by **source name**, but each entry stores a **fingerprint** so the command can notice when a user renames a source in `feather.yaml` without losing previously-discovered history.
+
+**Fingerprint composition:**
+- DB sources (sqlserver, postgres): `(type, host, port, database)`
+- File sources (csv, sqlite, duckdb, excel, json): `(type, absolute_path)`
+
+User/password are **excluded** — changing credentials doesn't change the underlying data source; a password rotation must not orphan state.
+
+**Detection flow on each discover run:**
+
+1. Compute fingerprints for every source in current `feather.yaml`.
+2. For each state entry whose name is not in the current config, check if its fingerprint matches any current config source's fingerprint.
+3. Classify:
+   - **Exact match on fingerprint, unambiguous** → proposed rename (state `erp` → config `erp_main`).
+   - **No fingerprint match** → `orphaned` (user removed the source outright).
+   - **Multiple state entries match one config source's fingerprint** → ambiguous; error, print all candidates, require user to resolve manually (e.g., by editing state file or running `--no-renames`).
+
+**User interaction for proposed renames:**
+
+- **TTY** → print the proposal, prompt `[Y/n]`. `y` or Enter → migrate; `n` → reject and treat as orphaned.
+- **Non-TTY** → exit code `3` with the proposal printed to stderr and guidance to pass `--yes` or `--no-renames`.
+- `--yes` → auto-accept all detected renames.
+- `--no-renames` → reject all rename inferences; affected state entries become `status: orphaned`.
+
+**Batch renames:** multiple renames in a single YAML edit are shown as one block and accepted with a single prompt. No per-rename interaction.
+
+**Migration action on accept:**
+- Move state entries from old name to new name (including child entries for auto-enumerated databases, e.g., `erp__SALES` → `erp_main__SALES`).
+- Rename JSON files on disk (`schema_erp__SALES.json` → `schema_erp_main__SALES.json`).
+- Log the migration in command output.
+- Then proceed with normal discover for the (now correctly-named) sources.
+
+**Example — agent scenario (non-TTY):**
+```
+$ feather discover
+Discovering from feather.yaml (state file found, last run 2026-04-14 10:30)...
+
+Detected likely rename:
+  erp → erp_main
+  fingerprint: sqlserver@192.168.2.62:1433/SALES
+  cached schemas that would carry forward: 3 (erp__SALES, erp__INVENTORY, erp__HR)
+
+Interactive input not available. Pass one of:
+  --yes           accept rename, migrate state, continue
+  --no-renames    treat 'erp' as orphaned (status: orphaned); discover 'erp_main' fresh
+Exit code: 3
+```
 
 ---
 
@@ -298,6 +358,7 @@ Dropped as a separate code path. The per-source JSON files ARE the JSON output. 
       "type": "sqlserver",
       "host": "192.168.2.62",
       "database": "SALES",
+      "fingerprint": "sqlserver:192.168.2.62:1433:SALES",
       "status": "ok",
       "discovered_at": "2026-04-14T10:30:12Z",
       "table_count": 42,
@@ -307,6 +368,7 @@ Dropped as a separate code path. The per-source JSON files ARE the JSON output. 
       "type": "sqlserver",
       "host": "192.168.2.62",
       "database": "LEGACY",
+      "fingerprint": "sqlserver:192.168.2.62:1433:LEGACY",
       "status": "failed",
       "attempted_at": "2026-04-14T10:30:15Z",
       "error": "Login failed for user 'feather' (SQLSTATE 28000)",
@@ -316,10 +378,22 @@ Dropped as a separate code path. The per-source JSON files ARE the JSON output. 
       "type": "sqlserver",
       "host": "192.168.2.62",
       "database": "ARCHIVE",
+      "fingerprint": "sqlserver:192.168.2.62:1433:ARCHIVE",
       "status": "removed",
       "discovered_at": "2026-04-10T09:00:00Z",
       "removed_detected_at": "2026-04-14T10:30:20Z",
       "output_path": "./schema_erp_archive.json"
+    },
+    "icube": {
+      "type": "sqlserver",
+      "host": "192.168.2.62",
+      "database": "INVENTORY",
+      "fingerprint": "sqlserver:192.168.2.62:1433:INVENTORY",
+      "status": "orphaned",
+      "discovered_at": "2026-04-12T08:00:00Z",
+      "orphaned_detected_at": "2026-04-14T10:30:00Z",
+      "output_path": "./schema_icube.json",
+      "note": "name no longer in feather.yaml; rename was rejected via --no-renames"
     }
   },
   "auto_enumeration": {
@@ -333,11 +407,14 @@ Dropped as a separate code path. The per-source JSON files ARE the JSON output. 
 }
 ```
 
+**Note on `fingerprint` field:** string-encoded for easy comparison and debugging. DB sources: `"<type>:<host>:<port>:<database>"`. File sources: `"<type>:<absolute_path>"`. Excludes user/password so credential rotations don't invalidate state.
+
 ### 7.3 Status vocabulary
 
 - `ok` — last discover succeeded, JSON file present on disk.
 - `failed` — last attempt failed. Retriable via `--retry-failed` or default resume.
-- `removed` — previously seen, no longer on server. Cleaned by `--prune`.
+- `removed` — previously seen via auto-enumeration, no longer in server's `sys.databases` / `pg_database`. Cleaned by `--prune`.
+- `orphaned` — name was in state but is no longer in `feather.yaml` AND no matching fingerprint was accepted as a rename. User removed the source outright, or rejected a rename proposal via `--no-renames`. Cleaned by `--prune`.
 
 ### 7.4 Schema versioning
 
@@ -361,7 +438,7 @@ This principle is documented in `docs/CONTRIBUTING.md` as a project convention. 
 
 ### 8.2 New file — `tests/commands/test_discover_multi_source.py`
 
-Happy-path E2E scenarios (approx. 7 tests):
+Happy-path E2E scenarios (approx. 8 tests):
 
 1. `test_single_csv_source_writes_one_file`
 2. `test_heterogeneous_sources_write_one_file_per_source` (csv + sqlite + duckdb)
@@ -370,6 +447,7 @@ Happy-path E2E scenarios (approx. 7 tests):
 5. `test_resume_skips_cached_succeeds` (second run = all cached)
 6. `test_retry_failed_only` (simulate one failure; `--retry-failed` retries only that one)
 7. `test_prune_removes_orphaned_state_and_file`
+8. `test_rename_detected_non_tty_exits_3_then_yes_migrates` (rename in YAML; first invocation exits 3; second with `--yes` migrates state and schema files)
 
 ### 8.3 Edge cases — in per-code-unit files
 
@@ -406,20 +484,20 @@ Happy-path E2E scenarios (approx. 7 tests):
 | `src/feather_etl/sources/sqlserver.py` | Add `from_yaml`, `list_databases`, `validate_source_table`, `databases` param. | +80 |
 | `src/feather_etl/sources/postgres.py` | Same. | +70 |
 | `src/feather_etl/sources/csv.py`, `sqlite.py`, `duckdb_file.py`, `excel.py`, `json_source.py` | Each: `from_yaml`, `validate_source_table`. | +20 each |
-| `src/feather_etl/commands/discover.py` | Rewrite: iterate sources, state file I/O, flags, summary. | −35 / +220 |
+| `src/feather_etl/commands/discover.py` | Rewrite: iterate sources, state file I/O, flags, summary, rename detection + TTY prompt / exit-3 path. | −35 / +280 |
 | `src/feather_etl/commands/validate.py` | Iterate `cfg.sources` for source validation. | +30 |
 | `src/feather_etl/commands/run.py`, `status.py`, `history.py`, `setup.py`, `init.py` | Multi-source guard error. | +15 each |
 | `src/feather_etl/pipeline.py` | Read from `cfg.sources[0]` until B2 ships. | +5 |
 | `src/feather_etl/init_wizard.py` | Generate `sources:` list (single-entry). | +10 |
 
-**Net source diff:** roughly +800 / −250 LOC.
+**Net source diff:** roughly +860 / −250 LOC.
 
 ### 9.2 Test files touched
 
 - `tests/test_config.py` — update fixtures to `sources:`; add multi-source / migration tests.
 - `tests/test_sqlserver.py`, `test_postgres.py` — add `from_yaml`, `list_databases()`, XOR tests.
 - `tests/test_csv_glob.py`, `test_excel.py`, `test_json.py`, `test_sources.py`, `test_discover_io.py`, `test_integration.py`, `test_e2e.py` — update fixtures.
-- `tests/commands/test_discover.py` — extend with state, resume, retry, prune, refresh tests.
+- `tests/commands/test_discover.py` — extend with state, resume, retry, prune, refresh, rename-detection (fingerprint match, TTY prompt, non-TTY exit-3, `--yes`, `--no-renames`) tests.
 - `tests/commands/test_discover_multi_source.py` — **new**, happy-path E2E (§8.2).
 - `tests/commands/conftest.py` — may grow `multi_source_yaml()` helper.
 
@@ -442,6 +520,7 @@ Single PR at the end, no mid-review. Internal commit boundaries for reviewabilit
 2. **YAML migration** — `source:` → `sources:` list (single entry). Every fixture/doc updated in the same commit. Singular `source:` raises hard error.
 3. **Discover iterates sources** — command rewritten to loop over `cfg.sources`. Auto-enumeration for DB sources without `database`/`databases`. No state file yet.
 4. **State file + flags** — `feather_discover_state.json`, `--refresh`, `--retry-failed`, `--prune`. Adds `test_discover_multi_source.py`.
+5. **Rename detection** — fingerprint field in state entries, TTY prompt + non-TTY exit-3 path, `--yes` / `--no-renames` flags, `orphaned` status.
 
 Each commit leaves the test suite green.
 
@@ -468,6 +547,9 @@ Each commit leaves the test suite green.
 | D15 | State file schema versioning / migration | When `schema_version: 2` is needed |
 | D16 | `--since DURATION` staleness filter | Future if ops asks |
 | D17 | Per-source retry limits / exponential backoff | Future if transient failures become common |
+| D18 | `--rename old=new` surgical override | Future if fingerprint inference proves unreliable |
+| D19 | Per-rename interactive prompt (accept some, reject others in one batch) | Future if users hit multi-rename ambiguity |
+| D20 | Fingerprint canonicalization for file-source paths (case-insensitivity on Windows/macOS, symlink resolution) | Future if cross-platform discover state is shared |
 
 ---
 
