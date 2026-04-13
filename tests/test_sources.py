@@ -643,6 +643,14 @@ class TestFileSourceValidateSourceTable:
 
         src = SqliteSource(path=tmp_path / "x.sqlite", name="x")
         errs = src.validate_source_table("schema.table")
+        assert errs and "unqualified" in errs[0]
+        assert "'table'" in errs[0]  # suggests correct form
+
+    def test_sqlite_rejects_invalid_identifier(self, tmp_path):
+        from feather_etl.sources.sqlite import SqliteSource
+
+        src = SqliteSource(path=tmp_path / "x.sqlite", name="x")
+        errs = src.validate_source_table("bad-name")  # hyphen not allowed
         assert errs and "identifier" in errs[0].lower()
 
     def test_duckdb_requires_dotted(self, tmp_path):
@@ -651,3 +659,36 @@ class TestFileSourceValidateSourceTable:
         src = DuckDBFileSource(path=tmp_path / "x.duckdb", name="x")
         errs = src.validate_source_table("plain")
         assert errs and "schema.table" in errs[0]
+
+
+class TestFileSourcesRejectDbFields:
+    """Every file source must reject DB fields in its YAML entry with the
+    correct type name in the error message."""
+
+    @pytest.mark.parametrize(
+        "cls_path,type_name,path_factory",
+        [
+            ("feather_etl.sources.csv.CsvSource", "csv", "dir"),
+            ("feather_etl.sources.sqlite.SqliteSource", "sqlite", "file"),
+            ("feather_etl.sources.duckdb_file.DuckDBFileSource", "duckdb", "file"),
+            ("feather_etl.sources.excel.ExcelSource", "excel", "dir"),
+            ("feather_etl.sources.json_source.JsonSource", "json", "dir"),
+        ],
+    )
+    def test_rejects_database_field(self, cls_path, type_name, path_factory, tmp_path):
+        import importlib
+
+        module_path, cls_name = cls_path.rsplit(".", 1)
+        cls = getattr(importlib.import_module(module_path), cls_name)
+
+        if path_factory == "dir":
+            target = tmp_path / "d"
+            target.mkdir()
+        else:
+            target = tmp_path / "f"
+            target.write_bytes(b"")
+
+        entry = {"name": "x", "type": type_name, "path": str(target),
+                 "database": "BAD"}
+        with pytest.raises(ValueError, match=f"not supported for source type {type_name}"):
+            cls.from_yaml(entry, tmp_path)

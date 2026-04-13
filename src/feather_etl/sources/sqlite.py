@@ -33,6 +33,12 @@ class SqliteSource(FileSource):
         return cls(path=path, name=entry.get("name", ""))
 
     def validate_source_table(self, source_table: str) -> list[str]:
+        if "." in source_table:
+            return [
+                f"source_table '{source_table}' is invalid: SQLite tables "
+                f"are unqualified (no schema prefix). Use just "
+                f"'{source_table.split('.', 1)[1]}'."
+            ]
         if not _SQL_IDENTIFIER_RE.match(source_table):
             return [
                 f"source_table '{source_table}' contains invalid identifier "

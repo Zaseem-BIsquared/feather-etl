@@ -100,6 +100,10 @@ class FileSource:
         )
 
 
+# --- Helpers shared across sources in this package ---
+# Underscore-prefixed to signal "internal to feather_etl.sources"; imported
+# by sibling source modules (csv, sqlite, duckdb_file, excel, json_source).
+
 _SQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
