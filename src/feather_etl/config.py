@@ -112,7 +112,7 @@ class AlertsConfig:
 
 @dataclass
 class FeatherConfig:
-    source: "Source"
+    sources: list                  # list[Source] — forward ref
     destination: DestinationConfig
     tables: list[TableConfig]
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
@@ -204,6 +204,9 @@ def _validate(config: FeatherConfig) -> list[str]:
             f"got {config.defaults.overlap_window_minutes}"
         )
 
+    # Use the primary (first) source for source_table validation until
+    # per-table routing lands in a later task.
+    primary = config.sources[0]
     for table in config.tables:
         if table.strategy not in VALID_STRATEGIES:
             errors.append(
@@ -244,7 +247,7 @@ def _validate(config: FeatherConfig) -> list[str]:
             )
 
         # Source-type-aware source_table validation — delegated to the source class.
-        for err in config.source.validate_source_table(table.source_table):
+        for err in primary.validate_source_table(table.source_table):
             errors.append(f"Table '{table.name}': {err}")
 
     return errors
@@ -296,16 +299,45 @@ def load_config(
     if env_errors:
         raise ValueError("; ".join(env_errors))
 
-    for key in ("source", "destination"):
-        if key not in raw:
-            raise ValueError(f"Missing required config section: '{key}'")
+    if "source" in raw and "sources" not in raw:
+        raise ValueError(
+            "feather.yaml now uses 'sources:' (list). Wrap your existing source in a list:\n"
+            "  sources:\n"
+            "    - name: ...\n"
+            "      type: ...\n"
+        )
+
+    if "sources" not in raw or "destination" not in raw:
+        missing = "sources" if "sources" not in raw else "destination"
+        raise ValueError(f"Missing required config section: '{missing}'")
+
+    sources_raw = raw["sources"]
+    if not isinstance(sources_raw, list) or not sources_raw:
+        raise ValueError("'sources' must be a non-empty list.")
 
     from feather_etl.sources.registry import get_source_class
 
-    source_raw = raw["source"]
-    src_type = source_raw["type"]
-    source_cls = get_source_class(src_type)
-    source = source_cls.from_yaml(source_raw, config_dir)
+    sources: list = []
+    seen_names: set[str] = set()
+    multi = len(sources_raw) > 1
+    for idx, entry in enumerate(sources_raw):
+        if "type" not in entry:
+            raise ValueError(f"sources[{idx}] missing required field 'type'.")
+        if multi and not entry.get("name"):
+            raise ValueError(
+                f"sources[{idx}]: 'name' is required when multiple sources are configured."
+            )
+        src_cls = get_source_class(entry["type"])
+        src = src_cls.from_yaml(entry, config_dir)
+        # Resolve display name when single-entry + name omitted.
+        if not src.name and not multi:
+            src.name = resolved_source_name(src)
+        if src.name in seen_names:
+            raise ValueError(
+                f"duplicate source name '{src.name}'; names must be unique."
+            )
+        seen_names.add(src.name)
+        sources.append(src)
 
     dest = DestinationConfig(
         path=_resolve_path(config_dir, raw["destination"]["path"]),
@@ -366,7 +398,7 @@ def load_config(
         )
 
     config = FeatherConfig(
-        source=source,
+        sources=sources,
         destination=dest,
         tables=tables,
         defaults=defaults,
@@ -398,8 +430,8 @@ def write_validation_json(
         "errors": errors,
         "tables_count": len(config.tables) if config else 0,
         "resolved_paths": {
-            "source": str(getattr(config.source, "path", None))
-            if config and getattr(config.source, "path", None)
+            "source": str(getattr(config.sources[0], "path", None))
+            if config and getattr(config.sources[0], "path", None)
             else None,
             "destination": str(config.destination.path) if config else None,
             "config_dir": str(config.config_dir) if config else None,

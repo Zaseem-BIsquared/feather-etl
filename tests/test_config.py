@@ -585,3 +585,106 @@ class TestSourceName:
         config_file = write_config(tmp_path, cfg_dict)
         result = load_config(config_file, validate=False)
         assert result.source.name == "prod-erp"
+
+
+class TestSourcesList:
+    def test_sources_list_with_single_entry(self, tmp_path: Path):
+        from feather_etl.config import load_config
+
+        cfg_dict = {
+            "sources": [{"type": "duckdb", "path": str(tmp_path / "s.duckdb")}],
+            "destination": {"path": str(tmp_path / "out.duckdb")},
+            "tables": [],
+        }
+        (tmp_path / "s.duckdb").write_bytes(b"")
+        config_file = tmp_path / "feather.yaml"
+        config_file.write_text(yaml.dump(cfg_dict))
+        cfg = load_config(config_file, validate=False)
+        assert len(cfg.sources) == 1
+        assert cfg.sources[0].type == "duckdb"
+
+    def test_sources_list_multi_entry_requires_names(self, tmp_path: Path):
+        from feather_etl.config import load_config
+
+        cfg_dict = {
+            "sources": [
+                {"type": "duckdb", "path": str(tmp_path / "a.duckdb")},
+                {"type": "duckdb", "path": str(tmp_path / "b.duckdb")},
+            ],
+            "destination": {"path": str(tmp_path / "out.duckdb")},
+            "tables": [],
+        }
+        for f in ("a.duckdb", "b.duckdb"):
+            (tmp_path / f).write_bytes(b"")
+        config_file = tmp_path / "feather.yaml"
+        config_file.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ValueError, match="name.*required"):
+            load_config(config_file, validate=False)
+
+    def test_sources_list_multi_entry_with_names_ok(self, tmp_path: Path):
+        from feather_etl.config import load_config
+
+        cfg_dict = {
+            "sources": [
+                {"name": "a", "type": "duckdb", "path": str(tmp_path / "a.duckdb")},
+                {"name": "b", "type": "duckdb", "path": str(tmp_path / "b.duckdb")},
+            ],
+            "destination": {"path": str(tmp_path / "out.duckdb")},
+            "tables": [],
+        }
+        for f in ("a.duckdb", "b.duckdb"):
+            (tmp_path / f).write_bytes(b"")
+        config_file = tmp_path / "feather.yaml"
+        config_file.write_text(yaml.dump(cfg_dict))
+        cfg = load_config(config_file, validate=False)
+        assert [s.name for s in cfg.sources] == ["a", "b"]
+
+    def test_sources_list_duplicate_name_raises(self, tmp_path: Path):
+        from feather_etl.config import load_config
+
+        cfg_dict = {
+            "sources": [
+                {"name": "x", "type": "duckdb", "path": str(tmp_path / "a.duckdb")},
+                {"name": "x", "type": "duckdb", "path": str(tmp_path / "b.duckdb")},
+            ],
+            "destination": {"path": str(tmp_path / "out.duckdb")},
+            "tables": [],
+        }
+        for f in ("a.duckdb", "b.duckdb"):
+            (tmp_path / f).write_bytes(b"")
+        config_file = tmp_path / "feather.yaml"
+        config_file.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ValueError, match="duplicate.*'x'"):
+            load_config(config_file, validate=False)
+
+    def test_sources_empty_list_raises(self, tmp_path: Path):
+        from feather_etl.config import load_config
+
+        cfg_dict = {
+            "sources": [],
+            "destination": {"path": str(tmp_path / "out.duckdb")},
+            "tables": [],
+        }
+        config_file = tmp_path / "feather.yaml"
+        config_file.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ValueError, match="non-empty"):
+            load_config(config_file, validate=False)
+
+
+class TestSingularSourceMigrationError:
+    def test_singular_source_raises_with_guidance(self, tmp_path: Path):
+        from feather_etl.config import load_config
+
+        cfg_dict = {
+            "source": {"type": "duckdb", "path": str(tmp_path / "s.duckdb")},
+            "destination": {"path": str(tmp_path / "out.duckdb")},
+            "tables": [],
+        }
+        (tmp_path / "s.duckdb").write_bytes(b"")
+        config_file = tmp_path / "feather.yaml"
+        config_file.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ValueError) as exc:
+            load_config(config_file, validate=False)
+        msg = str(exc.value)
+        assert "sources:" in msg
+        assert "Wrap your existing source in a list" in msg
