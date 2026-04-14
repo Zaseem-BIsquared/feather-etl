@@ -26,7 +26,7 @@ class TestValidate:
         bad_config.write_text(
             yaml.dump(
                 {
-                    "source": {"type": "mongodb", "path": "/nope"},
+                    "sources": [{"type": "mongodb", "path": "/nope"}],
                     "destination": {"path": "./data.duckdb"},
                     "tables": [],
                 }
@@ -70,7 +70,7 @@ class TestValidate:
 
         def fake_load_config(path, **kwargs):
             cfg = real_load(path, **kwargs)
-            cfg.source = FakeFailingSource()
+            cfg.sources[0] = FakeFailingSource()
             return cfg
 
         monkeypatch.setattr(_config_mod, "load_config", fake_load_config)

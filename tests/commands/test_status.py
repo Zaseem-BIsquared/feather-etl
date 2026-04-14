@@ -46,7 +46,7 @@ class TestStatus:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
         config = {
-            "source": {"type": "duckdb", "path": str(client_db)},
+            "sources": [{"type": "duckdb", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -74,7 +74,7 @@ class TestStatus:
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
 
         config_a = {
-            "source": {"type": "duckdb", "path": str(client_db)},
+            "sources": [{"type": "duckdb", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -90,7 +90,7 @@ class TestStatus:
         runner.invoke(app, ["run", "--config", str(config_path)])
 
         config_b = {
-            "source": {"type": "duckdb", "path": str(client_db)},
+            "sources": [{"type": "duckdb", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {

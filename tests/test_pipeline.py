@@ -18,7 +18,7 @@ def setup_env(tmp_path: Path) -> tuple[Path, Path]:
     shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
 
     config = {
-        "source": {"type": "duckdb", "path": str(client_db)},
+        "sources": [{"type": "duckdb", "path": str(client_db)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
         "tables": [
             {

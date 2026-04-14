@@ -189,7 +189,7 @@ class TestPipelineIntegration:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
         config = {
-            "source": {"type": "duckdb", "path": str(client_db)},
+            "sources": [{"type": "duckdb", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -229,7 +229,7 @@ class TestPipelineIntegration:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
         config = {
-            "source": {"type": "duckdb", "path": str(client_db)},
+            "sources": [{"type": "duckdb", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {

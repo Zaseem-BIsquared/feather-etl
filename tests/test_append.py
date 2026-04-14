@@ -104,7 +104,7 @@ class TestPipelineAppendDispatch:
         source_table: str = "erp.customers",
     ) -> Path:
         config = {
-            "source": {"type": "duckdb", "path": str(source_db)},
+            "sources": [{"type": "duckdb", "path": str(source_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {

@@ -30,7 +30,7 @@ def test_full_onboarding_flow(tmp_path: Path, monkeypatch):
     shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
 
     config = {
-        "source": {"type": "duckdb", "path": str(client_db)},
+        "sources": [{"type": "duckdb", "path": str(client_db)}],
         "destination": {"path": str(project_dir / "feather_data.duckdb")},
         "tables": [
             {

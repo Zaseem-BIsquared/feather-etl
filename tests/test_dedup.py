@@ -14,7 +14,7 @@ class TestDedupConfig:
         import pytest
 
         config = {
-            "source": {"type": "csv", "path": str(tmp_path)},
+            "sources": [{"type": "csv", "path": str(tmp_path)}],
             "destination": {"path": str(tmp_path / "out.duckdb")},
             "tables": [
                 {
@@ -47,7 +47,7 @@ class TestDedupExtraction:
             "order_id,name,amount\n1,A,100\n2,B,200\n1,A,100\n3,C,300\n"
         )
         config = {
-            "source": {"type": "csv", "path": str(csv_dir)},
+            "sources": [{"type": "csv", "path": str(csv_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -77,7 +77,7 @@ class TestDedupExtraction:
             "order_id,name,amount\n1,A,100\n2,B,200\n1,X,150\n3,C,300\n"
         )
         config = {
-            "source": {"type": "csv", "path": str(csv_dir)},
+            "sources": [{"type": "csv", "path": str(csv_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -107,7 +107,7 @@ class TestDedupExtraction:
             "order_id,name,amount\n1,A,100\n2,B,200\n1,A,100\n3,C,300\n"
         )
         config = {
-            "source": {"type": "csv", "path": str(csv_dir)},
+            "sources": [{"type": "csv", "path": str(csv_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -136,7 +136,7 @@ class TestDedupExtraction:
             '[{"id":1,"name":"A"},{"id":2,"name":"B"},{"id":1,"name":"A"}]'
         )
         config = {
-            "source": {"type": "json", "path": str(json_dir)},
+            "sources": [{"type": "json", "path": str(json_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {

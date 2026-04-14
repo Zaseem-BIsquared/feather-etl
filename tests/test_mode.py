@@ -20,7 +20,7 @@ def _write_config(tmp_path: Path, mode: str | None = None, **overrides) -> Path:
     shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)
 
     config = {
-        "source": {"type": "duckdb", "path": str(src_db)},
+        "sources": [{"type": "duckdb", "path": str(src_db)}],
         "destination": {"path": str(tmp_path / "output.duckdb")},
         "tables": [
             {
@@ -114,7 +114,7 @@ def test_config_empty_target_table_valid_with_mode(tmp_path):
     shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)
 
     config = {
-        "source": {"type": "duckdb", "path": str(src_db)},
+        "sources": [{"type": "duckdb", "path": str(src_db)}],
         "destination": {"path": str(tmp_path / "output.duckdb")},
         "mode": "dev",
         "tables": [
@@ -163,7 +163,7 @@ def _run_pipeline(
 
     dest_path = tmp_path / "output.duckdb"
     config = {
-        "source": {"type": "duckdb", "path": str(src_db)},
+        "sources": [{"type": "duckdb", "path": str(src_db)}],
         "destination": {"path": str(dest_path)},
         "mode": mode,
         "tables": [table_def],
@@ -303,7 +303,7 @@ def _run_with_transforms(tmp_path: Path, mode: str) -> Path:
 
     dest_path = tmp_path / "output.duckdb"
     config = {
-        "source": {"type": "duckdb", "path": str(src_db)},
+        "sources": [{"type": "duckdb", "path": str(src_db)}],
         "destination": {"path": str(dest_path)},
         "mode": mode,
         "tables": [
@@ -368,7 +368,7 @@ def test_test_mode_with_row_limit(tmp_path):
 
     dest_path = tmp_path / "output.duckdb"
     config = {
-        "source": {"type": "duckdb", "path": str(src_db)},
+        "sources": [{"type": "duckdb", "path": str(src_db)}],
         "destination": {"path": str(dest_path)},
         "mode": "test",
         "defaults": {"row_limit": 2},
@@ -408,7 +408,7 @@ def test_dev_mode_ignores_row_limit(tmp_path):
 
     dest_path = tmp_path / "output.duckdb"
     config = {
-        "source": {"type": "duckdb", "path": str(src_db)},
+        "sources": [{"type": "duckdb", "path": str(src_db)}],
         "destination": {"path": str(dest_path)},
         "mode": "dev",
         "defaults": {"row_limit": 2},
@@ -457,7 +457,7 @@ def test_cli_mode_overrides_yaml(tmp_path):
 
     dest_path2 = tmp2 / "output.duckdb"
     config = {
-        "source": {"type": "duckdb", "path": str(src_db)},
+        "sources": [{"type": "duckdb", "path": str(src_db)}],
         "destination": {"path": str(dest_path2)},
         "mode": "dev",  # YAML says dev
         "tables": [
@@ -494,7 +494,7 @@ def test_cli_mode_flag_via_runner(tmp_path):
 
     dest_path = tmp_path / "output.duckdb"
     config = {
-        "source": {"type": "duckdb", "path": str(src_db)},
+        "sources": [{"type": "duckdb", "path": str(src_db)}],
         "destination": {"path": str(dest_path)},
         "mode": "dev",  # YAML says dev
         "tables": [
@@ -531,7 +531,7 @@ def test_env_var_overrides_yaml(tmp_path, monkeypatch):
 
     dest_path = tmp_path / "output.duckdb"
     config = {
-        "source": {"type": "duckdb", "path": str(src_db)},
+        "sources": [{"type": "duckdb", "path": str(src_db)}],
         "destination": {"path": str(dest_path)},
         "mode": "dev",  # YAML says dev
         "tables": [

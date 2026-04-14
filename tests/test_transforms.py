@@ -664,7 +664,7 @@ class TestCLISetupTransforms:
 
         # Write feather.yaml
         config = {
-            "source": {"type": "duckdb", "path": str(source_db)},
+            "sources": [{"type": "duckdb", "path": str(source_db)}],
             "destination": {"path": str(dest_db)},
             "tables": [
                 {
@@ -707,7 +707,7 @@ class TestCLISetupTransforms:
         con.close()
 
         config = {
-            "source": {"type": "duckdb", "path": str(source_db)},
+            "sources": [{"type": "duckdb", "path": str(source_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -753,7 +753,7 @@ class TestPipelineTransformRebuild:
 
         dest_db = tmp_path / "feather_data.duckdb"
         config = {
-            "source": {"type": "duckdb", "path": str(source_db)},
+            "sources": [{"type": "duckdb", "path": str(source_db)}],
             "destination": {"path": str(dest_db)},
             "tables": [
                 {
@@ -813,7 +813,7 @@ class TestPipelineTransformRebuild:
 
         dest_db = tmp_path / "feather_data.duckdb"
         config = {
-            "source": {"type": "duckdb", "path": str(source_db)},
+            "sources": [{"type": "duckdb", "path": str(source_db)}],
             "destination": {"path": str(dest_db)},
             "mode": "dev",
             "tables": [
@@ -893,7 +893,7 @@ class TestPipelineTransformRebuild:
 
         dest_db = tmp_path / "feather_data.duckdb"
         config = {
-            "source": {"type": "duckdb", "path": str(source_db)},
+            "sources": [{"type": "duckdb", "path": str(source_db)}],
             "destination": {"path": str(dest_db)},
             "tables": [
                 {

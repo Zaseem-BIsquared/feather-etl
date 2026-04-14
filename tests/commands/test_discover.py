@@ -20,7 +20,7 @@ def _write_sqlite_config(tmp_path: Path, source_name: str | None = None) -> Path
     if source_name is not None:
         source["name"] = source_name
     cfg = {
-        "source": source,
+        "sources": [source],
         "destination": {"path": "./feather_data.duckdb"},
         "tables": [
             {
@@ -139,7 +139,7 @@ class TestDiscover:
         db = tmp_path / "empty.duckdb"
         db.write_bytes(b"not a duckdb file")
         config = {
-            "source": {"type": "duckdb", "path": str(db)},
+            "sources": [{"type": "duckdb", "path": str(db)}],
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [
                 {
@@ -256,7 +256,7 @@ class TestDiscover:
         conn.close()
 
         cfg = {
-            "source": {"type": "sqlite", "path": "./source.sqlite"},
+            "sources": [{"type": "sqlite", "path": "./source.sqlite"}],
             "destination": {"path": "./feather_data.duckdb"},
             "tables": [
                 {

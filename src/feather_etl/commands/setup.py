@@ -6,7 +6,7 @@ from pathlib import Path
 
 import typer
 
-from feather_etl.commands._common import _is_json, _load_and_validate
+from feather_etl.commands._common import _enforce_single_source, _is_json, _load_and_validate
 from feather_etl.output import emit_line
 
 
@@ -20,6 +20,7 @@ def setup(
     from feather_etl.state import StateManager
 
     cfg = _load_and_validate(config, mode_override=mode)
+    _enforce_single_source(cfg, "setup")
     if not _is_json(ctx):
         typer.echo(f"Mode: {cfg.mode}")
 

@@ -57,7 +57,7 @@ def client_db_copy(tmp_path) -> Path:
 
 def _write_config(tmp_path: Path, source_db: Path, tables: list[dict]) -> Path:
     cfg = {
-        "source": {"type": "duckdb", "path": str(source_db)},
+        "sources": [{"type": "duckdb", "path": str(source_db)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
         "tables": tables,
     }
@@ -536,7 +536,7 @@ class TestTablesDirectoryMerge:
             )
         )
         cfg_dict = {
-            "source": {"type": "duckdb", "path": str(sample_erp_db)},
+            "sources": [{"type": "duckdb", "path": str(sample_erp_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [],
         }
@@ -609,7 +609,7 @@ class TestValidationGuards:
         config_path.write_text(
             yaml.dump(
                 {
-                    "source": {"type": "csv", "path": str(csv_dir)},
+                    "sources": [{"type": "csv", "path": str(csv_dir)}],
                     "destination": {"path": str(tmp_path / "data.duckdb")},
                     "tables": [
                         {
@@ -623,7 +623,7 @@ class TestValidationGuards:
             )
         )
         cfg = load_config(config_path)
-        assert cfg.source.type == "csv"
+        assert cfg.sources[0].type == "csv"
 
     def test_csv_source_rejects_file_path(self, tmp_path):
         """CSV source path must be a directory, not a file."""
@@ -635,7 +635,7 @@ class TestValidationGuards:
         config_path.write_text(
             yaml.dump(
                 {
-                    "source": {"type": "csv", "path": str(csv_file)},
+                    "sources": [{"type": "csv", "path": str(csv_file)}],
                     "destination": {"path": str(tmp_path / "data.duckdb")},
                     "tables": [
                         {
@@ -659,7 +659,7 @@ class TestValidationGuards:
         config_path.write_text(
             yaml.dump(
                 {
-                    "source": {"type": "csv", "path": str(tmp_path / "no_such_dir")},
+                    "sources": [{"type": "csv", "path": str(tmp_path / "no_such_dir")}],
                     "destination": {"path": str(tmp_path / "data.duckdb")},
                     "tables": [
                         {
@@ -698,7 +698,7 @@ class TestValidationGuards:
         from feather_etl.config import load_config
 
         cfg_dict = {
-            "source": {"type": "duckdb", "path": str(sample_erp_db)},
+            "sources": [{"type": "duckdb", "path": str(sample_erp_db)}],
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [
                 {"name": "t", "source_table": "erp.orders", "target_table": "bronze.t"}
@@ -830,7 +830,7 @@ class TestKnownBugs:
 
 def _write_csv_config(tmp_path: Path, csv_dir: Path, tables: list[dict]) -> Path:
     cfg = {
-        "source": {"type": "csv", "path": str(csv_dir)},
+        "sources": [{"type": "csv", "path": str(csv_dir)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
         "tables": tables,
     }
@@ -841,7 +841,7 @@ def _write_csv_config(tmp_path: Path, csv_dir: Path, tables: list[dict]) -> Path
 
 def _write_sqlite_config(tmp_path: Path, sqlite_path: Path, tables: list[dict]) -> Path:
     cfg = {
-        "source": {"type": "sqlite", "path": str(sqlite_path)},
+        "sources": [{"type": "sqlite", "path": str(sqlite_path)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
         "tables": tables,
     }

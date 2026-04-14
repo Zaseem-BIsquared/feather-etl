@@ -36,10 +36,12 @@ def client_db(tmp_path) -> Path:
 def config_path(client_db, tmp_path) -> Path:
     """Write a feather.yaml pointing at client_db, return path."""
     config = {
-        "source": {
-            "type": "duckdb",
-            "path": str(client_db),
-        },
+        "sources": [
+            {
+                "type": "duckdb",
+                "path": str(client_db),
+            }
+        ],
         "destination": {
             "path": str(tmp_path / "feather_data.duckdb"),
         },

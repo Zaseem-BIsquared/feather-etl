@@ -192,7 +192,7 @@ class TestPipelineIncremental:
             table_def["filter"] = filter
 
         config_data = {
-            "source": {"type": "duckdb", "path": str(src_path)},
+            "sources": [{"type": "duckdb", "path": str(src_path)}],
             "destination": {"path": str(tmp_path / "dest.duckdb")},
             "tables": [table_def],
         }
@@ -357,7 +357,7 @@ class TestIncrementalWithFixture:
             table_def["filter"] = filter
 
         config_data = {
-            "source": {"type": "duckdb", "path": str(src_path)},
+            "sources": [{"type": "duckdb", "path": str(src_path)}],
             "destination": {"path": str(tmp_path / "dest.duckdb")},
             "tables": [table_def],
         }

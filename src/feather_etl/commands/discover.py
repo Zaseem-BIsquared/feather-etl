@@ -17,7 +17,7 @@ def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
     from feather_etl.config import schema_output_path
 
     cfg = _load_and_validate(config)
-    source = cfg.source
+    source = cfg.sources[0]
 
     if not source.check():
         typer.echo("Source connection failed.", err=True)
@@ -31,7 +31,7 @@ def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
         }
         for s in schemas
     ]
-    out_path = schema_output_path(cfg.source)
+    out_path = schema_output_path(cfg.sources[0])
     out_path.write_text(json.dumps(payload, indent=2))
     typer.echo(f"Wrote {len(schemas)} table(s) to ./{out_path}")
 

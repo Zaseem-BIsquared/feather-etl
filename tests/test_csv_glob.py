@@ -22,7 +22,7 @@ class TestCsvGlobExtraction:
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
         config = {
-            "source": {"type": "csv", "path": str(data_dir)},
+            "sources": [{"type": "csv", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -49,7 +49,7 @@ class TestCsvGlobExtraction:
         data_dir.mkdir()
         (data_dir / "other.csv").write_text("id\n1\n")  # No sales_* files
         config = {
-            "source": {"type": "csv", "path": str(data_dir)},
+            "sources": [{"type": "csv", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -77,7 +77,7 @@ class TestCsvGlobChangeDetection:
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
         config = {
-            "source": {"type": "csv", "path": str(data_dir)},
+            "sources": [{"type": "csv", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -103,7 +103,7 @@ class TestCsvGlobChangeDetection:
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
         config = {
-            "source": {"type": "csv", "path": str(data_dir)},
+            "sources": [{"type": "csv", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {
@@ -137,7 +137,7 @@ class TestCsvGlobChangeDetection:
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
         config = {
-            "source": {"type": "csv", "path": str(data_dir)},
+            "sources": [{"type": "csv", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
             "tables": [
                 {

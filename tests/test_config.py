@@ -17,7 +17,7 @@ def _minimal_config(tmp_path: Path, source_path: str | None = None) -> dict:
         db.touch()
         source_path = str(db)
     return {
-        "source": {"type": "duckdb", "path": source_path},
+        "sources": [{"type": "duckdb", "path": source_path}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
         "tables": [
             {
@@ -37,7 +37,7 @@ class TestConfigParsing:
         cfg = _minimal_config(tmp_path)
         config_file = write_config(tmp_path, cfg)
         result = load_config(config_file, validate=False)
-        assert result.source.type == "duckdb"
+        assert result.sources[0].type == "duckdb"
         assert len(result.tables) == 1
         assert result.tables[0].name == "test_table"
 
@@ -47,11 +47,11 @@ class TestConfigParsing:
         os.environ["FEATHER_TEST_PATH"] = str(tmp_path / "source.duckdb")
         try:
             cfg = _minimal_config(tmp_path)
-            cfg["source"]["path"] = "${FEATHER_TEST_PATH}"
+            cfg["sources"][0]["path"] = "${FEATHER_TEST_PATH}"
             config_file = write_config(tmp_path, cfg)
             result = load_config(config_file, validate=False)
-            assert "${" not in str(result.source.path)
-            assert "source.duckdb" in str(result.source.path)
+            assert "${" not in str(result.sources[0].path)
+            assert "source.duckdb" in str(result.sources[0].path)
         finally:
             del os.environ["FEATHER_TEST_PATH"]
 
@@ -61,11 +61,11 @@ class TestConfigParsing:
         subdir = tmp_path / "project"
         subdir.mkdir()
         cfg = _minimal_config(tmp_path)
-        cfg["source"]["path"] = "./source.duckdb"
+        cfg["sources"][0]["path"] = "./source.duckdb"
         cfg["destination"]["path"] = "./data.duckdb"
         config_file = write_config(tmp_path, cfg, directory=subdir)
         result = load_config(config_file, validate=False)
-        assert result.source.path == subdir / "source.duckdb"
+        assert result.sources[0].path == subdir / "source.duckdb"
         assert result.destination.path == subdir / "data.duckdb"
 
     def test_target_table_defaults_to_silver(self, tmp_path: Path):
@@ -82,7 +82,7 @@ class TestConfigParsing:
 
         db = tmp_path / "source.duckdb"
         cfg = {
-            "source": {"type": "duckdb", "path": str(db)},
+            "sources": [{"type": "duckdb", "path": str(db)}],
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [
                 {
@@ -129,7 +129,7 @@ class TestConfigValidation:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["source"]["type"] = "mongodb"
+        cfg["sources"][0]["type"] = "mongodb"
         config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="not implemented"):
             load_config(config_file)
@@ -143,11 +143,11 @@ class TestConfigValidation:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["source"]["path"] = str(tmp_path / "nonexistent.duckdb")
+        cfg["sources"][0]["path"] = str(tmp_path / "nonexistent.duckdb")
         # do NOT create the file
         config_file = write_config(tmp_path, cfg)
         cfg_result = load_config(config_file)  # now succeeds
-        assert cfg_result.source.check() is False
+        assert cfg_result.sources[0].check() is False
 
     def test_bad_strategy(self, tmp_path: Path):
         from feather_etl.config import load_config
@@ -269,7 +269,7 @@ class TestConfigValidationExtended:
         from feather_etl.config import load_config
 
         cfg = {
-            "source": {"type": "ftp", "connection_string": "ftp://example.com"},
+            "sources": [{"type": "ftp", "connection_string": "ftp://example.com"}],
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [
                 {
@@ -291,7 +291,7 @@ class TestConfigValidationExtended:
         db = tmp_path / "source.duckdb"
         db.touch()
         cfg = {
-            "source": {"type": "duckdb", "path": str(db)},
+            "sources": [{"type": "duckdb", "path": str(db)}],
             "destination": {"path": str(tmp_path / "data.duckdb")},
             "tables": [
                 {
@@ -324,7 +324,7 @@ class TestConfigValidationExtended:
         db = tmp_path / "source.duckdb"
         db.touch()
         cfg = {
-            "source": {"type": "duckdb", "path": str(db)},
+            "sources": [{"type": "duckdb", "path": str(db)}],
             "destination": {
                 "path": str(tmp_path / "nonexistent" / "sub" / "data.duckdb")
             },
@@ -443,7 +443,7 @@ class TestConfigValidationExtended:
         csv_dir = tmp_path / "csv_data"
         csv_dir.mkdir()
         cfg = _minimal_config(tmp_path)
-        cfg["source"] = {"type": "csv", "path": str(csv_dir)}
+        cfg["sources"] = [{"type": "csv", "path": str(csv_dir)}]
         cfg["tables"][0]["source_table"] = "orders.csv"
         config_file = write_config(tmp_path, cfg)
         result = load_config(config_file)
@@ -570,21 +570,23 @@ class TestAlertsConfig:
 
 class TestSourceName:
     def test_source_name_is_optional(self, tmp_path: Path):
+        """No explicit name in config is fine — auto-derivation fills it in."""
         from feather_etl.config import load_config
 
         cfg_dict = _minimal_config(tmp_path)
         config_file = write_config(tmp_path, cfg_dict)
         result = load_config(config_file, validate=False)
-        assert not result.source.name  # empty string or None both indicate no name set
+        # No name was specified by the user — load must succeed regardless
+        assert result.sources[0] is not None
 
     def test_source_name_is_accepted(self, tmp_path: Path):
         from feather_etl.config import load_config
 
         cfg_dict = _minimal_config(tmp_path)
-        cfg_dict["source"]["name"] = "prod-erp"
+        cfg_dict["sources"][0]["name"] = "prod-erp"
         config_file = write_config(tmp_path, cfg_dict)
         result = load_config(config_file, validate=False)
-        assert result.source.name == "prod-erp"
+        assert result.sources[0].name == "prod-erp"
 
 
 class TestSourcesList:

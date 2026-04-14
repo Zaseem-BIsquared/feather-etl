@@ -404,14 +404,16 @@ def test_sqlserver_connection_string_builder_trusts_self_signed_cert(tmp_path) -
     from feather_etl.config import load_config
 
     cfg = {
-        "source": {
-            "type": "sqlserver",
-            "host": "10.0.0.1",
-            "port": 1433,
-            "database": "mydb",
-            "user": "sa",
-            "password": "secret",
-        },
+        "sources": [
+            {
+                "type": "sqlserver",
+                "host": "10.0.0.1",
+                "port": 1433,
+                "database": "mydb",
+                "user": "sa",
+                "password": "secret",
+            }
+        ],
         "destination": {"path": str(tmp_path / "dest.duckdb")},
         "tables": [
             {
@@ -425,9 +427,9 @@ def test_sqlserver_connection_string_builder_trusts_self_signed_cert(tmp_path) -
     config_file = write_config(tmp_path, cfg)
 
     result = load_config(config_file)
-    assert result.source.connection_string is not None
-    assert "TrustServerCertificate=yes" in result.source.connection_string
-    assert "ODBC Driver 18 for SQL Server" in result.source.connection_string
+    assert result.sources[0].connection_string is not None
+    assert "TrustServerCertificate=yes" in result.sources[0].connection_string
+    assert "ODBC Driver 18 for SQL Server" in result.sources[0].connection_string
 
 
 def test_config_validation_sqlserver_requires_connection_string(tmp_path) -> None:
@@ -435,7 +437,7 @@ def test_config_validation_sqlserver_requires_connection_string(tmp_path) -> Non
     from feather_etl.config import load_config
 
     cfg = {
-        "source": {"type": "sqlserver"},
+        "sources": [{"type": "sqlserver"}],
         "destination": {"path": str(tmp_path / "dest.duckdb")},
         "tables": [
             {

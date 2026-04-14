@@ -75,9 +75,9 @@ yellow "--- S2: feather validate with Icube client fixture ---"
 S2="$WORK_DIR/s2" && mkdir "$S2"
 cp "$FIXTURE_DIR/client.duckdb" "$S2/source.duckdb"
 cat > "$S2/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -125,9 +125,9 @@ cp "$FIXTURE_DIR/client.duckdb" "$S3/source.duckdb"
 
 # missing source file
 cat > "$S3/missing_source.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./does_not_exist.duckdb
+sources:
+  - type: duckdb
+    path: ./does_not_exist.duckdb
 destination:
   path: ./feather_data.duckdb
 tables: []
@@ -139,9 +139,9 @@ code=$("$FEATHER" validate --config "$S3/missing_source.yaml" > /dev/null 2>&1; 
 
 # invalid strategy
 cat > "$S3/bad_strategy.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -157,9 +157,9 @@ code=$("$FEATHER" validate --config "$S3/bad_strategy.yaml" > /dev/null 2>&1; ec
 
 # unimplemented source type rejected by validate
 cat > "$S3/excel_source.yaml" << 'YAML'
-source:
-  type: excel
-  path: ./source.xlsx
+sources:
+  - type: excel
+    path: ./source.xlsx
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -175,9 +175,9 @@ code=$("$FEATHER" validate --config "$S3/excel_source.yaml" > /dev/null 2>&1; ec
 
 # target_table without schema prefix rejected by validate (BUG-7 fixed)
 cat > "$S3/no_schema_target.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -193,9 +193,9 @@ code=$("$FEATHER" validate --config "$S3/no_schema_target.yaml" > /dev/null 2>&1
 
 # hyphenated table name rejected by validate (BUG-7 fixed)
 cat > "$S3/hyphen_target.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -276,9 +276,9 @@ yellow "--- S6: partial failure — error isolation ---"
 S6="$WORK_DIR/s6" && mkdir "$S6"
 cp "$FIXTURE_DIR/client.duckdb" "$S6/source.duckdb"
 cat > "$S6/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -329,9 +329,9 @@ yellow "--- S7: run without setup auto-creates state and data DBs ---"
 S7="$WORK_DIR/s7" && mkdir "$S7"
 cp "$FIXTURE_DIR/client.duckdb" "$S7/source.duckdb"
 cat > "$S7/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -354,9 +354,9 @@ yellow "--- S8: sample_erp fixture (custom synthetic data) ---"
 S8="$WORK_DIR/s8" && mkdir "$S8"
 cp "$FIXTURE_DIR/sample_erp.duckdb" "$S8/source.duckdb"
 cat > "$S8/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -411,9 +411,9 @@ yellow "--- S9: tables/ directory merge ---"
 S9="$WORK_DIR/s9" && mkdir -p "$S9/tables"
 cp "$FIXTURE_DIR/sample_erp.duckdb" "$S9/source.duckdb"
 cat > "$S9/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables: []
@@ -465,9 +465,9 @@ yellow "--- S11: BLOB columns and column names with spaces ---"
 S11="$WORK_DIR/s11" && mkdir "$S11"
 cp "$FIXTURE_DIR/client.duckdb" "$S11/source.duckdb"
 cat > "$S11/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -508,9 +508,9 @@ yellow "--- S12: status edge cases ---"
 S12="$WORK_DIR/s12" && mkdir "$S12"
 cp "$FIXTURE_DIR/sample_erp.duckdb" "$S12/source.duckdb"
 cat > "$S12/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -561,9 +561,9 @@ yellow "--- S14: error output not duplicated ---"
 S14="$WORK_DIR/s14" && mkdir "$S14"
 cp "$FIXTURE_DIR/sample_erp.duckdb" "$S14/source.duckdb"
 cat > "$S14/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -589,9 +589,9 @@ yellow "--- S15: CSV source validate + run ---"
 S15="$WORK_DIR/s15" && mkdir "$S15"
 cp -r "$FIXTURE_DIR/csv_data" "$S15/csv_data"
 cat > "$S15/feather.yaml" << YAML
-source:
-  type: csv
-  path: ./csv_data
+sources:
+  - type: csv
+    path: ./csv_data
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -627,9 +627,9 @@ yellow "--- S16a: CSV rejects file path (not directory) ---"
 S16A="$WORK_DIR/s16a" && mkdir "$S16A"
 touch "$S16A/source.csv"
 cat > "$S16A/feather.yaml" << 'YAML'
-source:
-  type: csv
-  path: ./source.csv
+sources:
+  - type: csv
+    path: ./source.csv
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -652,9 +652,9 @@ yellow "--- S17: SQLite source validate + run ---"
 S17="$WORK_DIR/s17" && mkdir "$S17"
 cp "$FIXTURE_DIR/sample_erp.sqlite" "$S17/source.sqlite"
 cat > "$S17/feather.yaml" << YAML
-source:
-  type: sqlite
-  path: ./source.sqlite
+sources:
+  - type: sqlite
+    path: ./source.sqlite
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -690,9 +690,9 @@ yellow "--- S18: hyphenated target_table rejected at validate ---"
 S18="$WORK_DIR/s18" && mkdir "$S18"
 cp "$FIXTURE_DIR/sample_erp.duckdb" "$S18/source.duckdb"
 cat > "$S18/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -713,9 +713,9 @@ yellow "--- S19-S22: Change detection (skip unchanged files) ---"
 S19="$WORK_DIR/s19" && mkdir "$S19"
 cp "$FIXTURE_DIR/sample_erp.duckdb" "$S19/source.duckdb"
 cat > "$S19/feather.yaml" << 'YAML'
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 destination:
   path: ./feather_data.duckdb
 tables:
@@ -774,9 +774,9 @@ cp "$FIXTURE_DIR/sample_erp.duckdb" "$SINCR/source.duckdb"
 
 # Write config with incremental strategy
 cat > "$SINCR/feather.yaml" <<YAML
-source:
-  type: duckdb
-  path: source.duckdb
+sources:
+  - type: duckdb
+    path: source.duckdb
 destination:
   path: dest.duckdb
 tables:
@@ -852,9 +852,9 @@ mkdir -p "$SINCR_F"
 cp "$FIXTURE_DIR/sample_erp.duckdb" "$SINCR_F/source.duckdb"
 
 cat > "$SINCR_F/feather.yaml" <<YAML
-source:
-  type: duckdb
-  path: source.duckdb
+sources:
+  - type: duckdb
+    path: source.duckdb
 destination:
   path: dest.duckdb
 tables:

@@ -205,7 +205,7 @@ def run_table(
     dest = DuckDBDestination(path=config.destination.path)
     dest.setup_schemas()
 
-    source = config.source
+    source = config.sources[0]
     effective_target = _resolve_target(table, config.mode)
 
     # Prod mode with column_map: extract only mapped columns
