@@ -570,14 +570,15 @@ class TestAlertsConfig:
 
 class TestSourceName:
     def test_source_name_is_optional(self, tmp_path: Path):
-        """No explicit name in config is fine — auto-derivation fills it in."""
+        """When 'name:' is omitted, auto-derivation fills it with '<type>-<basename>'."""
         from feather_etl.config import load_config
 
         cfg_dict = _minimal_config(tmp_path)
         config_file = write_config(tmp_path, cfg_dict)
         result = load_config(config_file, validate=False)
-        # No name was specified by the user — load must succeed regardless
-        assert result.sources[0] is not None
+        # When name is omitted, auto-derivation produces '<type>-<basename-without-ext>'.
+        # Fixture path is '<tmp>/source.duckdb' → derived name is 'duckdb-source'.
+        assert result.sources[0].name == "duckdb-source"
 
     def test_source_name_is_accepted(self, tmp_path: Path):
         from feather_etl.config import load_config
