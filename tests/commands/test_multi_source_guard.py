@@ -45,21 +45,25 @@ class TestMultiSourceGuard:
         cfg = _multi_source_yaml(tmp_path)
         r = runner.invoke(app, ["run", "--config", str(cfg)])
         assert r.exit_code == 2
+        assert "single-source" in r.output
 
     def test_status_exits_2(self, runner, tmp_path):
         from feather_etl.cli import app
         cfg = _multi_source_yaml(tmp_path)
         r = runner.invoke(app, ["status", "--config", str(cfg)])
         assert r.exit_code == 2
+        assert "single-source" in r.output
 
     def test_history_exits_2(self, runner, tmp_path):
         from feather_etl.cli import app
         cfg = _multi_source_yaml(tmp_path)
         r = runner.invoke(app, ["history", "--config", str(cfg)])
         assert r.exit_code == 2
+        assert "single-source" in r.output
 
     def test_setup_exits_2(self, runner, tmp_path):
         from feather_etl.cli import app
         cfg = _multi_source_yaml(tmp_path)
         r = runner.invoke(app, ["setup", "--config", str(cfg)])
         assert r.exit_code == 2
+        assert "single-source" in r.output
