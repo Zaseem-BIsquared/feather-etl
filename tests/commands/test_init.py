@@ -57,3 +57,24 @@ class TestInit:
             assert "my-client" in toml
         finally:
             os.chdir(original_cwd)
+
+
+class TestInitTemplateUsesSourcesList:
+    def test_scaffolded_yaml_uses_sources_list(self, tmp_path: Path):
+        from feather_etl.init_wizard import scaffold_project
+
+        scaffold_project(tmp_path / "proj")
+        content = (tmp_path / "proj" / "feather.yaml").read_text()
+        assert "sources:" in content
+        assert "\nsource:" not in content  # must not emit singular form
+
+    def test_scaffolded_yaml_loads_clean(self, tmp_path: Path):
+        from feather_etl.config import load_config
+        from feather_etl.init_wizard import scaffold_project
+
+        proj = tmp_path / "proj"
+        scaffold_project(proj)
+        # The default template references ./source.duckdb which doesn't exist;
+        # validate=False skips source existence checks while still parsing.
+        cfg = load_config(proj / "feather.yaml", validate=False)
+        assert len(cfg.sources) == 1

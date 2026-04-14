@@ -41,9 +41,9 @@ FEATHER_YAML_TEMPLATE = """\
 #   user: ${POSTGRES_USER}
 #   password: ${POSTGRES_PASSWORD}
 
-source:
-  type: duckdb
-  path: ./source.duckdb
+sources:
+  - type: duckdb
+    path: ./source.duckdb
 
 destination:
   path: ./feather_data.duckdb
