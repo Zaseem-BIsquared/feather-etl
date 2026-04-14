@@ -670,6 +670,19 @@ class TestSourcesList:
         with pytest.raises(ValueError, match="non-empty"):
             load_config(config_file, validate=False)
 
+    def test_sources_entry_must_be_mapping(self, tmp_path: Path):
+        from feather_etl.config import load_config
+
+        cfg_dict = {
+            "sources": [None],
+            "destination": {"path": str(tmp_path / "out.duckdb")},
+            "tables": [],
+        }
+        config_file = tmp_path / "feather.yaml"
+        config_file.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ValueError, match=r"sources\[0\].*must be a mapping"):
+            load_config(config_file, validate=False)
+
 
 class TestSingularSourceMigrationError:
     def test_singular_source_raises_with_guidance(self, tmp_path: Path):

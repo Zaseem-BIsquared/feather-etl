@@ -321,6 +321,10 @@ def load_config(
     seen_names: set[str] = set()
     multi = len(sources_raw) > 1
     for idx, entry in enumerate(sources_raw):
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"sources[{idx}] must be a mapping (dict), got {type(entry).__name__}."
+            )
         if "type" not in entry:
             raise ValueError(f"sources[{idx}] missing required field 'type'.")
         if multi and not entry.get("name"):
