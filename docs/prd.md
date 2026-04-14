@@ -231,15 +231,15 @@ sources:
   - type: csv                          # file-based (for testing)
     path: ./test_data/                 # directory containing source files
 
-  # OR (choose one)
-
-  - type: duckdb
-    path: ./test_data/source.duckdb
-
-  # OR
-
-  - type: sqlserver                    # database (for production)
-    connection_string: "${SQL_SERVER_CONNECTION_STRING}"
+# Alternatively, replace the entry above with one of:
+#
+# sources:
+#   - type: duckdb
+#     path: ./test_data/source.duckdb
+#
+# sources:
+#   - type: sqlserver                    # database (for production)
+#     connection_string: "${SQL_SERVER_CONNECTION_STRING}"
 ```
 
 ```yaml
