@@ -214,9 +214,9 @@ client-abc/                         # separate GitHub repo per client
 Small clients land data directly into silver with column selection at extraction time. No bronze layer needed.
 
 ```yaml
-source:
-  type: sqlserver
-  connection_string: "${SQL_SERVER_CONNECTION_STRING}"
+sources:
+  - type: sqlserver
+    connection_string: "${SQL_SERVER_CONNECTION_STRING}"
 
 destination:
   path: ./feather_data.duckdb

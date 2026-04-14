@@ -149,6 +149,22 @@ python scripts/create_csv_sqlite_fixtures.py       # CSV + SQLite
 
 ---
 
+## Testing co-location
+
+Tests track with the **module of origin**, not with the feature that
+motivated them. When you edit `SqlServerSource`, every constraint on your
+change lives in `tests/test_sqlserver.py`. When you edit the discover
+command, every flag combo lives in `tests/commands/test_discover.py`.
+
+The one exception: happy-path E2E tests stand alone as "how does a user
+actually use this end-to-end." They live in
+`tests/commands/test_<workflow>.py`.
+
+Do **not** create feature-named test files (e.g. `test_multi_source.py`) —
+tests belong with the code they exercise.
+
+---
+
 ## Current open reviews
 
 | File | Slice | Status |

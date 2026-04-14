@@ -227,19 +227,19 @@ For clients with many tables (20-30 is common for ERP deployments), a single `ta
 > A `tables/` split keeps each domain manageable (`tables/sales.yaml`, `tables/inventory.yaml`, `tables/hr.yaml`) and allows different team members to own different files without merge conflicts on the root config. If both a `tables:` list in `feather.yaml` and a `tables/` directory are present, both are merged with the explicit list taking precedence on name conflicts.
 
 ```yaml
-source:
-  type: csv                          # file-based (for testing)
-  path: ./test_data/                 # directory containing source files
+sources:
+  - type: csv                          # file-based (for testing)
+    path: ./test_data/                 # directory containing source files
+
+  # OR (choose one)
+
+  - type: duckdb
+    path: ./test_data/source.duckdb
 
   # OR
 
-  type: duckdb
-  path: ./test_data/source.duckdb
-
-  # OR
-
-  type: sqlserver                    # database (for production)
-  connection_string: "${SQL_SERVER_CONNECTION_STRING}"
+  - type: sqlserver                    # database (for production)
+    connection_string: "${SQL_SERVER_CONNECTION_STRING}"
 ```
 
 ```yaml
@@ -1583,9 +1583,9 @@ The `feather-connectors` library (v2) plugs into `feather init` — when a conne
 During active development, extract all columns into bronze once, then iterate on silver/gold SQL transforms locally without hitting the source DB again.
 
 ```yaml
-source:
-  type: sqlserver
-  connection_string: "${SQL_SERVER_CONNECTION_STRING}"
+sources:
+  - type: sqlserver
+    connection_string: "${SQL_SERVER_CONNECTION_STRING}"
 
 destination:
   path: ./feather_dev.duckdb
@@ -1611,9 +1611,9 @@ Silver transforms in `transforms/silver/sales_invoice.sql` read from bronze. The
 This is the typical pattern for Indian SMB clients — data lands directly in silver, column-selected and renamed at extraction time. No bronze layer needed.
 
 ```yaml
-source:
-  type: csv
-  path: ./test_data/
+sources:
+  - type: csv
+    path: ./test_data/
 
 destination:
   path: ./test_output.duckdb
@@ -1658,9 +1658,9 @@ tables:
 For clients requiring raw data preservation (audit trail, compliance). Bronze uses `append` strategy — rows accumulate, nothing is deleted. Silver views over bronze for canonical naming.
 
 ```yaml
-source:
-  type: sqlserver
-  connection_string: "${SQL_SERVER_CONNECTION_STRING}"
+sources:
+  - type: sqlserver
+    connection_string: "${SQL_SERVER_CONNECTION_STRING}"
 
 destination:
   path: ./feather_data.duckdb
