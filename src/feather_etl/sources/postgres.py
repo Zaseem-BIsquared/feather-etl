@@ -61,11 +61,6 @@ _PG_TYPE_MAP: dict[str, pa.DataType] = {
 }
 
 
-_PG_CONN_TEMPLATE = (
-    "host={host} port={port} dbname={database} user={user} password={password}"
-)
-
-
 def _psycopg2_type_to_arrow(type_code: int) -> pa.DataType:
     """Map a psycopg2 OID type_code to a PyArrow type."""
     return _PSYCOPG2_TYPE_MAP.get(type_code, pa.string())
@@ -119,13 +114,13 @@ class PostgresSource(DatabaseSource):
         if explicit_conn:
             conn_str = explicit_conn
         elif host:
-            conn_str = _PG_CONN_TEMPLATE.format(
-                host=host,
-                port=port,
-                database=database or "",
-                user=user or "",
-                password=password or "",
-            )
+            parts = [f"host={host}", f"port={port}"]
+            parts.append(f"dbname={database or 'postgres'}")
+            if user:
+                parts.append(f"user={user}")
+            if password:
+                parts.append(f"password={password}")
+            conn_str = " ".join(parts)
         else:
             raise ValueError(
                 "postgres source requires either 'connection_string' or 'host'."

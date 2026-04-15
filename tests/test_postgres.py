@@ -352,6 +352,42 @@ class TestPostgresFromYaml:
         src = PostgresSource.from_yaml(entry, Path("."))
         assert src.connection_string == "host=raw dbname=verbatim"
 
+    def test_empty_user_password_not_emitted_in_dsn(self):
+        from pathlib import Path
+
+        from feather_etl.sources.postgres import PostgresSource
+
+        entry = {
+            "name": "wh",
+            "type": "postgres",
+            "host": "localhost",
+            "user": "",
+            "password": "",
+            "database": "warehouse",
+        }
+        src = PostgresSource.from_yaml(entry, Path("."))
+        assert "host=localhost" in src.connection_string
+        assert "dbname=warehouse" in src.connection_string
+        assert "user=" not in src.connection_string
+        assert "password=" not in src.connection_string
+
+    def test_missing_database_defaults_to_postgres_catalog(self):
+        from pathlib import Path
+
+        from feather_etl.sources.postgres import PostgresSource
+
+        entry = {
+            "name": "wh",
+            "type": "postgres",
+            "host": "localhost",
+            "user": "",
+            "password": "",
+        }
+        src = PostgresSource.from_yaml(entry, Path("."))
+        assert "host=localhost" in src.connection_string
+        assert "port=5432" in src.connection_string
+        assert "dbname=postgres" in src.connection_string
+
 
 # ---------------------------------------------------------------------------
 # PostgresSource.validate_source_table — unit tests (no DB needed)
