@@ -3412,3 +3412,43 @@ Coverage cross-check (spec §3 decision table → tasks):
 | Per-code-unit edge-case tests + one E2E file | Throughout (test files in each task) |
 
 All §3 decisions have a task. No placeholders remain — every "TBD"-shaped step in the original draft was either expanded inline or moved to a deferral noted by the spec.
+
+---
+
+# Post-#17 Compatibility Baseline
+
+**Added:** 2026-04-15, after rebasing `phase-2-yaml-schema-flip` onto upstream/main at `89ff463` (issue #17 — "feat(discover): auto-open schema viewer and add view command").
+
+Issue #17 merged to upstream `main` while Phase 1 + Phase 2 were in flight on a fork branch. Rebase was clean at the git level (all 8 Phase 2 commits replayed without merge conflicts), but one hidden semantic conflict surfaced at test time: `tests/commands/test_discover.py::test_invokes_shared_viewer_runtime_after_writing_json` was a new test introduced by #17 that wrote an inline singular `source: {...}` YAML — which Phase 2 Task 2.1's new parser rejects with a hard error. Fixed by flipping the inline fixture to `sources: [{...}]` during the rebase cleanup commit.
+
+The rebase preserved the full contract from #17. Phase 3 — which rewrites `commands/discover.py` to iterate over `cfg.sources` and write one `schema_<name>.json` per source — **must not regress** any of the following behaviors from #17:
+
+## Behavior contracts Phase 3 must preserve
+
+1. **`feather discover --help` mentions both outputs.** The docstring must name *"schema JSON"* (the file on disk) **and** *"serve/open the schema viewer"* (the runtime side-effect). Phase 3's multi-source docstring should read something like "Save each source's schema to an auto-named JSON file, then serve/open the schema viewer" — plural but structurally identical.
+
+2. **`discover` still calls the viewer runtime.** After writing schema JSON(s), `discover` calls `serve_and_open(viewer_target_dir, preferred_port=8000)` as its last side-effect. Default behavior is to serve + open (not headless). Phase 3 must keep this call at the end of the command — after the loop that writes per-source JSONs — with `viewer_target_dir` resolving to the directory containing the new JSON files.
+
+3. **`serve_and_open` is monkeypatchable from `feather_etl.commands.discover`.** Existing tests (`test_invokes_shared_viewer_runtime_after_writing_json`, `test_runtime_emitted_output_line_is_surfaced`) use `monkeypatch.setattr(discover_cmd, "serve_and_open", ...)` to stub the viewer in non-blocking E2E flows. Phase 3 must keep `serve_and_open` imported at module level (not inside the function) so the monkeypatch keeps working. The stub pattern allows `fake_serve_and_open(target_dir, preferred_port=8000)` — Phase 3 must call with the same signature.
+
+4. **`feather view --port` accepts 1–65535 with default 8000.** Unaffected by Phase 3 (Phase 3 only touches `discover`, not `view`), but noting it so the next implementer does not casually change `viewer_server.serve_and_open`'s signature — `view.py` shares the same underlying primitive.
+
+5. **Viewer fallback on port conflict.** `viewer_server.py` has port-fallback logic when the preferred port is taken. Phase 3 must not reach into `viewer_server.py` to "simplify" anything; only `commands/discover.py` is in-scope.
+
+6. **Non-blocking E2E test comment in `tests/test_e2e.py`.** #17 added a monkeypatch of `serve_and_open` in the E2E suite with a comment explaining why (so CI does not open a browser). Phase 3 must not delete that comment when it adds new E2E tests — if anything, Phase 3's new multi-source E2E tests need the same monkeypatch pattern.
+
+## Rebase-cleanup checklist for any future Phase 3 implementer
+
+When you start Phase 3 on a freshly-rebased branch, run these checks **before writing any code**:
+
+```bash
+uv run feather discover --help        # expect: "schema JSON" + "serve/open the schema viewer"
+uv run feather view --help             # expect: --port 1-65535, default 8000
+uv run pytest -q tests/commands/test_discover.py tests/commands/test_view.py tests/test_viewer_server.py
+```
+
+All three must be green before Task 3.1 begins. If any of them is red, the rebase was not clean — do NOT paper over the failure by editing the #17 test; instead, read the Phase 3 task body against what #17 expects and reconcile at the plan level first.
+
+## Lesson for future cross-branch migrations
+
+Git rebase can be clean while the **semantic contract** is broken. The failing test in this cleanup was created *after* Phase 2 started, so it never appeared in any Phase 2 diff — it was a landmine only the test suite could find. **Always run `uv run pytest -q` before trusting a "clean" rebase**, even when `git rebase` reports zero conflicts. The actual conflict surface is "files both sides touched" *plus* "files the other side created that reference contracts you changed." Git only sees the first half.

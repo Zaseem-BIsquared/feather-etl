@@ -78,7 +78,7 @@ class TestDiscover:
 
         config_path = config_dir / "feather.yaml"
         config = {
-            "source": {"type": "duckdb", "path": "./client.duckdb"},
+            "sources": [{"type": "duckdb", "path": "./client.duckdb"}],
             "destination": {"path": str(work_dir / "feather_data.duckdb")},
             "tables": [
                 {
