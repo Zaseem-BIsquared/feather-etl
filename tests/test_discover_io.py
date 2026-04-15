@@ -25,14 +25,18 @@ class TestResolvedSourceName:
         from feather_etl.config import resolved_source_name
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        src = SqlServerSource(connection_string="x", name="prod-erp", host="db.internal")
+        src = SqlServerSource(
+            connection_string="x", name="prod-erp", host="db.internal"
+        )
         assert resolved_source_name(src) == "prod-erp"
 
     def test_user_name_is_sanitized(self):
         from feather_etl.config import resolved_source_name
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        src = SqlServerSource(connection_string="x", name="prod/erp", host="db.internal")
+        src = SqlServerSource(
+            connection_string="x", name="prod/erp", host="db.internal"
+        )
         assert resolved_source_name(src) == "prod_erp"
 
     def test_sqlserver_auto_uses_type_and_host(self):
@@ -126,7 +130,9 @@ class TestSchemaOutputPath:
         src = SqlServerSource(
             connection_string="x", host="192.168.2.62", database="ZAKYA"
         )
-        assert schema_output_path(src) == Path("schema_sqlserver-192.168.2.62_ZAKYA.json")
+        assert schema_output_path(src) == Path(
+            "schema_sqlserver-192.168.2.62_ZAKYA.json"
+        )
 
     def test_db_source_sanitizes_database(self):
         from pathlib import Path

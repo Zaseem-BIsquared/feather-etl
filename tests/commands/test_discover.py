@@ -185,9 +185,7 @@ class TestDiscover:
         assert "schema_sqlite-source.json" in lines[0]
         assert "Wrote" in lines[0]
 
-    def test_json_payload_has_expected_shape(
-        self, runner, tmp_path: Path, monkeypatch
-    ):
+    def test_json_payload_has_expected_shape(self, runner, tmp_path: Path, monkeypatch):
         from feather_etl.cli import app
 
         config_path = _write_sqlite_config(tmp_path)
@@ -243,9 +241,7 @@ class TestDiscover:
         second_mtime = (tmp_path / "schema_sqlite-source.json").stat().st_mtime_ns
         assert second_mtime >= first_mtime
 
-    def test_zero_tables_writes_empty_array(
-        self, runner, tmp_path: Path, monkeypatch
-    ):
+    def test_zero_tables_writes_empty_array(self, runner, tmp_path: Path, monkeypatch):
         """An empty source still produces a valid file with '[]' content."""
         import sqlite3
 

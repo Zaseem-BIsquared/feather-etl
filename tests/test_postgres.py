@@ -282,8 +282,14 @@ class TestPostgresFromYaml:
 
         from feather_etl.sources.postgres import PostgresSource
 
-        entry = {"name": "wh", "type": "postgres", "host": "db.example.com",
-                 "user": "u", "password": "p", "database": "warehouse"}
+        entry = {
+            "name": "wh",
+            "type": "postgres",
+            "host": "db.example.com",
+            "user": "u",
+            "password": "p",
+            "database": "warehouse",
+        }
         src = PostgresSource.from_yaml(entry, Path("."))
         assert src.name == "wh"
         assert src.host == "db.example.com"
@@ -298,8 +304,15 @@ class TestPostgresFromYaml:
 
         from feather_etl.sources.postgres import PostgresSource
 
-        entry = {"name": "wh", "type": "postgres", "host": "h", "port": 5499,
-                 "user": "u", "password": "p", "database": "X"}
+        entry = {
+            "name": "wh",
+            "type": "postgres",
+            "host": "h",
+            "port": 5499,
+            "user": "u",
+            "password": "p",
+            "database": "X",
+        }
         src = PostgresSource.from_yaml(entry, Path("."))
         assert src.port == 5499
         assert "port=5499" in src.connection_string
@@ -309,28 +322,33 @@ class TestPostgresFromYaml:
 
         from feather_etl.sources.postgres import PostgresSource
 
-        ok = {"name": "wh", "type": "postgres", "host": "h",
-              "user": "u", "password": "p", "databases": ["A", "B"]}
+        ok = {
+            "name": "wh",
+            "type": "postgres",
+            "host": "h",
+            "user": "u",
+            "password": "p",
+            "databases": ["A", "B"],
+        }
         src = PostgresSource.from_yaml(ok, Path("."))
         assert src.databases == ["A", "B"]
 
         with pytest.raises(ValueError, match="mutually exclusive"):
-            PostgresSource.from_yaml(
-                {**ok, "database": "C"}, Path(".")
-            )
+            PostgresSource.from_yaml({**ok, "database": "C"}, Path("."))
 
         with pytest.raises(ValueError, match="non-empty"):
-            PostgresSource.from_yaml(
-                {**ok, "databases": []}, Path(".")
-            )
+            PostgresSource.from_yaml({**ok, "databases": []}, Path("."))
 
     def test_explicit_connection_string_overrides(self):
         from pathlib import Path
 
         from feather_etl.sources.postgres import PostgresSource
 
-        entry = {"name": "wh", "type": "postgres",
-                 "connection_string": "host=raw dbname=verbatim"}
+        entry = {
+            "name": "wh",
+            "type": "postgres",
+            "connection_string": "host=raw dbname=verbatim",
+        }
         src = PostgresSource.from_yaml(entry, Path("."))
         assert src.connection_string == "host=raw dbname=verbatim"
 

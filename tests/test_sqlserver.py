@@ -510,8 +510,15 @@ class TestSqlServerFromYaml:
     def test_explicit_port(self):
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        entry = {"name": "erp", "type": "sqlserver", "host": "h",
-                 "port": 1444, "user": "u", "password": "p", "database": "X"}
+        entry = {
+            "name": "erp",
+            "type": "sqlserver",
+            "host": "h",
+            "port": 1444,
+            "user": "u",
+            "password": "p",
+            "database": "X",
+        }
         src = SqlServerSource.from_yaml(entry, Path("."))
         assert src.port == 1444
         assert "SERVER=h,1444" in src.connection_string
@@ -519,8 +526,14 @@ class TestSqlServerFromYaml:
     def test_databases_list(self):
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        entry = {"name": "erp", "type": "sqlserver", "host": "h",
-                 "user": "u", "password": "p", "databases": ["A", "B"]}
+        entry = {
+            "name": "erp",
+            "type": "sqlserver",
+            "host": "h",
+            "user": "u",
+            "password": "p",
+            "databases": ["A", "B"],
+        }
         src = SqlServerSource.from_yaml(entry, Path("."))
         assert src.database is None
         assert src.databases == ["A", "B"]
@@ -528,25 +541,40 @@ class TestSqlServerFromYaml:
     def test_database_xor_databases_both(self):
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        entry = {"name": "erp", "type": "sqlserver", "host": "h",
-                 "user": "u", "password": "p", "database": "A",
-                 "databases": ["B"]}
+        entry = {
+            "name": "erp",
+            "type": "sqlserver",
+            "host": "h",
+            "user": "u",
+            "password": "p",
+            "database": "A",
+            "databases": ["B"],
+        }
         with pytest.raises(ValueError, match="mutually exclusive"):
             SqlServerSource.from_yaml(entry, Path("."))
 
     def test_databases_empty_list(self):
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        entry = {"name": "erp", "type": "sqlserver", "host": "h",
-                 "user": "u", "password": "p", "databases": []}
+        entry = {
+            "name": "erp",
+            "type": "sqlserver",
+            "host": "h",
+            "user": "u",
+            "password": "p",
+            "databases": [],
+        }
         with pytest.raises(ValueError, match="non-empty"):
             SqlServerSource.from_yaml(entry, Path("."))
 
     def test_explicit_connection_string_overrides(self):
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        entry = {"name": "erp", "type": "sqlserver",
-                 "connection_string": "DRIVER={X};SERVER=raw"}
+        entry = {
+            "name": "erp",
+            "type": "sqlserver",
+            "connection_string": "DRIVER={X};SERVER=raw",
+        }
         src = SqlServerSource.from_yaml(entry, Path("."))
         assert src.connection_string == "DRIVER={X};SERVER=raw"
 

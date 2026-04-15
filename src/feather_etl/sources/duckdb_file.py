@@ -39,7 +39,9 @@ class DuckDBFileSource(FileSource):
                 f"format for DuckDB sources."
             ]
         st_schema, st_table = source_table.split(".", 1)
-        if not _SQL_IDENTIFIER_RE.match(st_schema) or not _SQL_IDENTIFIER_RE.match(st_table):
+        if not _SQL_IDENTIFIER_RE.match(st_schema) or not _SQL_IDENTIFIER_RE.match(
+            st_table
+        ):
             return [
                 f"source_table '{source_table}' contains invalid identifier "
                 f"characters. Use letters, digits, and underscores only."

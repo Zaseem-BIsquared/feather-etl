@@ -109,9 +109,7 @@ _SQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 def _resolve_file_path(entry: dict, config_dir: Path) -> Path:
     if "path" not in entry:
-        raise ValueError(
-            f"source type '{entry.get('type', '?')}' requires 'path'."
-        )
+        raise ValueError(f"source type '{entry.get('type', '?')}' requires 'path'.")
     p = Path(entry["path"])
     if not p.is_absolute():
         p = (config_dir / p).resolve()
@@ -119,8 +117,15 @@ def _resolve_file_path(entry: dict, config_dir: Path) -> Path:
 
 
 def _reject_db_fields(entry: dict, source_type: str) -> None:
-    for field in ("database", "databases", "host", "port", "user", "password",
-                  "connection_string"):
+    for field in (
+        "database",
+        "databases",
+        "host",
+        "port",
+        "user",
+        "password",
+        "connection_string",
+    ):
         if field in entry:
             raise ValueError(
                 f"field '{field}' not supported for source type {source_type}."

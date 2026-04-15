@@ -125,9 +125,15 @@ class TestServeAndOpen:
                 status="unchanged",
             ),
         )
-        monkeypatch.setattr(viewer_server, "choose_port", lambda preferred_port=viewer_server.DEFAULT_PORT: 8123)
+        monkeypatch.setattr(
+            viewer_server,
+            "choose_port",
+            lambda preferred_port=viewer_server.DEFAULT_PORT: 8123,
+        )
         monkeypatch.setattr(viewer_server.webbrowser, "open", lambda url: False)
-        monkeypatch.setattr(viewer_server, "HTTPServer", lambda address, handler: server)
+        monkeypatch.setattr(
+            viewer_server, "HTTPServer", lambda address, handler: server
+        )
 
         viewer_server.serve_and_open(tmp_path)
 
@@ -163,9 +169,17 @@ class TestServeAndOpen:
                 status="unchanged",
             ),
         )
-        monkeypatch.setattr(viewer_server, "choose_port", lambda preferred_port=viewer_server.DEFAULT_PORT: 8123)
-        monkeypatch.setattr(viewer_server.webbrowser, "open", Mock(side_effect=RuntimeError("boom")))
-        monkeypatch.setattr(viewer_server, "HTTPServer", lambda address, handler: server)
+        monkeypatch.setattr(
+            viewer_server,
+            "choose_port",
+            lambda preferred_port=viewer_server.DEFAULT_PORT: 8123,
+        )
+        monkeypatch.setattr(
+            viewer_server.webbrowser, "open", Mock(side_effect=RuntimeError("boom"))
+        )
+        monkeypatch.setattr(
+            viewer_server, "HTTPServer", lambda address, handler: server
+        )
 
         viewer_server.serve_and_open(tmp_path)
 
@@ -201,7 +215,11 @@ class TestServeAndOpen:
                 status="unchanged",
             ),
         )
-        monkeypatch.setattr(viewer_server, "choose_port", lambda preferred_port=viewer_server.DEFAULT_PORT: 8123)
+        monkeypatch.setattr(
+            viewer_server,
+            "choose_port",
+            lambda preferred_port=viewer_server.DEFAULT_PORT: 8123,
+        )
         monkeypatch.setattr(viewer_server.webbrowser, "open", lambda url: True)
 
         def fake_http_server(address, handler):

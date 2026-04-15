@@ -43,4 +43,3 @@ def _load_and_validate(config_path: Path, mode_override: str | None = None):
             write_validation_json(config_path, None, errors=[str(e)])
             typer.echo(f"Validation failed: {e}", err=True)
         raise typer.Exit(code=1)
-

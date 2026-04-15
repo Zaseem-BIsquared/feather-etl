@@ -42,4 +42,3 @@ def init(
 
 def register(app: typer.Typer) -> None:
     app.command(name="init")(init)
-

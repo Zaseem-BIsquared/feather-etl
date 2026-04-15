@@ -580,8 +580,7 @@ class TestFileSourceFromYaml:
     def test_csv_rejects_database_field(self, csv_dir):
         from feather_etl.sources.csv import CsvSource
 
-        entry = {"name": "x", "type": "csv", "path": str(csv_dir),
-                 "database": "BAD"}
+        entry = {"name": "x", "type": "csv", "path": str(csv_dir), "database": "BAD"}
         with pytest.raises(ValueError, match="not supported for source type csv"):
             CsvSource.from_yaml(entry, csv_dir.parent)
 
@@ -728,7 +727,8 @@ class TestFileSourcesRejectDbFields:
             target = tmp_path / "f"
             target.write_bytes(b"")
 
-        entry = {"name": "x", "type": type_name, "path": str(target),
-                 "database": "BAD"}
-        with pytest.raises(ValueError, match=f"not supported for source type {type_name}"):
+        entry = {"name": "x", "type": type_name, "path": str(target), "database": "BAD"}
+        with pytest.raises(
+            ValueError, match=f"not supported for source type {type_name}"
+        ):
             cls.from_yaml(entry, tmp_path)

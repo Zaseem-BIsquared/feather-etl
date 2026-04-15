@@ -6,7 +6,11 @@ from pathlib import Path
 
 import typer
 
-from feather_etl.commands._common import _enforce_single_source, _is_json, _load_and_validate
+from feather_etl.commands._common import (
+    _enforce_single_source,
+    _is_json,
+    _load_and_validate,
+)
 from feather_etl.output import emit_line
 
 
@@ -101,4 +105,3 @@ def setup(
 
 def register(app: typer.Typer) -> None:
     app.command(name="setup")(setup)
-

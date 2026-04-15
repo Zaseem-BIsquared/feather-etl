@@ -112,7 +112,7 @@ class AlertsConfig:
 
 @dataclass
 class FeatherConfig:
-    sources: list                  # list[Source] — forward ref
+    sources: list  # list[Source] — forward ref
     destination: DestinationConfig
     tables: list[TableConfig]
     defaults: DefaultsConfig = field(default_factory=DefaultsConfig)

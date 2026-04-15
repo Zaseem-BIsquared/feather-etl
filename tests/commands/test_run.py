@@ -69,10 +69,14 @@ class TestRun:
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
 
-        result1 = runner.invoke(app, ["run", "--config", str(tmp_path / "feather.yaml")])
+        result1 = runner.invoke(
+            app, ["run", "--config", str(tmp_path / "feather.yaml")]
+        )
         assert result1.exit_code == 1
 
-        result2 = runner.invoke(app, ["run", "--config", str(tmp_path / "feather.yaml")])
+        result2 = runner.invoke(
+            app, ["run", "--config", str(tmp_path / "feather.yaml")]
+        )
         assert result2.exit_code == 1, (
             f"Expected non-zero exit when table is backoff-skipped, got 0. Output: {result2.output}"
         )

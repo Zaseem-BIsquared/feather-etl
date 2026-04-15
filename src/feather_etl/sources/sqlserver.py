@@ -134,9 +134,7 @@ class SqlServerSource(DatabaseSource):
         databases = entry.get("databases")
 
         if database is not None and databases is not None:
-            raise ValueError(
-                "database and databases are mutually exclusive; use one."
-            )
+            raise ValueError("database and databases are mutually exclusive; use one.")
         if databases is not None and not databases:
             raise ValueError("databases list must be non-empty.")
 

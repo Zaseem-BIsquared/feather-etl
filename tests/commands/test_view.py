@@ -20,7 +20,9 @@ class TestView:
 
         seen: dict[str, object] = {}
 
-        def fake_serve_and_open(target_dir: Path, preferred_port: int = viewer_server.DEFAULT_PORT):
+        def fake_serve_and_open(
+            target_dir: Path, preferred_port: int = viewer_server.DEFAULT_PORT
+        ):
             seen["serve_target_dir"] = target_dir
             seen["preferred_port"] = preferred_port
 
@@ -44,7 +46,9 @@ class TestView:
         target_dir.mkdir()
         seen: dict[str, object] = {}
 
-        def fake_serve_and_open(path: Path, preferred_port: int = viewer_server.DEFAULT_PORT):
+        def fake_serve_and_open(
+            path: Path, preferred_port: int = viewer_server.DEFAULT_PORT
+        ):
             seen["serve_target_dir"] = path
             seen["preferred_port"] = preferred_port
 
@@ -57,7 +61,9 @@ class TestView:
         assert seen["serve_target_dir"] == target_dir.resolve()
         assert seen["preferred_port"] == 8123
 
-    def test_invalid_path_fails(self, runner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_invalid_path_fails(
+        self, runner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         from feather_etl.cli import app
 
         result = runner.invoke(app, ["view", str(tmp_path / "missing")])
