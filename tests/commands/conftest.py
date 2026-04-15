@@ -90,6 +90,13 @@ def cli_config(tmp_path: Path) -> Path:
     return config_file
 
 
+@pytest.fixture
+def stub_viewer_serve(monkeypatch):
+    from feather_etl.commands import discover as discover_cmd
+
+    monkeypatch.setattr(discover_cmd, "serve_and_open", lambda *args, **kwargs: None)
+
+
 def multi_source_yaml(tmp_path: Path, sources: list[dict],
                       destination_path: str | None = None,
                       tables: list[dict] | None = None) -> Path:

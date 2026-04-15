@@ -36,13 +36,6 @@ def _write_sqlite_config(tmp_path: Path, source_name: str | None = None) -> Path
     return config_path
 
 
-@pytest.fixture
-def stub_viewer_serve(monkeypatch):
-    from feather_etl.commands import discover as discover_cmd
-
-    monkeypatch.setattr(discover_cmd, "serve_and_open", lambda *args, **kwargs: None)
-
-
 @pytest.mark.usefixtures("stub_viewer_serve")
 class TestDiscover:
     def test_writes_json_with_tables(
@@ -55,7 +48,7 @@ class TestDiscover:
 
         result = runner.invoke(app, ["discover", "--config", str(config_path)])
         assert result.exit_code == 0
-        assert "Wrote" in result.output
+        assert "succeeded" in result.output
 
         schema_files = list(tmp_path.glob("schema_*.json"))
         assert len(schema_files) == 1
@@ -109,7 +102,7 @@ class TestDiscover:
         assert expected_target_dir != config_dir.resolve()
         assert seen["serve_target_dir"] == expected_target_dir
         assert seen["preferred_port"] == 8000
-        assert "Wrote" in result.output
+        assert "succeeded" in result.output
         assert "Schema viewer" not in result.output
 
     def test_runtime_emitted_output_line_is_surfaced(
@@ -131,7 +124,7 @@ class TestDiscover:
 
         assert result.exit_code == 0, result.output
         assert "Schema viewer updated." in result.output
-        assert "Wrote" in result.output
+        assert "succeeded" in result.output
 
     def test_discover_bad_source_fails(self, runner, tmp_path: Path):
         from feather_etl.cli import app
@@ -155,7 +148,7 @@ class TestDiscover:
             app, ["discover", "--config", str(tmp_path / "feather.yaml")]
         )
         assert result.exit_code != 0
-        assert "Source connection failed" in result.output
+        assert "FAILED" in result.output
 
     def test_writes_auto_named_file_for_sqlite(
         self, runner, tmp_path: Path, monkeypatch
@@ -181,9 +174,9 @@ class TestDiscover:
         assert result.exit_code == 0
 
         lines = [line for line in result.output.splitlines() if line.strip()]
-        assert len(lines) == 1
+        assert len(lines) == 2  # [1/1] per-source line + summary line
         assert "schema_sqlite-source.json" in lines[0]
-        assert "Wrote" in lines[0]
+        assert "succeeded" in lines[1]
 
     def test_json_payload_has_expected_shape(self, runner, tmp_path: Path, monkeypatch):
         from feather_etl.cli import app
@@ -273,4 +266,4 @@ class TestDiscover:
         out = tmp_path / "schema_sqlite-source.json"
         assert out.exists()
         assert json.loads(out.read_text()) == []
-        assert "Wrote 0 table(s)" in result.output
+        assert "0 tables" in result.output
