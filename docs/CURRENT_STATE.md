@@ -1,16 +1,19 @@
 # Current State — Multi-Source Discover (Issue #8)
 
-**As of commit:** `7b0bd57` on `main`
-**Suite state:** 504 tests passing, 14 skipped, 0 failed. `bash scripts/hands_on_test.sh` 61/61.
-**Branch:** `main` (all work done directly on main with explicit owner consent).
+**As of commit:** `0a4c436` on `phase-2-yaml-schema-flip` (post-rebase onto upstream/main at `89ff463` — issue #17)
+**Suite state:** 535 tests passing, 14 skipped, 0 failed. `bash scripts/hands_on_test.sh` 61/61.
+**Branch:** `phase-2-yaml-schema-flip` — Phase 2 work done on a feature branch, rebased onto upstream/main (which now includes issue #17's `feather view` + auto-open viewer). NOT yet pushed and NOT yet merged to `main`. Awaiting owner direction on `ruff format .` + push + PR.
+**Safety backup:** branch `phase-2-backup-pre-rebase` holds the pre-rebase state at `79dc954` (9 Phase 2 commits on top of `d2d15eb`). Keep it until Phase 3 is fully verified.
 
 ---
 
 ## TL;DR for the teammate picking this up
 
-Phase 1 of the multi-source discover plan is **complete and green**. The `Source` Protocol, every source class, the registry, and `config.py` have all been refactored so each source self-describes via `from_yaml`. Config parsing is delegated; `SourceConfig` is deleted; the registry is lazy.
+Phases 1 AND 2 of the multi-source discover plan are **complete and green**. Phase 1 made every source self-describe via `from_yaml`. Phase 2 flipped the YAML schema from singular `source: {...}` to plural `sources: [...]` everywhere (config parser, fixtures, pipeline, all commands, init wizard, hands_on_test.sh, README, prd, CONTRIBUTING).
 
-Phase 2 (YAML schema flip from `source:` → `sources:` list) is **not started**. The very next task would be Task 2.1, which is a large breaking change — see "How to resume" below.
+Phase 3 (`discover` iterates over sources + auto-enumerates DB sources) is **not started**. The very next task would be Task 3.1 — see "How to resume" below.
+
+**Pending close-out before Phase 3 starts:** the `phase-2-yaml-schema-flip` branch needs `ruff format .` as a separate style commit, then push + PR creation. Owner explicitly said "don't push, I'll tell you what to do" — this is the open hand-off point.
 
 ---
 
@@ -45,28 +48,49 @@ Phase 1 goal: every `Source` subclass self-describes via `from_yaml(entry, confi
 **Post-Phase-1 architecture invariants:**
 
 - `Source` instances self-describe via `type: ClassVar[str]`.
-- `FeatherConfig.source` is a live `Source` instance (still singular — Phase 2 flips to `sources: list[Source]`).
 - `config.py:_validate()` does NOT do any source-structural validation. It only checks destination + defaults + table rules. Path/connection existence is runtime-checked by `source.check()`.
 - Registry imports are lazy — `pyodbc` / `psycopg2` stay unloaded until a sqlserver/postgres source is instantiated.
 
 ---
 
+## What's done (Phase 2 — commits `3300a33` through `21025c3`, + rebase cleanup `0a4c436`)
+
+Phase 2 goal: flip the YAML schema from singular `source: {...}` to plural `sources: [...]` across the entire codebase, with a migration error for old configs and a multi-source guard for non-discover commands. **8 commits on the rebased branch + 1 post-rebase cleanup commit, fully green.**
+
+> **SHAs changed after rebase.** Phase 2 was rebased onto upstream/main on 2026-04-15 to pick up issue #17 (`89ff463` — auto-open schema viewer + `feather view` command). All 8 Phase 2 commits were replayed with new SHAs; the pre-rebase SHAs (`bcadfda..79dc954`) live only on the `phase-2-backup-pre-rebase` safety branch. The table below shows post-rebase SHAs.
+
+| # | Commit | Task | What changed |
+|---|--------|------|--------------|
+| 1 | `3300a33` | 2.1 | `config.py` parses `sources:` list; hard `ValueError` on singular `source:` with migration hint. `FeatherConfig.sources: list[Source]` replaces `source`. New `TestSourcesList` (5 tests) + `TestSingularSourceMigrationError` (1 test) in `tests/test_config.py`. |
+| 2 | `866a7e2` | 2.1 fix | Friendly `ValueError` when a `sources[]` entry is not a mapping (catches `sources: [null]` / `sources: ["str"]`). Regression test `test_sources_entry_must_be_mapping`. |
+| 3 | `3d8185d` | 2.2+2.3+2.4 | **Bundled** mechanical migration: every inline test fixture flipped `"source": {...}` → `"sources": [{...}]`; every `cfg.source.X` → `cfg.sources[0].X`; `pipeline.py` reads `config.sources[0]`; new helper `_enforce_single_source(cfg, command_name)` in `commands/_common.py` invoked by `run/validate/status/history/setup` (exit code 2 with migration guidance). New `tests/commands/test_multi_source_guard.py` with 5 tests. `discover.py` got a minimal 2-line `cfg.source` → `cfg.sources[0]` fix (necessary deviation from prompt — discover tests would have crashed otherwise). |
+| 4 | `c849141` | 2.2 fix | Restore meaningful coverage in `test_source_name_is_optional` — the mechanical rewrite had degraded it to a tautology (`assert sources[0] is not None`). Now hardcodes `assert sources[0].name == "duckdb-source"` to actually verify auto-derivation. |
+| 5 | `5a4967c` | polish | Address 3 code-review nits on the multi-source guard (clearer error text, consistent wording across 5 tests). |
+| 6 | `4a663d4` | 2.5 | `init_wizard.py` template emits `sources:` list. New `TestInitTemplateUsesSourcesList` (2 tests) verifies scaffold YAML loads cleanly. |
+| 7 | `b956ec9` | 2.6 | Sync `README.md` (1 SQL Server example), `docs/prd.md` (4 examples), `docs/CONTRIBUTING.md` (new `## Testing co-location` section). 20 YAML blocks in `scripts/hands_on_test.sh` migrated. |
+| 8 | `21025c3` | 2.6 fix | `prd.md` source-alternatives block had been rewritten as 3 list entries with `# OR` comments — valid YAML but **misleading** (would fail Task 2.1's name-required rule). Replaced with single active entry + commented-out complete `sources:` blocks for each alternative. Caught by reading the actual diff after the implementer flagged the section as a "judgment call." |
+| 9 | `0a4c436` | rebase cleanup | **Post-rebase on #17.** Migrated #17's new discover test (`test_invokes_shared_viewer_runtime_after_writing_json`) from inline singular `source:` to `sources:` list — git rebase was clean but the test was a **semantic landmine** only visible at test time. Added "Post-#17 Compatibility Baseline" section to the plan doc enumerating 6 behavior contracts Phase 3 must preserve. |
+
+**Post-Phase-2 architecture invariants:**
+
+- `FeatherConfig.sources: list[Source]` — always a list, always non-empty (parser enforces).
+- Singular `source:` in YAML is a **hard error** with a migration hint pointing at the new shape.
+- `_enforce_single_source(cfg, command_name)` in `commands/_common.py` is the single chokepoint for non-discover commands. Calling it after config load + before any work is the contract every non-discover command follows.
+- `discover.py` still reads `cfg.sources[0]` (single-source). Phase 3 rewrites it to loop.
+- `init_wizard.py` scaffolds `sources:` list — one source by default.
+
+**Post-rebase invariants (from issue #17):**
+
+- `discover.py` calls `serve_and_open(viewer_target_dir, preferred_port=8000)` as its last side-effect. `serve_and_open` is imported at **module level** (not inside the function) so tests can `monkeypatch.setattr(discover_cmd, "serve_and_open", ...)`. Phase 3 must preserve both the call and the module-level import.
+- `feather view` command exists in `src/feather_etl/commands/view.py` with `--port 1-65535` (default 8000) and a PATH argument. Phase 3 does NOT touch `view`.
+- Viewer runtime lives in `src/feather_etl/viewer_server.py` with port-fallback logic. Phase 3 must not reach into this file.
+- Full Phase 3 compatibility contract lives in the **Post-#17 Compatibility Baseline** section at the bottom of `docs/superpowers/plans/2026-04-14-multi-source-discover.md` — read it before starting Task 3.1.
+
+---
+
 ## What's left — the roadmap
 
-The plan is split into 5 phases. Phases 2–5 are all still pending. Each **phase** ends with a green suite; tasks within a phase may be intentionally broken and only re-greened at phase close.
-
-### Phase 2 — YAML schema flip (`source:` → `sources:` list) — NOT STARTED
-
-This is the next phase. It's the "expensive migration" (every test fixture, every doc). **Starting Phase 2 immediately breaks the suite until Task 2.2 migrates all inline test configs.** Plan has Tasks 2.1 → 2.6 designed as a tight unit; bundle them if you want.
-
-- **2.1** — `config.py` parses `sources:` list; hard error on singular `source:`. Adds `TestSourcesList` (5 tests) and `TestSingularSourceMigrationError` (1 test) to `tests/test_config.py`.
-- **2.2** — Mechanical migration of inline test configs across ~15 test files (every `"source": {...}` → `"sources": [{...}]`). Also update any assertion that reads `cfg.source.X` → `cfg.sources[0].X`. Run `grep -rn "cfg\.source\.\|config\.source\." tests/` to find them all.
-- **2.3** — `pipeline.py` reads `cfg.sources[0]`.
-- **2.4** — Non-discover commands (`run`, `validate`, `status`, `history`, `setup`) gain a multi-source guard: `if len(cfg.sources) > 1: exit(2)` with migration guidance. Test file: `tests/commands/test_multi_source_guard.py`.
-- **2.5** — `init_wizard.py` template emits `sources:` list.
-- **2.6** — Sync `README.md`, `docs/prd.md`, `docs/CONTRIBUTING.md` (the last adds the testing co-location principle as a project convention). Then a single large commit wrapping Phase 2.
-
-⚠️ **A partial Task 2.1 dispatch was aborted mid-flight** (the subagent edited `config.py` and `tests/test_config.py` before being rejected). Those edits were reverted back to `7b0bd57`; the tree is clean. Do NOT look for Task 2.1 work in uncommitted files — it doesn't exist. Start fresh from the plan.
+The plan is split into 5 phases. Phases 1 and 2 are DONE. Phases 3–5 are still pending. Each **phase** ends with a green suite; tasks within a phase may be intentionally broken and only re-greened at phase close.
 
 ### Phase 3 — `discover` iterates + auto-enumerate — NOT STARTED
 
@@ -106,18 +130,26 @@ Use the `superpowers:subagent-driven-development` skill. For each task:
 4. If the reviewer flags Important issues, dispatch a fix subagent.
 5. Mark the TodoWrite entry complete; repeat for the next task.
 
-**Model routing I used:**
-- **Sonnet** for Tasks 1.1, 1.2, 1.4, 1.6, and 1.7+1.8 (multi-file, integration work).
-- **Haiku** for Tasks 1.3, 1.5 and small fix rounds (mechanical mirror-of-predecessor tasks).
-- Spec review: **haiku** usually suffices; **sonnet** for the 1.7+1.8 close-out because of the plan-violation concern.
+**Model routing I used (across Phase 1 + Phase 2):**
+
+- **Sonnet** for multi-file integration work: Tasks 1.1, 1.2, 1.4, 1.6, 1.7+1.8, and Phase 2 Task 2.1 + bundled 2.2+2.3+2.4 + Task 2.6 docs sync. Also for the final whole-branch review.
+- **Haiku** for mechanical / mirror-of-predecessor tasks: 1.3, 1.5, small fix rounds, polish nits, init wizard template.
+- Spec review: **haiku** usually suffices; bump to **sonnet** when the change touches plan-sensitive areas (e.g. 1.7+1.8 plan-violation concern).
 
 ### Option B: Inline execution (fresh session)
 
 Use `superpowers:executing-plans` — the whole plan is written with complete code snippets so you can execute tasks inline.
 
-### Option C: Let a subagent do Phase 2 as one unit
+---
 
-Phase 2's tasks are tightly coupled (every intermediate commit between 2.1 and 2.2 is an import-broken state). Dispatch one subagent with the full Phase 2 text (tasks 2.1 through 2.6), let it commit task-by-task but run the suite only at the end of Phase 2. Review the whole phase as a unit.
+## Lesson from Phase 2 (read this before Phase 3)
+
+When dispatching mechanical-migration subagents, **read the actual diff** on any block the implementer flags as a "judgment call" in self-review. Two real semantic regressions slipped past spec review this phase and were only caught by reading the diff:
+
+1. `test_source_name_is_optional` got rewritten to `assert sources[0] is not None` — vacuously true (the line above would have raised). Lost coverage of auto-derivation.
+2. `prd.md` source-alternatives block got rewritten as 3 list entries with `# OR (choose one)` — valid YAML meaning the wrong thing (would fail the very rule Task 2.1 introduced).
+
+Both passed spec compliance review (the spec only said "use sources: list"). Both were caught at the diff-reading step. Build the habit: `git show <sha> -- <file>` on any "judgment call" file the implementer mentions.
 
 ---
 
@@ -126,26 +158,34 @@ Phase 2's tasks are tightly coupled (every intermediate commit between 2.1 and 2
 Before starting any work, confirm the baseline:
 
 ```bash
-cd /Users/siraj/Desktop/NonDropBoxProjects/feather-etl
-git log --oneline -1            # expect: 7b0bd57
-uv run pytest -q                 # expect: 504 passed, 14 skipped, 0 failed
+cd /Users/jaseem/Desktop/NonDropBoxProjects/feather-etl  # path differs across machines
+git log --oneline -1            # expect: 0a4c436 on phase-2-yaml-schema-flip
+uv run pytest -q                 # expect: 535 passed, 14 skipped, 0 failed
 bash scripts/hands_on_test.sh   # expect: 61/61
+uv run feather discover --help   # must mention: "schema JSON" + "serve/open the schema viewer"
+uv run feather view --help       # must show: --port 1-65535, default 8000
 ```
 
-After each phase closes, those commands must still be green. Between phases is fine for intermediate task commits (2.1 through 2.5) to be broken — just don't leave them broken in a pushed state.
+After each phase closes, those commands must still be green. Between phases is fine for intermediate task commits to be broken — just don't leave them broken in a pushed state.
 
 ---
 
-## Review findings still open (not blocking, logged for Phase 2+)
+## Review findings still open (not blocking, logged for Phase 6 close-out)
 
-From the code reviewer's Phase 1 close-out:
+**From Phase 1 code review** (still open):
 
-- **I-2 (1.7+1.8):** `validate.py` source label uses informal attribute reads (`getattr(cfg.source, "path", None)`, etc.). Consider adding a `Source.label()` method when Phase 2 multiplies the source count.
+- **I-2 (1.7+1.8):** `validate.py` source label uses informal attribute reads (`getattr(cfg.source, "path", None)`, etc.). Consider adding a `Source.label()` method when Phase 3 multiplies the source count.
 - **I-3 (1.7+1.8):** Informal Protocol attribute coupling (`path`, `host`, `database`, `_last_error`). Promote these to documented optional Protocol members before Phase 3 starts reading them heavily.
 - **M-2 (1.7+1.8):** `resolved_source_name` still has `if cfg.type == "csv"` branching. Should become a per-class method (`basename_for_discover()` or similar) when Phase 3 revisits discover output naming.
 - **M-1 (1.7+1.8):** `get_source_class` could benefit from `functools.lru_cache` to avoid re-importing on repeat lookups. Tiny perf win; do when touched.
 
-None of these block progress.
+**From Phase 2 final whole-branch code review** (3 deferred nits, all flagged for Phase 6):
+
+- **Nit 1:** Stale `resolved_paths["source"]` JSON key in `discover.py` schema output — still uses singular noun even though the config is now plural. Phase 3 rewrites discover output anyway, so defer.
+- **Nit 2:** `test_multi_source_guard.py` couples on stderr substrings (`"single-source" in r.output`). Fragile if the error message ever gets reworded — consider asserting on the exit code alone, or extracting the message into a module constant.
+- **Nit 3:** The new `## Testing co-location` section in `CONTRIBUTING.md` includes an exception clause whose example path doesn't match an actual file in the repo. Update or remove the example before final PR.
+
+None of these block Phase 3.
 
 ---
 
@@ -162,4 +202,4 @@ None of these block progress.
 
 ## Contact
 
-Work resumed on another machine: pull `main` and check `git log` for the latest commit. Then read this file top-to-bottom and jump to "How to resume."
+Work resumed on another machine: `git fetch && git checkout phase-2-yaml-schema-flip` (the branch is **not yet pushed** as of `0a4c436` — if the branch isn't on the remote, the work is still local on the previous machine). There is also a safety branch `phase-2-backup-pre-rebase` pointing at the pre-rebase tip `79dc954` — keep it around until Phase 3 is verified, delete when no longer needed. Then read this file top-to-bottom and jump to "How to resume."
