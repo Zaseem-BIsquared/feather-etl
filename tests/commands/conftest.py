@@ -88,3 +88,19 @@ def cli_config(tmp_path: Path) -> Path:
     config_file = tmp_path / "feather.yaml"
     config_file.write_text(yaml.dump(config, default_flow_style=False))
     return config_file
+
+
+def multi_source_yaml(tmp_path: Path, sources: list[dict],
+                      destination_path: str | None = None,
+                      tables: list[dict] | None = None) -> Path:
+    """Build a feather.yaml with arbitrary sources/destinations/tables."""
+    cfg = {
+        "sources": sources,
+        "destination": {
+            "path": destination_path or str(tmp_path / "feather_data.duckdb")
+        },
+        "tables": tables or [],
+    }
+    p = tmp_path / "feather.yaml"
+    p.write_text(yaml.dump(cfg, default_flow_style=False))
+    return p
