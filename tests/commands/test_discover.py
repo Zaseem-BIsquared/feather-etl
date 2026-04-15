@@ -148,7 +148,7 @@ class TestDiscover:
             app, ["discover", "--config", str(tmp_path / "feather.yaml")]
         )
         assert result.exit_code != 0
-        assert "FAILED" in result.output
+        assert "→ FAILED:" in result.output
 
     def test_writes_auto_named_file_for_sqlite(
         self, runner, tmp_path: Path, monkeypatch

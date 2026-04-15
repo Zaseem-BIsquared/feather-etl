@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import typer
@@ -12,7 +13,6 @@ from feather_etl.viewer_server import serve_and_open
 
 
 def _sanitised_filename(name: str) -> str:
-    import re
     return re.sub(r"[^A-Za-z0-9._-]", "_", name)
 
 
@@ -74,6 +74,7 @@ def _expand_db_sources(sources: list) -> list:
                 )
                 expanded.append(src)
                 continue
+        # DB sources' from_yaml ignores config_dir (it's only used for file-path resolution)
         for db in databases:
             child = type(src).from_yaml(
                 {
@@ -111,7 +112,7 @@ def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
             continue
         try:
             out, count = _write_schema(source, target_dir)
-        except Exception as e:  # pragma: no cover — surfaces in tests
+        except Exception as e:  # pragma: no cover
             failed.append((source.name, str(e)))
             typer.echo(f"{prefix}  → FAILED: {e}", err=True)
             continue
