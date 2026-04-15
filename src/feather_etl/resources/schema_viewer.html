@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>feather discover — schema viewer</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --panel-2: #0b1220;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-2: #0ea5e9;
+      --chip: #334155;
+      --row-hover: #243244;
+      --row-selected: #0ea5e9;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+    }
+
+    header {
+      padding: 12px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+    header .stats { color: var(--muted); font-size: 12px; }
+    header .spacer { flex: 1; }
+    header button {
+      background: var(--chip); color: var(--text); border: 1px solid var(--border);
+      padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    }
+    header button:hover { background: var(--row-hover); }
+
+    main {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: var(--panel-2);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .search {
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .search input {
+      width: 100%; padding: 8px 10px; border-radius: 6px;
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); font-size: 13px;
+    }
+    .search input:focus { outline: none; border-color: var(--accent); }
+
+    .table-list { overflow-y: auto; flex: 1; }
+    .table-list .item {
+      padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #1e293b;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 8px;
+    }
+    .table-list .item:hover { background: var(--row-hover); }
+    .table-list .item.selected { background: var(--accent-2); color: white; }
+    .table-list .item .name { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+    .table-list .item .count { color: var(--muted); font-size: 11px; }
+    .table-list .item.selected .count { color: rgba(255,255,255,0.85); }
+
+    .content { overflow-y: auto; padding: 20px 24px; }
+    .content h2 {
+      margin: 0 0 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 18px;
+    }
+    .content .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+
+    table.cols { width: 100%; border-collapse: collapse; }
+    table.cols th, table.cols td {
+      text-align: left; padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12.5px;
+    }
+    table.cols th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    table.cols td.type { color: var(--accent); }
+
+    .empty {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; color: var(--muted); text-align: center; padding: 40px;
+    }
+    .empty h2 { color: var(--text); margin: 0 0 8px; }
+    .dropzone {
+      margin-top: 16px; padding: 40px 24px;
+      border: 2px dashed var(--border); border-radius: 12px;
+      max-width: 460px; width: 100%;
+    }
+    .dropzone.hover { border-color: var(--accent); background: rgba(56,189,248,0.06); }
+    .dropzone code {
+      background: var(--panel); padding: 2px 6px; border-radius: 4px;
+      font-size: 12px; color: var(--accent);
+    }
+    #file-input { display: none; }
+    .link-btn {
+      background: none; border: none; color: var(--accent); cursor: pointer;
+      text-decoration: underline; padding: 0; font-size: inherit; font-family: inherit;
+    }
+    header select {
+      background: var(--chip); color: var(--text); border: 1px solid var(--border);
+      padding: 5px 8px; border-radius: 6px; font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      max-width: 380px;
+    }
+    header select:focus { outline: none; border-color: var(--accent); }
+    header label {
+      color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    header select {
+      background: var(--chip); color: var(--text); border: 1px solid var(--border);
+      padding: 5px 8px; border-radius: 6px; font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      max-width: 360px;
+    }
+    header select:focus { outline: none; border-color: var(--accent); }
+    header label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    .type-summary {
+      display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 20px;
+    }
+    .type-chip {
+      background: var(--chip); padding: 3px 8px; border-radius: 999px;
+      font-size: 11px; font-family: ui-monospace, monospace; color: var(--muted);
+    }
+    .type-chip b { color: var(--text); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>feather discover</h1>
+    <div class="stats" id="stats">no data loaded</div>
+    <div class="spacer"></div>
+    <label for="schema-select" id="schema-label" style="display:none">Schema:</label>
+    <select id="schema-select" style="display:none"></select>
+    <button id="reload-btn" title="Re-scan directory for schema files">↻ Reload</button>
+    <button id="load-btn">Load file…</button>
+    <input id="file-input" type="file" accept=".json,.ndjson,application/json" />
+  </header>
+  <main>
+    <aside class="sidebar">
+      <div class="search">
+        <input id="search" placeholder="Filter tables…" autocomplete="off" />
+      </div>
+      <div class="table-list" id="table-list"></div>
+    </aside>
+    <section class="content" id="content">
+      <div class="empty">
+        <h2>No schema loaded</h2>
+        <div>Auto-discovers all <code>schema*.json</code> files in this folder when served over http.</div>
+        <div class="dropzone" id="dropzone">
+          Drop a <code>schema*.json</code> file here, or
+          <button class="link-btn" id="pick-btn">click to choose a file</button>.
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script>
+(() => {
+  const state = { tables: [], selected: null, filter: "", files: [], currentFile: null };
+  const $list = document.getElementById("table-list");
+  const $content = document.getElementById("content");
+  const $stats = document.getElementById("stats");
+  const $search = document.getElementById("search");
+  const $fileInput = document.getElementById("file-input");
+  const $loadBtn = document.getElementById("load-btn");
+  const $reloadBtn = document.getElementById("reload-btn");
+  const $pickBtn = document.getElementById("pick-btn");
+  const $dropzone = document.getElementById("dropzone");
+  const $schemaSelect = document.getElementById("schema-select");
+  const $schemaLabel = document.getElementById("schema-label");
+
+  function parseSchema(text) {
+    const trimmed = text.trim().replace(/^\uFEFF/, "");
+    if (!trimmed) return [];
+    // Case 1: JSON array
+    if (trimmed.startsWith("[")) return JSON.parse(trimmed);
+    // Case 2: concatenated JSON objects (compact NDJSON or pretty-printed).
+    // Walk the text tracking brace depth, ignoring braces inside strings.
+    const out = [];
+    let depth = 0, start = -1, inStr = false, esc = false;
+    for (let i = 0; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === "\\") esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') { inStr = true; continue; }
+      if (ch === "{") { if (depth === 0) start = i; depth++; }
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          out.push(JSON.parse(trimmed.slice(start, i + 1)));
+          start = -1;
+        }
+      }
+    }
+    if (!out.length) throw new Error("No JSON objects found");
+    return out;
+  }
+
+  function setData(tables) {
+    state.tables = tables;
+    state.selected = tables[0]?.table_name ?? null;
+    const totalCols = tables.reduce((s, t) => s + t.columns.length, 0);
+    $stats.textContent = `${tables.length} tables · ${totalCols} columns`;
+    render();
+  }
+
+  function render() {
+    const f = state.filter.toLowerCase();
+    const filtered = state.tables.filter(t => t.table_name.toLowerCase().includes(f));
+    $list.innerHTML = filtered.map(t => `
+      <div class="item ${t.table_name === state.selected ? 'selected' : ''}" data-name="${t.table_name}">
+        <span class="name">${escapeHtml(t.table_name)}</span>
+        <span class="count">${t.columns.length}</span>
+      </div>
+    `).join("") || `<div style="padding:16px;color:var(--muted);font-size:12px">No matches</div>`;
+
+    $list.querySelectorAll(".item").forEach(el => {
+      el.addEventListener("click", () => {
+        state.selected = el.dataset.name;
+        render();
+      });
+    });
+
+    const table = state.tables.find(t => t.table_name === state.selected);
+    if (!table) {
+      $content.innerHTML = `<div class="empty"><h2>Select a table</h2></div>`;
+      return;
+    }
+
+    const typeCounts = {};
+    for (const c of table.columns) typeCounts[c.type] = (typeCounts[c.type] || 0) + 1;
+    const typeChips = Object.entries(typeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([t, n]) => `<span class="type-chip"><b>${n}</b> ${escapeHtml(t)}</span>`).join("");
+
+    $content.innerHTML = `
+      <h2>${escapeHtml(table.table_name)}</h2>
+      <div class="sub">${table.columns.length} columns</div>
+      <div class="type-summary">${typeChips}</div>
+      <table class="cols">
+        <thead><tr><th style="width:32px">#</th><th>Column</th><th>Type</th></tr></thead>
+        <tbody>
+          ${table.columns.map((c, i) => `
+            <tr>
+              <td style="color:var(--muted)">${i + 1}</td>
+              <td>${escapeHtml(c.name)}</td>
+              <td class="type">${escapeHtml(c.type)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  async function listSchemaFiles() {
+    // Fetch directory index (python -m http.server serves HTML with <a> tags).
+    try {
+      const r = await fetch("./", { cache: "no-store" });
+      if (!r.ok) return [];
+      const html = await r.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const names = new Set();
+      doc.querySelectorAll("a[href]").forEach(a => {
+        const href = decodeURIComponent(a.getAttribute("href") || "");
+        // Match files in current directory only (no slashes), starting with "schema" and ending .json/.ndjson.
+        if (/^schema[^/]*\.(json|ndjson)$/i.test(href)) names.add(href);
+      });
+      return [...names].sort();
+    } catch {
+      return [];
+    }
+  }
+
+  function updateSchemaSelector() {
+    if (state.files.length === 0) {
+      $schemaSelect.style.display = "none";
+      $schemaLabel.style.display = "none";
+      return;
+    }
+    $schemaSelect.style.display = "";
+    $schemaLabel.style.display = "";
+    $schemaSelect.innerHTML = state.files
+      .map(f => `<option value="${escapeHtml(f)}" ${f === state.currentFile ? "selected" : ""}>${escapeHtml(f)}</option>`)
+      .join("");
+  }
+
+  async function loadFileByName(name) {
+    try {
+      const r = await fetch(name, { cache: "no-store" });
+      if (!r.ok) throw new Error(r.statusText);
+      const text = await r.text();
+      state.currentFile = name;
+      if (history.replaceState) history.replaceState(null, "", "#" + encodeURIComponent(name));
+      updateSchemaSelector();
+      setData(parseSchema(text));
+      return true;
+    } catch (e) {
+      console.warn("Failed to load", name, e);
+      return false;
+    }
+  }
+
+  async function tryAutoFetch() {
+    const files = await listSchemaFiles();
+    state.files = files;
+    if (files.length === 0) {
+      // Fallback: try the conventional name directly.
+      try {
+        const r = await fetch("schema.json", { cache: "no-store" });
+        if (r.ok) {
+          state.files = ["schema.json"];
+          state.currentFile = "schema.json";
+          updateSchemaSelector();
+          setData(parseSchema(await r.text()));
+          return true;
+        }
+      } catch {}
+      return false;
+    }
+    // Prefer the file named in the URL hash, else the first discovered file.
+    const hashTarget = decodeURIComponent((location.hash || "").slice(1));
+    const target = files.includes(hashTarget) ? hashTarget : files[0];
+    updateSchemaSelector();
+    return loadFileByName(target);
+  }
+
+  function loadFromFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try { setData(parseSchema(reader.result)); }
+      catch (e) { alert("Failed to parse: " + e.message); }
+    };
+    reader.readAsText(file);
+  }
+
+  // Events
+  $search.addEventListener("input", e => { state.filter = e.target.value; render(); });
+  $loadBtn.addEventListener("click", () => $fileInput.click());
+  $pickBtn && $pickBtn.addEventListener("click", () => $fileInput.click());
+  $fileInput.addEventListener("change", e => {
+    const f = e.target.files[0];
+    if (f) loadFromFile(f);
+  });
+  $reloadBtn.addEventListener("click", () => tryAutoFetch().then(ok => {
+    if (!ok) alert("Couldn't find any schema*.json files in this directory — use Load file… instead.");
+  }));
+  $schemaSelect.addEventListener("change", e => loadFileByName(e.target.value));
+
+  if ($dropzone) {
+    ["dragenter", "dragover"].forEach(ev => $dropzone.addEventListener(ev, e => {
+      e.preventDefault(); $dropzone.classList.add("hover");
+    }));
+    ["dragleave", "drop"].forEach(ev => $dropzone.addEventListener(ev, e => {
+      e.preventDefault(); $dropzone.classList.remove("hover");
+    }));
+    $dropzone.addEventListener("drop", e => {
+      const f = e.dataTransfer.files[0];
+      if (f) loadFromFile(f);
+    });
+  }
+
+  tryAutoFetch();
+})();
+</script>
+</body>
+</html>

@@ -6,7 +6,9 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
+import typer
 
 from tests.conftest import FIXTURES_DIR
 
@@ -34,6 +36,14 @@ def _write_sqlite_config(tmp_path: Path, source_name: str | None = None) -> Path
     return config_path
 
 
+@pytest.fixture
+def stub_viewer_serve(monkeypatch):
+    from feather_etl.commands import discover as discover_cmd
+
+    monkeypatch.setattr(discover_cmd, "serve_and_open", lambda *args, **kwargs: None)
+
+
+@pytest.mark.usefixtures("stub_viewer_serve")
 class TestDiscover:
     def test_writes_json_with_tables(
         self, runner, cli_env: tuple[Path, Path], monkeypatch
@@ -53,6 +63,75 @@ class TestDiscover:
         table_names = [entry["table_name"] for entry in payload]
         assert any("SALESINVOICE" in t for t in table_names)
         assert any("CUSTOMERMASTER" in t for t in table_names)
+
+    def test_invokes_shared_viewer_runtime_after_writing_json(
+        self, runner, tmp_path: Path, monkeypatch
+    ):
+        from feather_etl.cli import app
+        from feather_etl.commands import discover as discover_cmd
+
+        config_dir = tmp_path / "config"
+        work_dir = tmp_path / "work"
+        config_dir.mkdir()
+        work_dir.mkdir()
+        shutil.copy2(FIXTURES_DIR / "client.duckdb", config_dir / "client.duckdb")
+
+        config_path = config_dir / "feather.yaml"
+        config = {
+            "source": {"type": "duckdb", "path": "./client.duckdb"},
+            "destination": {"path": str(work_dir / "feather_data.duckdb")},
+            "tables": [
+                {
+                    "name": "inventory_group",
+                    "source_table": "icube.InventoryGroup",
+                    "target_table": "bronze.inventory_group",
+                    "strategy": "full",
+                },
+            ],
+        }
+        config_path.write_text(yaml.dump(config, default_flow_style=False))
+        monkeypatch.chdir(work_dir)
+
+        seen: dict[str, object] = {}
+
+        def fake_serve_and_open(target_dir: Path, preferred_port: int = 8000):
+            seen["serve_target_dir"] = target_dir
+            seen["preferred_port"] = preferred_port
+
+        monkeypatch.setattr(discover_cmd, "serve_and_open", fake_serve_and_open)
+
+        result = runner.invoke(app, ["discover", "--config", str(config_path)])
+
+        assert result.exit_code == 0, result.output
+        schema_files = list(work_dir.glob("schema_*.json"))
+        assert len(schema_files) == 1
+        expected_target_dir = schema_files[0].parent.resolve()
+        assert expected_target_dir != config_dir.resolve()
+        assert seen["serve_target_dir"] == expected_target_dir
+        assert seen["preferred_port"] == 8000
+        assert "Wrote" in result.output
+        assert "Schema viewer" not in result.output
+
+    def test_runtime_emitted_output_line_is_surfaced(
+        self, runner, cli_env: tuple[Path, Path], monkeypatch
+    ):
+        from feather_etl.cli import app
+        from feather_etl.commands import discover as discover_cmd
+
+        config_path, tmp_path = cli_env
+        monkeypatch.chdir(tmp_path)
+
+        monkeypatch.setattr(
+            discover_cmd,
+            "serve_and_open",
+            lambda *args, **kwargs: typer.echo("Schema viewer updated."),
+        )
+
+        result = runner.invoke(app, ["discover", "--config", str(config_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "Schema viewer updated." in result.output
+        assert "Wrote" in result.output
 
     def test_discover_bad_source_fails(self, runner, tmp_path: Path):
         from feather_etl.cli import app

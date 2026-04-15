@@ -10,6 +10,7 @@ from feather_etl.commands.init import register as register_init
 from feather_etl.commands.run import register as register_run
 from feather_etl.commands.setup import register as register_setup
 from feather_etl.commands.status import register as register_status
+from feather_etl.commands.view import register as register_view
 from feather_etl.commands.validate import register as register_validate
 
 app = typer.Typer(name="feather", help="feather-etl: config-driven ETL")
@@ -27,6 +28,7 @@ def main(
 register_init(app)
 register_validate(app)
 register_discover(app)
+register_view(app)
 register_setup(app)
 register_run(app)
 register_history(app)

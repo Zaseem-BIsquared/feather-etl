@@ -146,7 +146,8 @@ feather init client-abc                # scaffold a new client project directory
 
 # Configuration
 feather validate                       # validate config, resolve paths — no execution
-feather discover                       # list all tables in the configured source
+feather discover                       # discover source schema, write JSON, and auto-open the bundled schema viewer
+feather view [PATH] [--port 8000]      # serve an existing schema output folder manually
 
 # Pipeline operations
 feather setup                          # init state DB + schemas + apply transforms (optional — run creates them automatically)
@@ -162,16 +163,25 @@ All commands accept `--config PATH` (default: `feather.yaml`). `run` and `setup`
 
 ### Browsing a source schema
 
-`feather --json discover` emits NDJSON one table per line. For a visual browser of the result, drop `scripts/schema_viewer.html` next to the output file and serve the folder:
+Primary flow:
+
+`feather discover` discovers the source schema, writes an auto-named `schema_*.json` in the current working directory, and auto-serves/opens the bundled schema viewer.
 
 ```bash
-feather --json discover > schema.json
-cp /path/to/feather-etl/scripts/schema_viewer.html .
-python -m http.server 8000
-# open http://localhost:8000/schema_viewer.html
+feather discover
 ```
 
-The viewer auto-discovers every `schema*.json` in the same folder, so multiple databases can be browsed side by side. Zero dependencies, works offline, falls back to drag-drop when opened via `file://`. See GH issue #16 for planned `feather discover --viewer` integration.
+It uses the schema output directory as the viewer root, prefers port `8000` first, and falls back automatically if that port is busy.
+
+Manual hosting is still possible when you want to serve an existing schema folder yourself:
+
+```bash
+feather view
+feather view ./schemas
+feather view ./schemas --port 8010
+```
+
+`feather view` serves an existing directory, so the path must already exist. It uses the same smart port selection as discover: prefer the requested port, then fall back automatically if needed.
 
 ## Client Project Layout
 

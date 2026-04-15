@@ -46,6 +46,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/feather_etl"]
+include = ["src/feather_etl/resources/**"]
 
 [tool.hatch.build.targets.sdist]
 exclude = [

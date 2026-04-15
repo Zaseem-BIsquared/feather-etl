@@ -64,6 +64,10 @@ def test_full_onboarding_flow(tmp_path: Path, monkeypatch):
 
     # --- 4. feather discover ---
     monkeypatch.chdir(project_dir)
+    import feather_etl.commands.discover as discover_cmd
+
+    # Stub viewer runtime to avoid blocking e2e on the long-lived server/browser flow.
+    monkeypatch.setattr(discover_cmd, "serve_and_open", lambda *args, **kwargs: None)
     result = runner.invoke(app, ["discover", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
     assert "Wrote" in result.output
