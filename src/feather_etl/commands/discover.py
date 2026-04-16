@@ -134,35 +134,36 @@ def discover(
     state = DiscoverState.load(target_dir)
 
     sources = _expand_db_sources(cfg.sources)
-    current_pairs = [(source.name, _fingerprint_for(source)) for source in sources]
-    proposals, ambiguous = detect_renames(state=state, current=current_pairs)
+    flag: str | None = None
+    if refresh:
+        flag = "refresh"
+    elif retry_failed:
+        flag = "retry-failed"
+    elif prune:
+        flag = "prune"
 
-    if ambiguous:
-        for new_name, candidates in ambiguous:
-            typer.echo(
-                f"Ambiguous rename for {new_name}: candidates "
-                f"{', '.join(candidates)}",
-                err=True,
-            )
-        raise typer.Exit(code=2)
+    if flag not in {"refresh", "prune"}:
+        current_pairs = [(source.name, _fingerprint_for(source)) for source in sources]
+        proposals, ambiguous = detect_renames(state=state, current=current_pairs)
 
-    if proposals:
-        for old_name, new_name in proposals:
-            typer.echo(f"  Rename inferred: {old_name} -> {new_name}")
-
-        if no_renames:
-            for old_name, new_name in proposals:
-                state.record_orphaned(
-                    old_name,
-                    note=f"rename rejected; new source discovered as {new_name}",
+        if ambiguous:
+            for new_name, candidates in ambiguous:
+                typer.echo(
+                    f"Ambiguous rename for {new_name}: candidates "
+                    f"{', '.join(candidates)}",
+                    err=True,
                 )
-                typer.echo(f"  Kept {old_name} orphaned; treating {new_name} as new")
-        elif yes:
-            apply_renames(state=state, renames=proposals, config_dir=target_dir)
-        elif sys.stdin.isatty():
-            if typer.confirm("Accept all?", default=True):
-                apply_renames(state=state, renames=proposals, config_dir=target_dir)
-            else:
+            raise typer.Exit(code=2)
+
+        if proposals:
+            proposal_err = not sys.stdin.isatty()
+            for old_name, new_name in proposals:
+                typer.echo(
+                    f"  Rename inferred: {old_name} -> {new_name}",
+                    err=proposal_err,
+                )
+
+            if no_renames:
                 for old_name, new_name in proposals:
                     state.record_orphaned(
                         old_name,
@@ -171,23 +172,31 @@ def discover(
                     typer.echo(
                         f"  Kept {old_name} orphaned; treating {new_name} as new"
                     )
-        else:
-            typer.echo(
-                "Rename confirmation required in non-interactive mode. "
-                "Re-run with --yes to accept or --no-renames to reject.",
-                err=True,
-            )
-            raise typer.Exit(code=3)
+            elif yes:
+                apply_renames(state=state, renames=proposals, config_dir=target_dir)
+            elif sys.stdin.isatty():
+                if typer.confirm("Accept all?", default=True):
+                    apply_renames(
+                        state=state, renames=proposals, config_dir=target_dir
+                    )
+                else:
+                    for old_name, new_name in proposals:
+                        state.record_orphaned(
+                            old_name,
+                            note=f"rename rejected; new source discovered as {new_name}",
+                        )
+                        typer.echo(
+                            f"  Kept {old_name} orphaned; treating {new_name} as new"
+                        )
+            else:
+                typer.echo(
+                    "Rename confirmation required in non-interactive mode. "
+                    "Re-run with --yes to accept or --no-renames to reject.",
+                    err=True,
+                )
+                raise typer.Exit(code=3)
 
     names = [s.name for s in sources]
-
-    flag: str | None = None
-    if refresh:
-        flag = "refresh"
-    elif retry_failed:
-        flag = "retry-failed"
-    elif prune:
-        flag = "prune"
 
     decisions = classify(state=state, current_names=names, flag=flag)
 

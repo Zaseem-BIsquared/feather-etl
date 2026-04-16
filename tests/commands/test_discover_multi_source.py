@@ -364,3 +364,66 @@ class TestRenameNonTtyExit3:
         )
         assert state["sources"]["erp"]["status"] == "orphaned"
         assert state["sources"]["erp_main"]["status"] == "ok"
+
+    def test_refresh_flag_bypasses_rename_confirmation(
+        self, runner, tmp_path, monkeypatch
+    ):
+        from feather_etl.cli import app
+
+        sqlite = tmp_path / "src.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
+        first_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp_main.yaml")
+        monkeypatch.chdir(tmp_path)
+
+        first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
+        assert first.exit_code == 0, first.output
+
+        refreshed = runner.invoke(
+            app, ["discover", "--config", str(renamed_cfg), "--refresh"]
+        )
+        assert refreshed.exit_code == 0, refreshed.output
+        assert "Rename confirmation required" not in refreshed.output
+        assert (tmp_path / "schema_erp_main.json").is_file()
+
+        state = json.loads(
+            (tmp_path / "feather_discover_state.json").read_text()
+        )
+        assert state["sources"]["erp_main"]["status"] == "ok"
+        assert state["sources"]["erp"]["status"] == "removed"
+
+    def test_prune_flag_bypasses_rename_confirmation(
+        self, runner, tmp_path, monkeypatch
+    ):
+        from feather_etl.cli import app
+
+        sqlite = tmp_path / "src.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
+        first_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp_main.yaml")
+        monkeypatch.chdir(tmp_path)
+
+        first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
+        assert first.exit_code == 0, first.output
+        assert (tmp_path / "schema_erp.json").is_file()
+
+        pruned = runner.invoke(
+            app, ["discover", "--config", str(renamed_cfg), "--prune"]
+        )
+        assert pruned.exit_code == 0, pruned.output
+        assert "Rename confirmation required" not in pruned.output
+        assert not (tmp_path / "schema_erp.json").exists()
+        assert not (tmp_path / "schema_erp_main.json").exists()
+
+        state = json.loads(
+            (tmp_path / "feather_discover_state.json").read_text()
+        )
+        assert "erp" not in state["sources"]

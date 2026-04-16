@@ -341,7 +341,7 @@ class TestRenameAmbiguousMatch:
         state.save()
 
         result = runner.invoke(app, ["discover", "--config", str(config_path)])
-        assert result.exit_code != 0
+        assert result.exit_code == 2
         output = result.output.lower()
         assert "ambiguous" in output
         assert "a" in result.output
