@@ -8,6 +8,7 @@ dist/
 feather_data.duckdb
 feather_state.duckdb
 feather_validation.json
+feather_discover_state.json
 .env
 .DS_Store
 .coverage

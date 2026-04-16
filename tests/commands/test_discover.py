@@ -126,9 +126,10 @@ class TestDiscover:
         assert "Schema viewer updated." in result.output
         assert "succeeded" in result.output
 
-    def test_discover_bad_source_fails(self, runner, tmp_path: Path):
+    def test_discover_bad_source_fails(self, runner, tmp_path: Path, monkeypatch):
         from feather_etl.cli import app
 
+        monkeypatch.chdir(tmp_path)
         db = tmp_path / "empty.duckdb"
         db.write_bytes(b"not a duckdb file")
         config = {
