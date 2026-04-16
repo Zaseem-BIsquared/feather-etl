@@ -135,3 +135,76 @@ def classify(*, state: DiscoverState, current_names: list[str],
     for name in state_names - set(current):
         decisions[name] = "removed"
     return decisions
+
+
+def detect_renames(*, state: DiscoverState,
+                   current: list[tuple[str, str]]
+                   ) -> tuple[list[tuple[str, str]], list[tuple[str, list[str]]]]:
+    """Infer rename proposals from matching fingerprints."""
+    current_names = {name for name, _ in current}
+    state_only = [
+        name for name, entry in state.sources.items()
+        if name not in current_names
+        and entry.get("status") in ("ok", "removed", "failed")
+    ]
+
+    proposals: list[tuple[str, str]] = []
+    ambiguous: list[tuple[str, list[str]]] = []
+
+    for new_name, fingerprint in current:
+        if new_name in state.sources:
+            continue
+        candidates = [
+            name for name in state_only
+            if state.sources.get(name, {}).get("fingerprint") == fingerprint
+        ]
+        if len(candidates) == 1:
+            proposals.append((candidates[0], new_name))
+        elif len(candidates) > 1:
+            ambiguous.append((new_name, candidates))
+
+    return proposals, ambiguous
+
+
+def _renamed_schema_path(path: str, old: str, new: str) -> str:
+    current = Path(path)
+    old_prefix = f"schema_{old}"
+    if not current.name.startswith(old_prefix):
+        return path
+    new_name = current.name.replace(old_prefix, f"schema_{new}", 1)
+    return str(current.with_name(new_name))
+
+
+def apply_renames(*, state: DiscoverState, renames: list[tuple[str, str]],
+                  config_dir: Path) -> None:
+    """Move matched state entries and schema files to their new names."""
+    for old, new in renames:
+        if old not in state.sources:
+            continue
+
+        old_prefix = f"{old}__"
+        new_prefix = f"{new}__"
+
+        parent_entry = state.sources.pop(old)
+        if "output_path" in parent_entry:
+            parent_entry["output_path"] = _renamed_schema_path(
+                parent_entry["output_path"], old, new
+            )
+        state.sources[new] = parent_entry
+
+        if old in state.auto_enumeration:
+            state.auto_enumeration[new] = state.auto_enumeration.pop(old)
+
+        child_keys = [name for name in list(state.sources) if name.startswith(old_prefix)]
+        for child_old in child_keys:
+            child_new = new_prefix + child_old[len(old_prefix):]
+            child_entry = state.sources.pop(child_old)
+            if "output_path" in child_entry:
+                child_entry["output_path"] = _renamed_schema_path(
+                    child_entry["output_path"], old, new
+                )
+            state.sources[child_new] = child_entry
+
+        for schema_file in sorted(config_dir.glob(f"schema_{old}*.json")):
+            target_name = schema_file.name.replace(f"schema_{old}", f"schema_{new}", 1)
+            schema_file.rename(config_dir / target_name)
