@@ -214,6 +214,26 @@ class TestRenameInference:
         assert proposals == []
         assert ambiguous == [("c", ["a", "b"])]
 
+    def test_duplicate_current_fingerprint_collision_is_ambiguous(
+        self, tmp_path: Path
+    ):
+        from feather_etl.discover_state import DiscoverState, detect_renames
+
+        state = DiscoverState.load(tmp_path)
+        state.sources["erp"] = {
+            "status": "ok",
+            "fingerprint": "fp-1",
+            "output_path": "schema_erp.json",
+        }
+
+        proposals, ambiguous = detect_renames(
+            state=state,
+            current=[("erp_main", "fp-1"), ("erp_copy", "fp-1")],
+        )
+
+        assert proposals == [("erp", "erp_main")]
+        assert ambiguous == [("erp_copy", ["erp"])]
+
     def test_apply_renames_moves_state_entries(self, tmp_path: Path):
         from feather_etl.discover_state import DiscoverState, apply_renames
 
@@ -257,3 +277,24 @@ class TestRenameInference:
         assert (tmp_path / "schema_erp__db1.json").exists() is False
         assert (tmp_path / "schema_erp_main.json").is_file()
         assert (tmp_path / "schema_erp_main__db1.json").is_file()
+
+    def test_apply_renames_keeps_unrelated_files(self, tmp_path: Path):
+        from feather_etl.discover_state import DiscoverState, apply_renames
+
+        state = DiscoverState.load(tmp_path)
+        state.sources["erp"] = {
+            "status": "ok",
+            "fingerprint": "fp-parent",
+            "output_path": "schema_erp.json",
+        }
+        (tmp_path / "schema_erp.json").write_text("parent")
+        (tmp_path / "schema_erp2.json").write_text("other")
+
+        apply_renames(
+            state=state,
+            renames=[("erp", "erp_main")],
+            config_dir=tmp_path,
+        )
+
+        assert (tmp_path / "schema_erp_main.json").is_file()
+        assert (tmp_path / "schema_erp2.json").is_file()

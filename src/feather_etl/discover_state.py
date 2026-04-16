@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -142,36 +143,47 @@ def detect_renames(*, state: DiscoverState,
                    ) -> tuple[list[tuple[str, str]], list[tuple[str, list[str]]]]:
     """Infer rename proposals from matching fingerprints."""
     current_names = {name for name, _ in current}
-    state_only = [
-        name for name, entry in state.sources.items()
+    eligible_state = {
+        name: entry
+        for name, entry in state.sources.items()
         if name not in current_names
         and entry.get("status") in ("ok", "removed", "failed")
-    ]
+    }
 
     proposals: list[tuple[str, str]] = []
     ambiguous: list[tuple[str, list[str]]] = []
+    used_state_names: set[str] = set()
 
     for new_name, fingerprint in current:
         if new_name in state.sources:
             continue
         candidates = [
-            name for name in state_only
-            if state.sources.get(name, {}).get("fingerprint") == fingerprint
+            name for name, entry in eligible_state.items()
+            if entry.get("fingerprint") == fingerprint
         ]
-        if len(candidates) == 1:
-            proposals.append((candidates[0], new_name))
-        elif len(candidates) > 1:
+        available = [name for name in candidates if name not in used_state_names]
+        if len(candidates) == 1 and len(available) == 1:
+            old_name = available[0]
+            proposals.append((old_name, new_name))
+            used_state_names.add(old_name)
+        elif candidates:
             ambiguous.append((new_name, candidates))
 
     return proposals, ambiguous
 
 
+def _sanitised_filename(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
+
+
 def _renamed_schema_path(path: str, old: str, new: str) -> str:
     current = Path(path)
-    old_prefix = f"schema_{old}"
+    old_prefix = f"schema_{_sanitised_filename(old)}"
     if not current.name.startswith(old_prefix):
         return path
-    new_name = current.name.replace(old_prefix, f"schema_{new}", 1)
+    new_name = current.name.replace(
+        old_prefix, f"schema_{_sanitised_filename(new)}", 1
+    )
     return str(current.with_name(new_name))
 
 
@@ -186,10 +198,6 @@ def apply_renames(*, state: DiscoverState, renames: list[tuple[str, str]],
         new_prefix = f"{new}__"
 
         parent_entry = state.sources.pop(old)
-        if "output_path" in parent_entry:
-            parent_entry["output_path"] = _renamed_schema_path(
-                parent_entry["output_path"], old, new
-            )
         state.sources[new] = parent_entry
 
         if old in state.auto_enumeration:
@@ -199,12 +207,34 @@ def apply_renames(*, state: DiscoverState, renames: list[tuple[str, str]],
         for child_old in child_keys:
             child_new = new_prefix + child_old[len(old_prefix):]
             child_entry = state.sources.pop(child_old)
-            if "output_path" in child_entry:
-                child_entry["output_path"] = _renamed_schema_path(
-                    child_entry["output_path"], old, new
-                )
+            child_entry["output_path"] = _rename_schema_file(
+                config_dir=config_dir,
+                output_path=child_entry.get("output_path"),
+                old=child_old,
+                new=child_new,
+            )
             state.sources[child_new] = child_entry
 
-        for schema_file in sorted(config_dir.glob(f"schema_{old}*.json")):
-            target_name = schema_file.name.replace(f"schema_{old}", f"schema_{new}", 1)
-            schema_file.rename(config_dir / target_name)
+        parent_entry["output_path"] = _rename_schema_file(
+            config_dir=config_dir,
+            output_path=parent_entry.get("output_path"),
+            old=old,
+            new=new,
+        )
+
+
+def _rename_schema_file(*, config_dir: Path, output_path: str | None, old: str,
+                        new: str) -> str | None:
+    if output_path is None:
+        return None
+    current = Path(output_path)
+    current_name = current.name
+    new_path = _renamed_schema_path(output_path, old, new)
+    if new_path == output_path:
+        return output_path
+
+    source_file = config_dir / current_name
+    target_file = config_dir / Path(new_path).name
+    if source_file.is_file():
+        source_file.rename(target_file)
+    return new_path
