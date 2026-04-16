@@ -106,7 +106,15 @@ def _fingerprint_for(source) -> str:
     return f"{source.type}:{Path(source.path).resolve()}"
 
 
-def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
+def discover(
+    config: Path = typer.Option("feather.yaml", "--config"),
+    refresh: bool = typer.Option(False, "--refresh",
+        help="Re-run discovery for every source, ignoring cached state."),
+    retry_failed: bool = typer.Option(False, "--retry-failed",
+        help="Only retry sources that previously failed."),
+    prune: bool = typer.Option(False, "--prune",
+        help="Delete state entries and JSON files for removed/orphaned sources."),
+) -> None:
     """Save each source's schema to an auto-named schema JSON file, then serve/open the schema viewer."""
     cfg = _load_and_validate(config)
     target_dir = Path(".")
@@ -114,7 +122,32 @@ def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
 
     sources = _expand_db_sources(cfg.sources)
     names = [s.name for s in sources]
-    decisions = classify(state=state, current_names=names, flag=None)
+
+    flag: str | None = None
+    if refresh:
+        flag = "refresh"
+    elif retry_failed:
+        flag = "retry-failed"
+    elif prune:
+        flag = "prune"
+
+    decisions = classify(state=state, current_names=names, flag=flag)
+
+    if flag == "prune":
+        pruned = 0
+        for name, dec in list(decisions.items()):
+            entry = state.sources.get(name)
+            if dec == "removed" or (entry and entry.get("status") in ("orphaned", "removed")):
+                if entry and entry.get("output_path"):
+                    target = target_dir / Path(entry["output_path"]).name
+                    if target.is_file():
+                        target.unlink()
+                        typer.echo(f"  Pruned: {target.name}")
+                state.sources.pop(name, None)
+                pruned += 1
+        state.save()
+        typer.echo(f"\nPruned {pruned} removed/orphaned entries.")
+        return
 
     succeeded = 0
     failed_count = 0

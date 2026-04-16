@@ -187,3 +187,91 @@ class TestDiscoverPostgresMultiDatabase:
                 assert f"schema_wh__{n}.json" in files
         finally:
             self._drop_databases(names)
+
+
+@pytest.mark.usefixtures("stub_viewer_serve")
+class TestDiscoverFlags:
+    def test_refresh_rewrites_schema_files(self, runner, tmp_path, monkeypatch):
+        from feather_etl.cli import app
+
+        sqlite = tmp_path / "src.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
+        cfg = multi_source_yaml(tmp_path, [
+            {"name": "db", "type": "sqlite", "path": str(sqlite)},
+        ])
+        monkeypatch.chdir(tmp_path)
+
+        runner.invoke(app, ["discover", "--config", str(cfg)])
+        first_mtime = (tmp_path / "schema_db.json").stat().st_mtime_ns
+
+        import time; time.sleep(0.05)
+        r = runner.invoke(app, ["discover", "--config", str(cfg), "--refresh"])
+        assert r.exit_code == 0
+        assert (tmp_path / "schema_db.json").stat().st_mtime_ns > first_mtime
+
+    def test_retry_failed_only_retries_failures(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """Simulate a failed source then verify --retry-failed retries only it."""
+        from feather_etl.cli import app
+        from feather_etl.discover_state import DiscoverState
+
+        sqlite = tmp_path / "src.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
+        bogus = tmp_path / "missing.sqlite"  # doesn't exist → check() fails
+
+        cfg = multi_source_yaml(tmp_path, [
+            {"name": "ok", "type": "sqlite", "path": str(sqlite)},
+            {"name": "bad", "type": "sqlite", "path": str(bogus)},
+        ])
+        monkeypatch.chdir(tmp_path)
+
+        r1 = runner.invoke(app, ["discover", "--config", str(cfg)])
+        assert r1.exit_code == 2  # one failed
+        ok_mtime = (tmp_path / "schema_ok.json").stat().st_mtime_ns
+
+        # Make the bogus path valid.
+        shutil.copy2(sqlite, bogus)
+
+        import time; time.sleep(0.05)
+        r2 = runner.invoke(
+            app, ["discover", "--config", str(cfg), "--retry-failed"]
+        )
+        assert r2.exit_code == 0
+        # ok was not re-discovered.
+        assert (tmp_path / "schema_ok.json").stat().st_mtime_ns == ok_mtime
+        # bad now has a schema file.
+        assert (tmp_path / "schema_bad.json").is_file()
+
+    def test_prune_removes_orphaned_state_and_file(
+        self, runner, tmp_path, monkeypatch
+    ):
+        from feather_etl.cli import app
+
+        a = tmp_path / "a.sqlite"; b = tmp_path / "b.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", a)
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", b)
+        cfg = multi_source_yaml(tmp_path, [
+            {"name": "a", "type": "sqlite", "path": str(a)},
+            {"name": "b", "type": "sqlite", "path": str(b)},
+        ])
+        monkeypatch.chdir(tmp_path)
+        runner.invoke(app, ["discover", "--config", str(cfg)])
+        assert (tmp_path / "schema_a.json").exists()
+        assert (tmp_path / "schema_b.json").exists()
+
+        # Remove 'b' from feather.yaml.
+        cfg2 = multi_source_yaml(tmp_path, [
+            {"name": "a", "type": "sqlite", "path": str(a)},
+        ])
+        runner.invoke(app, ["discover", "--config", str(cfg2)])
+        # 'b' marked removed in state, file still exists.
+        assert (tmp_path / "schema_b.json").exists()
+
+        r = runner.invoke(app, ["discover", "--config", str(cfg2), "--prune"])
+        assert r.exit_code == 0
+        assert not (tmp_path / "schema_b.json").exists()
+        state = json.loads(
+            (tmp_path / "feather_discover_state.json").read_text()
+        )
+        assert "b" not in state["sources"]
