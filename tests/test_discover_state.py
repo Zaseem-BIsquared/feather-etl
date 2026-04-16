@@ -111,3 +111,44 @@ class TestClassify:
                     table_count=1, output_path=Path("./schema_a.json"))
         decisions = classify(state=s, current_names=[], flag=None)
         assert decisions["a"] == "removed"
+
+    def test_prune_skips_current_and_marks_removed(self, tmp_path: Path):
+        from feather_etl.discover_state import DiscoverState, classify
+
+        s = DiscoverState.load(tmp_path)
+        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
+                    table_count=1, output_path=Path("./schema_a.json"))
+        s.record_ok(name="b", type_="csv", fingerprint="csv:/y",
+                    table_count=2, output_path=Path("./schema_b.json"))
+        decisions = classify(state=s, current_names=["a"], flag="prune")
+        assert decisions["a"] == "skip"
+        assert decisions["b"] == "removed"
+
+
+class TestRecordMutations:
+    def test_record_removed_sets_status(self, tmp_path: Path):
+        from feather_etl.discover_state import DiscoverState
+
+        s = DiscoverState.load(tmp_path)
+        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
+                    table_count=1, output_path=Path("./schema_a.json"))
+        s.record_removed("a")
+        assert s.sources["a"]["status"] == "removed"
+        assert "removed_detected_at" in s.sources["a"]
+
+    def test_record_removed_ignores_unknown_name(self, tmp_path: Path):
+        from feather_etl.discover_state import DiscoverState
+
+        s = DiscoverState.load(tmp_path)
+        s.record_removed("nonexistent")  # should not raise
+        assert "nonexistent" not in s.sources
+
+    def test_record_orphaned_sets_status_and_note(self, tmp_path: Path):
+        from feather_etl.discover_state import DiscoverState
+
+        s = DiscoverState.load(tmp_path)
+        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
+                    table_count=1, output_path=Path("./schema_a.json"))
+        s.record_orphaned("a", note="rename rejected")
+        assert s.sources["a"]["status"] == "orphaned"
+        assert s.sources["a"]["note"] == "rename rejected"

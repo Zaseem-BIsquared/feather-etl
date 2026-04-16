@@ -216,7 +216,7 @@ def discover(
             host=getattr(source, "host", None),
             database=getattr(source, "database", None),
         )
-        label = "new" if decision == "new" else decision
+        label = decision
         typer.echo(f"{prefix}  ({label})  → {count} tables → ./{out.name}")
 
     # Mark state-only entries as removed.

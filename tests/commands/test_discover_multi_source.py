@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -80,7 +81,6 @@ class TestDiscoverResume:
         first_mtime = (tmp_path / "schema_db.json").stat().st_mtime_ns
 
         # Touch the schema JSON so we can detect whether it was rewritten.
-        import time
         time.sleep(0.05)
 
         r2 = runner.invoke(app, ["discover", "--config", str(cfg)])
@@ -204,7 +204,7 @@ class TestDiscoverFlags:
         runner.invoke(app, ["discover", "--config", str(cfg)])
         first_mtime = (tmp_path / "schema_db.json").stat().st_mtime_ns
 
-        import time; time.sleep(0.05)
+        time.sleep(0.05)
         r = runner.invoke(app, ["discover", "--config", str(cfg), "--refresh"])
         assert r.exit_code == 0
         assert (tmp_path / "schema_db.json").stat().st_mtime_ns > first_mtime
@@ -214,7 +214,6 @@ class TestDiscoverFlags:
     ):
         """Simulate a failed source then verify --retry-failed retries only it."""
         from feather_etl.cli import app
-        from feather_etl.discover_state import DiscoverState
 
         sqlite = tmp_path / "src.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
@@ -233,7 +232,7 @@ class TestDiscoverFlags:
         # Make the bogus path valid.
         shutil.copy2(sqlite, bogus)
 
-        import time; time.sleep(0.05)
+        time.sleep(0.05)
         r2 = runner.invoke(
             app, ["discover", "--config", str(cfg), "--retry-failed"]
         )
