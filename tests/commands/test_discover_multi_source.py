@@ -63,6 +63,52 @@ class TestDiscoverHeterogeneousSources:
                          "schema_duck.json"}
 
 
+@pytest.mark.usefixtures("stub_viewer_serve")
+class TestDiscoverResume:
+    def test_second_run_skips_cached(self, runner, tmp_path, monkeypatch):
+        from feather_etl.cli import app
+
+        sqlite = tmp_path / "src.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
+        cfg = multi_source_yaml(tmp_path, [
+            {"name": "db", "type": "sqlite", "path": str(sqlite)},
+        ])
+        monkeypatch.chdir(tmp_path)
+
+        r1 = runner.invoke(app, ["discover", "--config", str(cfg)])
+        assert r1.exit_code == 0
+        first_mtime = (tmp_path / "schema_db.json").stat().st_mtime_ns
+
+        # Touch the schema JSON so we can detect whether it was rewritten.
+        import time
+        time.sleep(0.05)
+
+        r2 = runner.invoke(app, ["discover", "--config", str(cfg)])
+        assert r2.exit_code == 0
+        assert "cached" in r2.output
+        # Cached run does NOT rewrite the schema file.
+        assert (tmp_path / "schema_db.json").stat().st_mtime_ns == first_mtime
+
+    def test_state_file_written(self, runner, tmp_path, monkeypatch):
+        from feather_etl.cli import app
+
+        sqlite = tmp_path / "src.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
+        cfg = multi_source_yaml(tmp_path, [
+            {"name": "db", "type": "sqlite", "path": str(sqlite)},
+        ])
+        monkeypatch.chdir(tmp_path)
+
+        r = runner.invoke(app, ["discover", "--config", str(cfg)])
+        assert r.exit_code == 0
+        state_path = tmp_path / "feather_discover_state.json"
+        assert state_path.is_file()
+        payload = json.loads(state_path.read_text())
+        assert payload["schema_version"] == 1
+        assert "db" in payload["sources"]
+        assert payload["sources"]["db"]["status"] == "ok"
+
+
 CONN_STR = "dbname=feather_test host=localhost"
 
 

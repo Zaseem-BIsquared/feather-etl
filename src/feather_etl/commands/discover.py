@@ -9,6 +9,7 @@ from pathlib import Path
 import typer
 
 from feather_etl.commands._common import _load_and_validate
+from feather_etl.discover_state import DiscoverState, classify
 from feather_etl.viewer_server import serve_and_open
 
 
@@ -92,36 +93,104 @@ def _expand_db_sources(sources: list) -> list:
     return expanded
 
 
+def _fingerprint_for(source) -> str:
+    """Composition per spec §6.7.
+
+    DB sources: '<type>:<host>:<port>:<database>'. File sources: '<type>:<absolute_path>'.
+    """
+    if hasattr(source, "host") and source.host is not None:
+        return (
+            f"{source.type}:{source.host}:{source.port or ''}:"
+            f"{source.database or ''}"
+        )
+    return f"{source.type}:{Path(source.path).resolve()}"
+
+
 def discover(config: Path = typer.Option("feather.yaml", "--config")) -> None:
     """Save each source's schema to an auto-named schema JSON file, then serve/open the schema viewer."""
     cfg = _load_and_validate(config)
     target_dir = Path(".")
+    state = DiscoverState.load(target_dir)
 
     sources = _expand_db_sources(cfg.sources)
-    total = len(sources)
+    names = [s.name for s in sources]
+    decisions = classify(state=state, current_names=names, flag=None)
 
     succeeded = 0
-    failed: list[tuple[str, str]] = []
+    failed_count = 0
+    cached_count = 0
+    total = len(sources)
+
+    if state.last_run_at:
+        typer.echo(
+            f"Discovering from {config.name} (state file found, "
+            f"last run {state.last_run_at})..."
+        )
+    else:
+        typer.echo(f"Discovering from {config.name}...")
 
     for idx, source in enumerate(sources, start=1):
         prefix = f"  [{idx}/{total}] {source.name}"
+        decision = decisions.get(source.name, "new")
+        fingerprint = _fingerprint_for(source)
+
+        if decision == "cached":
+            entry = state.sources[source.name]
+            cached_count += 1
+            typer.echo(f"{prefix}  (cached, {entry.get('table_count', 0)} tables)")
+            continue
+        if decision == "skip":
+            typer.echo(f"{prefix}  (skipped)")
+            continue
+
+        # "new", "retry", "rerun" — actually discover.
         if not source.check():
             err = getattr(source, "_last_error", "connection failed")
-            failed.append((source.name, err))
+            failed_count += 1
+            state.record_failed(
+                name=source.name, type_=source.type, fingerprint=fingerprint,
+                error=err, host=getattr(source, "host", None),
+                database=getattr(source, "database", None),
+            )
             typer.echo(f"{prefix}  → FAILED: {err}", err=True)
             continue
         try:
             out, count = _write_schema(source, target_dir)
-        except Exception as e:  # pragma: no cover
-            failed.append((source.name, str(e)))
+        except Exception as e:
+            failed_count += 1
+            state.record_failed(
+                name=source.name, type_=source.type, fingerprint=fingerprint,
+                error=str(e), host=getattr(source, "host", None),
+                database=getattr(source, "database", None),
+            )
             typer.echo(f"{prefix}  → FAILED: {e}", err=True)
             continue
         succeeded += 1
-        typer.echo(f"{prefix}  → {count} tables → ./{out.name}")
+        state.record_ok(
+            name=source.name, type_=source.type, fingerprint=fingerprint,
+            table_count=count, output_path=out,
+            host=getattr(source, "host", None),
+            database=getattr(source, "database", None),
+        )
+        label = "new" if decision == "new" else decision
+        typer.echo(f"{prefix}  ({label})  → {count} tables → ./{out.name}")
 
-    typer.echo(f"\n{succeeded} succeeded, {len(failed)} failed.")
+    # Mark state-only entries as removed.
+    for name, dec in decisions.items():
+        if dec == "removed":
+            state.record_removed(name)
+
+    state.save()
+
+    parts = [f"{succeeded + cached_count} succeeded"]
+    if cached_count:
+        parts.append(f"{cached_count} cached")
+    if failed_count:
+        parts.append(f"{failed_count} failed")
+    typer.echo(f"\n{', '.join(parts)}.")
+
     serve_and_open(target_dir.resolve(), preferred_port=8000)
-    if failed:
+    if failed_count > 0:
         raise typer.Exit(code=2)
 
 

@@ -164,7 +164,7 @@ class TestDiscover:
         expected = tmp_path / "schema_sqlite-source.json"
         assert expected.exists()
 
-    def test_prints_single_summary_line(self, runner, tmp_path: Path, monkeypatch):
+    def test_prints_header_source_and_summary_lines(self, runner, tmp_path: Path, monkeypatch):
         from feather_etl.cli import app
 
         config_path = _write_sqlite_config(tmp_path)
@@ -174,9 +174,11 @@ class TestDiscover:
         assert result.exit_code == 0
 
         lines = [line for line in result.output.splitlines() if line.strip()]
-        assert len(lines) == 2  # [1/1] per-source line + summary line
-        assert "schema_sqlite-source.json" in lines[0]
-        assert "succeeded" in lines[1]
+        # header ("Discovering from ...") + [1/1] per-source line + summary line
+        assert len(lines) == 3
+        assert "Discovering from" in lines[0]
+        assert "schema_sqlite-source.json" in lines[1]
+        assert "succeeded" in lines[2]
 
     def test_json_payload_has_expected_shape(self, runner, tmp_path: Path, monkeypatch):
         from feather_etl.cli import app
@@ -219,8 +221,9 @@ class TestDiscover:
         assert result.exit_code == 0
         assert (tmp_path / "schema_prod_erp.json").exists()
 
-    def test_silent_overwrite_on_second_run(self, runner, tmp_path: Path, monkeypatch):
+    def test_second_run_uses_cache_by_default(self, runner, tmp_path: Path, monkeypatch):
         from feather_etl.cli import app
+        import time
 
         config_path = _write_sqlite_config(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -229,10 +232,15 @@ class TestDiscover:
         assert r1.exit_code == 0
         first_mtime = (tmp_path / "schema_sqlite-source.json").stat().st_mtime_ns
 
+        # Sleep briefly so a rewrite would produce a different mtime.
+        time.sleep(0.05)
+
         r2 = runner.invoke(app, ["discover", "--config", str(config_path)])
         assert r2.exit_code == 0
+        assert "cached" in r2.output
+        # Cached run must NOT rewrite the schema file.
         second_mtime = (tmp_path / "schema_sqlite-source.json").stat().st_mtime_ns
-        assert second_mtime >= first_mtime
+        assert second_mtime == first_mtime
 
     def test_zero_tables_writes_empty_array(self, runner, tmp_path: Path, monkeypatch):
         """An empty source still produces a valid file with '[]' content."""
