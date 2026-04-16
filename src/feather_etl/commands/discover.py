@@ -293,7 +293,9 @@ def discover(
 
     state.save()
 
-    parts = [f"{succeeded + cached_count} succeeded"]
+    parts = []
+    if succeeded:
+        parts.append(f"{succeeded} discovered")
     if cached_count:
         parts.append(f"{cached_count} cached")
     if failed_count:

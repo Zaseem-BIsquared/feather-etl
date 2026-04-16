@@ -48,7 +48,7 @@ class TestDiscover:
 
         result = runner.invoke(app, ["discover", "--config", str(config_path)])
         assert result.exit_code == 0
-        assert "succeeded" in result.output
+        assert "discovered" in result.output
 
         schema_files = list(tmp_path.glob("schema_*.json"))
         assert len(schema_files) == 1
@@ -102,7 +102,7 @@ class TestDiscover:
         assert expected_target_dir != config_dir.resolve()
         assert seen["serve_target_dir"] == expected_target_dir
         assert seen["preferred_port"] == 8000
-        assert "succeeded" in result.output
+        assert "discovered" in result.output
         assert "Schema viewer" not in result.output
 
     def test_runtime_emitted_output_line_is_surfaced(
@@ -124,7 +124,7 @@ class TestDiscover:
 
         assert result.exit_code == 0, result.output
         assert "Schema viewer updated." in result.output
-        assert "succeeded" in result.output
+        assert "discovered" in result.output
 
     def test_discover_bad_source_fails(self, runner, tmp_path: Path, monkeypatch):
         from feather_etl.cli import app
@@ -179,7 +179,7 @@ class TestDiscover:
         assert len(lines) == 3
         assert "Discovering from" in lines[0]
         assert "schema_sqlite-source.json" in lines[1]
-        assert "succeeded" in lines[2]
+        assert "discovered" in lines[2]
 
     def test_json_payload_has_expected_shape(self, runner, tmp_path: Path, monkeypatch):
         from feather_etl.cli import app
