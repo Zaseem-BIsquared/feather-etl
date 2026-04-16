@@ -274,3 +274,93 @@ class TestDiscoverFlags:
             (tmp_path / "feather_discover_state.json").read_text()
         )
         assert "b" not in state["sources"]
+
+
+@pytest.mark.usefixtures("stub_viewer_serve")
+class TestRenameNonTtyExit3:
+    def test_rename_in_yaml_first_invocation_exits_3(
+        self, runner, tmp_path, monkeypatch
+    ):
+        from feather_etl.cli import app
+
+        sqlite = tmp_path / "src.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
+        first_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp_main.yaml")
+        monkeypatch.chdir(tmp_path)
+
+        first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
+        assert first.exit_code == 0, first.output
+
+        second = runner.invoke(app, ["discover", "--config", str(renamed_cfg)])
+        assert second.exit_code == 3, second.output
+        output = second.output.lower()
+        assert "rename" in output
+        assert "--yes" in output
+        assert "--no-renames" in output
+        assert "erp" in second.output
+        assert "erp_main" in second.output
+
+    def test_yes_flag_migrates_state_and_files(
+        self, runner, tmp_path, monkeypatch
+    ):
+        from feather_etl.cli import app
+
+        sqlite = tmp_path / "src.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
+        first_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp_main.yaml")
+        monkeypatch.chdir(tmp_path)
+
+        first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
+        assert first.exit_code == 0, first.output
+
+        second = runner.invoke(
+            app, ["discover", "--config", str(renamed_cfg), "--yes"]
+        )
+        assert second.exit_code == 0, second.output
+        assert (tmp_path / "schema_erp_main.json").is_file()
+        assert not (tmp_path / "schema_erp.json").exists()
+
+        state = json.loads(
+            (tmp_path / "feather_discover_state.json").read_text()
+        )
+        assert "erp_main" in state["sources"]
+        assert "erp" not in state["sources"]
+
+    def test_no_renames_orphans_old_entry(
+        self, runner, tmp_path, monkeypatch
+    ):
+        from feather_etl.cli import app
+
+        sqlite = tmp_path / "src.sqlite"
+        shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
+        first_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(tmp_path, [
+            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+        ]).rename(tmp_path / "feather_erp_main.yaml")
+        monkeypatch.chdir(tmp_path)
+
+        first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
+        assert first.exit_code == 0, first.output
+
+        second = runner.invoke(
+            app, ["discover", "--config", str(renamed_cfg), "--no-renames"]
+        )
+        assert second.exit_code == 0, second.output
+
+        state = json.loads(
+            (tmp_path / "feather_discover_state.json").read_text()
+        )
+        assert state["sources"]["erp"]["status"] == "orphaned"
+        assert state["sources"]["erp_main"]["status"] == "ok"

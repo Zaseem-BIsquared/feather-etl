@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import typer
 
 from feather_etl.commands._common import _load_and_validate
-from feather_etl.discover_state import DiscoverState, classify
+from feather_etl.discover_state import (
+    DiscoverState,
+    apply_renames,
+    classify,
+    detect_renames,
+)
 from feather_etl.viewer_server import serve_and_open
 
 
@@ -114,6 +120,13 @@ def discover(
         help="Only retry sources that previously failed."),
     prune: bool = typer.Option(False, "--prune",
         help="Delete state entries and JSON files for removed/orphaned sources."),
+    yes: bool = typer.Option(
+        False, "--yes", help="Auto-accept inferred renames."
+    ),
+    no_renames: bool = typer.Option(
+        False, "--no-renames",
+        help="Reject inferred renames; old entries become orphaned.",
+    ),
 ) -> None:
     """Save each source's schema to an auto-named schema JSON file, then serve/open the schema viewer."""
     cfg = _load_and_validate(config)
@@ -121,6 +134,51 @@ def discover(
     state = DiscoverState.load(target_dir)
 
     sources = _expand_db_sources(cfg.sources)
+    current_pairs = [(source.name, _fingerprint_for(source)) for source in sources]
+    proposals, ambiguous = detect_renames(state=state, current=current_pairs)
+
+    if ambiguous:
+        for new_name, candidates in ambiguous:
+            typer.echo(
+                f"Ambiguous rename for {new_name}: candidates "
+                f"{', '.join(candidates)}",
+                err=True,
+            )
+        raise typer.Exit(code=2)
+
+    if proposals:
+        for old_name, new_name in proposals:
+            typer.echo(f"  Rename inferred: {old_name} -> {new_name}")
+
+        if no_renames:
+            for old_name, new_name in proposals:
+                state.record_orphaned(
+                    old_name,
+                    note=f"rename rejected; new source discovered as {new_name}",
+                )
+                typer.echo(f"  Kept {old_name} orphaned; treating {new_name} as new")
+        elif yes:
+            apply_renames(state=state, renames=proposals, config_dir=target_dir)
+        elif sys.stdin.isatty():
+            if typer.confirm("Accept all?", default=True):
+                apply_renames(state=state, renames=proposals, config_dir=target_dir)
+            else:
+                for old_name, new_name in proposals:
+                    state.record_orphaned(
+                        old_name,
+                        note=f"rename rejected; new source discovered as {new_name}",
+                    )
+                    typer.echo(
+                        f"  Kept {old_name} orphaned; treating {new_name} as new"
+                    )
+        else:
+            typer.echo(
+                "Rename confirmation required in non-interactive mode. "
+                "Re-run with --yes to accept or --no-renames to reject.",
+                err=True,
+            )
+            raise typer.Exit(code=3)
+
     names = [s.name for s in sources]
 
     flag: str | None = None
@@ -221,7 +279,7 @@ def discover(
 
     # Mark state-only entries as removed.
     for name, dec in decisions.items():
-        if dec == "removed":
+        if dec == "removed" and state.sources.get(name, {}).get("status") != "orphaned":
             state.record_removed(name)
 
     state.save()

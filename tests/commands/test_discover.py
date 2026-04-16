@@ -315,3 +315,34 @@ tables: []
         combined_output = r.output + (getattr(r, 'stderr', '') or '')
         assert "Found 0 databases" in combined_output
         assert "VIEW ANY DATABASE" in combined_output
+
+
+@pytest.mark.usefixtures("stub_viewer_serve")
+class TestRenameAmbiguousMatch:
+    def test_ambiguous_fingerprint_match_errors(
+        self, runner, tmp_path: Path, monkeypatch
+    ):
+        from feather_etl.cli import app
+        from feather_etl.discover_state import DiscoverState
+
+        config_path = _write_sqlite_config(tmp_path, source_name="c")
+        monkeypatch.chdir(tmp_path)
+
+        state = DiscoverState.load(tmp_path)
+        fingerprint = f"sqlite:{(tmp_path / 'source.sqlite').resolve()}"
+        for name in ("a", "b"):
+            state.record_ok(
+                name=name,
+                type_="sqlite",
+                fingerprint=fingerprint,
+                table_count=1,
+                output_path=tmp_path / f"schema_{name}.json",
+            )
+        state.save()
+
+        result = runner.invoke(app, ["discover", "--config", str(config_path)])
+        assert result.exit_code != 0
+        output = result.output.lower()
+        assert "ambiguous" in output
+        assert "a" in result.output
+        assert "b" in result.output
