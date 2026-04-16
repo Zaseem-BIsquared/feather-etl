@@ -275,3 +275,43 @@ class TestDiscover:
         assert out.exists()
         assert json.loads(out.read_text()) == []
         assert "0 tables" in result.output
+
+
+@pytest.mark.usefixtures("stub_viewer_serve")
+class TestDiscoverAutoEnumPermissionError:
+    def test_empty_enumeration_records_failed_with_hint(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """If list_databases() returns [], record FAILED with remediation hint (E1)."""
+        from unittest.mock import MagicMock
+        from feather_etl.cli import app
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        # Patch list_databases to return [].
+        monkeypatch.setattr(SqlServerSource, "list_databases", lambda self: [])
+        # Patch pyodbc.connect to return a mock connection that closes cleanly.
+        import pyodbc
+        mock_conn = MagicMock()
+        monkeypatch.setattr(pyodbc, "connect", lambda *args, **kwargs: mock_conn)
+
+        cfg_text = """
+sources:
+  - name: erp
+    type: sqlserver
+    host: db.example.com
+    user: u
+    password: p
+destination:
+  path: ./out.duckdb
+tables: []
+"""
+        (tmp_path / "feather.yaml").write_text(cfg_text)
+        monkeypatch.chdir(tmp_path)
+
+        r = runner.invoke(
+            app, ["discover", "--config", str(tmp_path / "feather.yaml")]
+        )
+        assert r.exit_code == 2
+        combined_output = r.output + (getattr(r, 'stderr', '') or '')
+        assert "Found 0 databases" in combined_output
+        assert "VIEW ANY DATABASE" in combined_output

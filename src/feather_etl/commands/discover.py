@@ -176,6 +176,17 @@ def discover(
             typer.echo(f"{prefix}  (skipped)")
             continue
 
+        # Source came from _expand_db_sources with a pre-set error (e.g. empty enumeration).
+        if hasattr(source, '_last_error') and source._last_error:
+            failed_count += 1
+            state.record_failed(
+                name=source.name, type_=source.type, fingerprint=fingerprint,
+                error=source._last_error, host=getattr(source, "host", None),
+                database=getattr(source, "database", None),
+            )
+            typer.echo(f"{prefix}  → FAILED: {source._last_error}", err=True)
+            continue
+
         # "new", "retry", "rerun" — actually discover.
         if not source.check():
             err = getattr(source, "_last_error", "connection failed")
