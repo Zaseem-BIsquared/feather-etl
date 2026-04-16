@@ -31,7 +31,6 @@ def test_cli_registers_expected_commands_on_app() -> None:
 
 
 def test_command_modules_expose_register_functions() -> None:
-    from feather_etl import commands
 
     module_names = [
         "init",

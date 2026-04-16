@@ -106,25 +106,30 @@ def _fingerprint_for(source) -> str:
     """
     if hasattr(source, "host") and source.host is not None:
         return (
-            f"{source.type}:{source.host}:{source.port or ''}:"
-            f"{source.database or ''}"
+            f"{source.type}:{source.host}:{source.port or ''}:{source.database or ''}"
         )
     return f"{source.type}:{Path(source.path).resolve()}"
 
 
 def discover(
     config: Path = typer.Option("feather.yaml", "--config"),
-    refresh: bool = typer.Option(False, "--refresh",
-        help="Re-run discovery for every source, ignoring cached state."),
-    retry_failed: bool = typer.Option(False, "--retry-failed",
-        help="Only retry sources that previously failed."),
-    prune: bool = typer.Option(False, "--prune",
-        help="Delete state entries and JSON files for removed/orphaned sources."),
-    yes: bool = typer.Option(
-        False, "--yes", help="Auto-accept inferred renames."
+    refresh: bool = typer.Option(
+        False,
+        "--refresh",
+        help="Re-run discovery for every source, ignoring cached state.",
     ),
+    retry_failed: bool = typer.Option(
+        False, "--retry-failed", help="Only retry sources that previously failed."
+    ),
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="Delete state entries and JSON files for removed/orphaned sources.",
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Auto-accept inferred renames."),
     no_renames: bool = typer.Option(
-        False, "--no-renames",
+        False,
+        "--no-renames",
         help="Reject inferred renames; old entries become orphaned.",
     ),
 ) -> None:
@@ -176,9 +181,7 @@ def discover(
                 apply_renames(state=state, renames=proposals, config_dir=target_dir)
             elif sys.stdin.isatty():
                 if typer.confirm("Accept all?", default=True):
-                    apply_renames(
-                        state=state, renames=proposals, config_dir=target_dir
-                    )
+                    apply_renames(state=state, renames=proposals, config_dir=target_dir)
                 else:
                     for old_name, new_name in proposals:
                         state.record_orphaned(
@@ -204,7 +207,9 @@ def discover(
         pruned = 0
         for name, dec in list(decisions.items()):
             entry = state.sources.get(name)
-            if dec == "removed" or (entry and entry.get("status") in ("orphaned", "removed")):
+            if dec == "removed" or (
+                entry and entry.get("status") in ("orphaned", "removed")
+            ):
                 if entry and entry.get("output_path"):
                     target = target_dir / Path(entry["output_path"]).name
                     if target.is_file():
@@ -244,11 +249,14 @@ def discover(
             continue
 
         # Source came from _expand_db_sources with a pre-set error (e.g. empty enumeration).
-        if hasattr(source, '_last_error') and source._last_error:
+        if hasattr(source, "_last_error") and source._last_error:
             failed_count += 1
             state.record_failed(
-                name=source.name, type_=source.type, fingerprint=fingerprint,
-                error=source._last_error, host=getattr(source, "host", None),
+                name=source.name,
+                type_=source.type,
+                fingerprint=fingerprint,
+                error=source._last_error,
+                host=getattr(source, "host", None),
                 database=getattr(source, "database", None),
             )
             typer.echo(f"{prefix}  → FAILED: {source._last_error}", err=True)
@@ -259,8 +267,11 @@ def discover(
             err = getattr(source, "_last_error", "connection failed")
             failed_count += 1
             state.record_failed(
-                name=source.name, type_=source.type, fingerprint=fingerprint,
-                error=err, host=getattr(source, "host", None),
+                name=source.name,
+                type_=source.type,
+                fingerprint=fingerprint,
+                error=err,
+                host=getattr(source, "host", None),
                 database=getattr(source, "database", None),
             )
             typer.echo(f"{prefix}  → FAILED: {err}", err=True)
@@ -270,16 +281,22 @@ def discover(
         except Exception as e:
             failed_count += 1
             state.record_failed(
-                name=source.name, type_=source.type, fingerprint=fingerprint,
-                error=str(e), host=getattr(source, "host", None),
+                name=source.name,
+                type_=source.type,
+                fingerprint=fingerprint,
+                error=str(e),
+                host=getattr(source, "host", None),
                 database=getattr(source, "database", None),
             )
             typer.echo(f"{prefix}  → FAILED: {e}", err=True)
             continue
         succeeded += 1
         state.record_ok(
-            name=source.name, type_=source.type, fingerprint=fingerprint,
-            table_count=count, output_path=out,
+            name=source.name,
+            type_=source.type,
+            fingerprint=fingerprint,
+            table_count=count,
+            output_path=out,
             host=getattr(source, "host", None),
             database=getattr(source, "database", None),
         )

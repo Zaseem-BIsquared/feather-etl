@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 
 class TestDiscoverStateRoundTrip:
@@ -39,18 +38,31 @@ class TestDiscoverStateRoundTrip:
         from feather_etl.discover_state import DiscoverState
 
         s = DiscoverState.load(tmp_path)
-        s.record_failed(name="a", type_="sqlserver",
-                        fingerprint="sqlserver:h:1433:DB", error="Login failed")
-        s.record_failed(name="a", type_="sqlserver",
-                        fingerprint="sqlserver:h:1433:DB", error="Login failed")
+        s.record_failed(
+            name="a",
+            type_="sqlserver",
+            fingerprint="sqlserver:h:1433:DB",
+            error="Login failed",
+        )
+        s.record_failed(
+            name="a",
+            type_="sqlserver",
+            fingerprint="sqlserver:h:1433:DB",
+            error="Login failed",
+        )
         assert s.sources["a"]["attempt_count"] == 2
 
     def test_schema_version_in_payload(self, tmp_path: Path):
         from feather_etl.discover_state import DiscoverState
 
         s = DiscoverState.load(tmp_path)
-        s.record_ok(name="a", type_="csv", fingerprint="csv:/tmp",
-                    table_count=0, output_path=Path("./schema_a.json"))
+        s.record_ok(
+            name="a",
+            type_="csv",
+            fingerprint="csv:/tmp",
+            table_count=0,
+            output_path=Path("./schema_a.json"),
+        )
         s.save()
         payload = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert payload["schema_version"] == 1
@@ -69,8 +81,13 @@ class TestClassify:
         from feather_etl.discover_state import DiscoverState, classify
 
         s = DiscoverState.load(tmp_path)
-        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
-                    table_count=1, output_path=Path("./schema_a.json"))
+        s.record_ok(
+            name="a",
+            type_="csv",
+            fingerprint="csv:/x",
+            table_count=1,
+            output_path=Path("./schema_a.json"),
+        )
         decisions = classify(state=s, current_names=["a"], flag=None)
         assert decisions["a"] == "cached"
 
@@ -78,8 +95,7 @@ class TestClassify:
         from feather_etl.discover_state import DiscoverState, classify
 
         s = DiscoverState.load(tmp_path)
-        s.record_failed(name="a", type_="csv", fingerprint="csv:/x",
-                        error="oops")
+        s.record_failed(name="a", type_="csv", fingerprint="csv:/x", error="oops")
         decisions = classify(state=s, current_names=["a"], flag=None)
         assert decisions["a"] == "retry"
 
@@ -87,8 +103,13 @@ class TestClassify:
         from feather_etl.discover_state import DiscoverState, classify
 
         s = DiscoverState.load(tmp_path)
-        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
-                    table_count=1, output_path=Path("./schema_a.json"))
+        s.record_ok(
+            name="a",
+            type_="csv",
+            fingerprint="csv:/x",
+            table_count=1,
+            output_path=Path("./schema_a.json"),
+        )
         decisions = classify(state=s, current_names=["a"], flag="refresh")
         assert decisions["a"] == "rerun"
 
@@ -96,8 +117,13 @@ class TestClassify:
         from feather_etl.discover_state import DiscoverState, classify
 
         s = DiscoverState.load(tmp_path)
-        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
-                    table_count=1, output_path=Path("./schema_a.json"))
+        s.record_ok(
+            name="a",
+            type_="csv",
+            fingerprint="csv:/x",
+            table_count=1,
+            output_path=Path("./schema_a.json"),
+        )
         s.record_failed(name="b", type_="csv", fingerprint="csv:/y", error="x")
         decisions = classify(state=s, current_names=["a", "b"], flag="retry-failed")
         assert decisions["a"] == "skip"
@@ -107,8 +133,13 @@ class TestClassify:
         from feather_etl.discover_state import DiscoverState, classify
 
         s = DiscoverState.load(tmp_path)
-        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
-                    table_count=1, output_path=Path("./schema_a.json"))
+        s.record_ok(
+            name="a",
+            type_="csv",
+            fingerprint="csv:/x",
+            table_count=1,
+            output_path=Path("./schema_a.json"),
+        )
         decisions = classify(state=s, current_names=[], flag=None)
         assert decisions["a"] == "removed"
 
@@ -116,10 +147,20 @@ class TestClassify:
         from feather_etl.discover_state import DiscoverState, classify
 
         s = DiscoverState.load(tmp_path)
-        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
-                    table_count=1, output_path=Path("./schema_a.json"))
-        s.record_ok(name="b", type_="csv", fingerprint="csv:/y",
-                    table_count=2, output_path=Path("./schema_b.json"))
+        s.record_ok(
+            name="a",
+            type_="csv",
+            fingerprint="csv:/x",
+            table_count=1,
+            output_path=Path("./schema_a.json"),
+        )
+        s.record_ok(
+            name="b",
+            type_="csv",
+            fingerprint="csv:/y",
+            table_count=2,
+            output_path=Path("./schema_b.json"),
+        )
         decisions = classify(state=s, current_names=["a"], flag="prune")
         assert decisions["a"] == "skip"
         assert decisions["b"] == "removed"
@@ -130,8 +171,13 @@ class TestRecordMutations:
         from feather_etl.discover_state import DiscoverState
 
         s = DiscoverState.load(tmp_path)
-        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
-                    table_count=1, output_path=Path("./schema_a.json"))
+        s.record_ok(
+            name="a",
+            type_="csv",
+            fingerprint="csv:/x",
+            table_count=1,
+            output_path=Path("./schema_a.json"),
+        )
         s.record_removed("a")
         assert s.sources["a"]["status"] == "removed"
         assert "removed_detected_at" in s.sources["a"]
@@ -147,8 +193,13 @@ class TestRecordMutations:
         from feather_etl.discover_state import DiscoverState
 
         s = DiscoverState.load(tmp_path)
-        s.record_ok(name="a", type_="csv", fingerprint="csv:/x",
-                    table_count=1, output_path=Path("./schema_a.json"))
+        s.record_ok(
+            name="a",
+            type_="csv",
+            fingerprint="csv:/x",
+            table_count=1,
+            output_path=Path("./schema_a.json"),
+        )
         s.record_orphaned("a", note="rename rejected")
         assert s.sources["a"]["status"] == "orphaned"
         assert s.sources["a"]["note"] == "rename rejected"
@@ -214,9 +265,7 @@ class TestRenameInference:
         assert proposals == []
         assert ambiguous == [("c", ["a", "b"])]
 
-    def test_duplicate_current_fingerprint_collision_is_ambiguous(
-        self, tmp_path: Path
-    ):
+    def test_duplicate_current_fingerprint_collision_is_ambiguous(self, tmp_path: Path):
         from feather_etl.discover_state import DiscoverState, detect_renames
 
         state = DiscoverState.load(tmp_path)

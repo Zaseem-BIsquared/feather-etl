@@ -165,7 +165,9 @@ class TestDiscover:
         expected = tmp_path / "schema_sqlite-source.json"
         assert expected.exists()
 
-    def test_prints_header_source_and_summary_lines(self, runner, tmp_path: Path, monkeypatch):
+    def test_prints_header_source_and_summary_lines(
+        self, runner, tmp_path: Path, monkeypatch
+    ):
         from feather_etl.cli import app
 
         config_path = _write_sqlite_config(tmp_path)
@@ -222,7 +224,9 @@ class TestDiscover:
         assert result.exit_code == 0
         assert (tmp_path / "schema_prod_erp.json").exists()
 
-    def test_second_run_uses_cache_by_default(self, runner, tmp_path: Path, monkeypatch):
+    def test_second_run_uses_cache_by_default(
+        self, runner, tmp_path: Path, monkeypatch
+    ):
         from feather_etl.cli import app
         import time
 
@@ -292,6 +296,7 @@ class TestDiscoverAutoEnumPermissionError:
         monkeypatch.setattr(SqlServerSource, "list_databases", lambda self: [])
         # Patch pyodbc.connect to return a mock connection that closes cleanly.
         import pyodbc
+
         mock_conn = MagicMock()
         monkeypatch.setattr(pyodbc, "connect", lambda *args, **kwargs: mock_conn)
 
@@ -309,11 +314,9 @@ tables: []
         (tmp_path / "feather.yaml").write_text(cfg_text)
         monkeypatch.chdir(tmp_path)
 
-        r = runner.invoke(
-            app, ["discover", "--config", str(tmp_path / "feather.yaml")]
-        )
+        r = runner.invoke(app, ["discover", "--config", str(tmp_path / "feather.yaml")])
         assert r.exit_code == 2
-        combined_output = r.output + (getattr(r, 'stderr', '') or '')
+        combined_output = r.output + (getattr(r, "stderr", "") or "")
         assert "Found 0 databases" in combined_output
         assert "VIEW ANY DATABASE" in combined_output
 

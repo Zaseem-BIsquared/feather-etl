@@ -44,14 +44,19 @@ class DiscoverState:
             "sources": self.sources,
             "auto_enumeration": self.auto_enumeration,
         }
-        (self.config_dir / STATE_FILENAME).write_text(
-            json.dumps(payload, indent=2)
-        )
+        (self.config_dir / STATE_FILENAME).write_text(json.dumps(payload, indent=2))
 
-    def record_ok(self, *, name: str, type_: str, fingerprint: str,
-                  table_count: int, output_path: Path,
-                  host: str | None = None,
-                  database: str | None = None) -> None:
+    def record_ok(
+        self,
+        *,
+        name: str,
+        type_: str,
+        fingerprint: str,
+        table_count: int,
+        output_path: Path,
+        host: str | None = None,
+        database: str | None = None,
+    ) -> None:
         self.sources[name] = {
             "type": type_,
             "host": host,
@@ -63,9 +68,16 @@ class DiscoverState:
             "output_path": str(output_path),
         }
 
-    def record_failed(self, *, name: str, type_: str, fingerprint: str,
-                      error: str, host: str | None = None,
-                      database: str | None = None) -> None:
+    def record_failed(
+        self,
+        *,
+        name: str,
+        type_: str,
+        fingerprint: str,
+        error: str,
+        host: str | None = None,
+        database: str | None = None,
+    ) -> None:
         prev = self.sources.get(name, {})
         attempts = int(prev.get("attempt_count", 0)) + 1
         self.sources[name] = {
@@ -91,8 +103,14 @@ class DiscoverState:
             if note:
                 self.sources[name]["note"] = note
 
-    def record_auto_enum(self, *, parent_name: str, type_: str,
-                         host: str | None, databases_seen: list[str]) -> None:
+    def record_auto_enum(
+        self,
+        *,
+        parent_name: str,
+        type_: str,
+        host: str | None,
+        databases_seen: list[str],
+    ) -> None:
         self.auto_enumeration[parent_name] = {
             "type": type_,
             "host": host,
@@ -103,8 +121,10 @@ class DiscoverState:
 
 # --- classification ---------------------------------------------------------
 
-def classify(*, state: DiscoverState, current_names: list[str],
-             flag: str | None) -> dict[str, str]:
+
+def classify(
+    *, state: DiscoverState, current_names: list[str], flag: str | None
+) -> dict[str, str]:
     """Return per-name decision for this run.
 
     flag: None, "refresh", "retry-failed", "prune".
@@ -138,9 +158,9 @@ def classify(*, state: DiscoverState, current_names: list[str],
     return decisions
 
 
-def detect_renames(*, state: DiscoverState,
-                   current: list[tuple[str, str]]
-                   ) -> tuple[list[tuple[str, str]], list[tuple[str, list[str]]]]:
+def detect_renames(
+    *, state: DiscoverState, current: list[tuple[str, str]]
+) -> tuple[list[tuple[str, str]], list[tuple[str, list[str]]]]:
     """Infer rename proposals from matching fingerprints."""
     current_names = {name for name, _ in current}
     eligible_state = {
@@ -158,7 +178,8 @@ def detect_renames(*, state: DiscoverState,
         if new_name in state.sources:
             continue
         candidates = [
-            name for name, entry in eligible_state.items()
+            name
+            for name, entry in eligible_state.items()
             if entry.get("fingerprint") == fingerprint
         ]
         available = [name for name in candidates if name not in used_state_names]
@@ -181,14 +202,13 @@ def _renamed_schema_path(path: str, old: str, new: str) -> str:
     old_prefix = f"schema_{_sanitised_filename(old)}"
     if not current.name.startswith(old_prefix):
         return path
-    new_name = current.name.replace(
-        old_prefix, f"schema_{_sanitised_filename(new)}", 1
-    )
+    new_name = current.name.replace(old_prefix, f"schema_{_sanitised_filename(new)}", 1)
     return str(current.with_name(new_name))
 
 
-def apply_renames(*, state: DiscoverState, renames: list[tuple[str, str]],
-                  config_dir: Path) -> None:
+def apply_renames(
+    *, state: DiscoverState, renames: list[tuple[str, str]], config_dir: Path
+) -> None:
     """Move matched state entries and schema files to their new names."""
     for old, new in renames:
         if old not in state.sources:
@@ -203,9 +223,11 @@ def apply_renames(*, state: DiscoverState, renames: list[tuple[str, str]],
         if old in state.auto_enumeration:
             state.auto_enumeration[new] = state.auto_enumeration.pop(old)
 
-        child_keys = [name for name in list(state.sources) if name.startswith(old_prefix)]
+        child_keys = [
+            name for name in list(state.sources) if name.startswith(old_prefix)
+        ]
         for child_old in child_keys:
-            child_new = new_prefix + child_old[len(old_prefix):]
+            child_new = new_prefix + child_old[len(old_prefix) :]
             child_entry = state.sources.pop(child_old)
             child_entry["output_path"] = _rename_schema_file(
                 config_dir=config_dir,
@@ -223,8 +245,9 @@ def apply_renames(*, state: DiscoverState, renames: list[tuple[str, str]],
         )
 
 
-def _rename_schema_file(*, config_dir: Path, output_path: str | None, old: str,
-                        new: str) -> str | None:
+def _rename_schema_file(
+    *, config_dir: Path, output_path: str | None, old: str, new: str
+) -> str | None:
     if output_path is None:
         return None
     current = Path(output_path)

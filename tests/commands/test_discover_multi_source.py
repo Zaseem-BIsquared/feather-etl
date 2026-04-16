@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import shutil
 import time
-from pathlib import Path
 
 import pytest
 
@@ -25,9 +24,12 @@ class TestDiscoverHeterogeneousSources:
 
         csvs = tmp_path / "csv"
         shutil.copytree(FIXTURES_DIR / "csv_data", csvs)
-        cfg = multi_source_yaml(tmp_path, [
-            {"name": "sheets", "type": "csv", "path": str(csvs)},
-        ])
+        cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "sheets", "type": "csv", "path": str(csvs)},
+            ],
+        )
         monkeypatch.chdir(tmp_path)
 
         r = runner.invoke(app, ["discover", "--config", str(cfg)])
@@ -50,18 +52,24 @@ class TestDiscoverHeterogeneousSources:
         duckdb_f = tmp_path / "src.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", duckdb_f)
 
-        cfg = multi_source_yaml(tmp_path, [
-            {"name": "sheets", "type": "csv", "path": str(csvs)},
-            {"name": "sqlite_db", "type": "sqlite", "path": str(sqlite)},
-            {"name": "duck", "type": "duckdb", "path": str(duckdb_f)},
-        ])
+        cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "sheets", "type": "csv", "path": str(csvs)},
+                {"name": "sqlite_db", "type": "sqlite", "path": str(sqlite)},
+                {"name": "duck", "type": "duckdb", "path": str(duckdb_f)},
+            ],
+        )
         monkeypatch.chdir(tmp_path)
 
         r = runner.invoke(app, ["discover", "--config", str(cfg)])
         assert r.exit_code == 0, r.output
         names = {p.name for p in tmp_path.glob("schema_*.json")}
-        assert names == {"schema_sheets.json", "schema_sqlite_db.json",
-                         "schema_duck.json"}
+        assert names == {
+            "schema_sheets.json",
+            "schema_sqlite_db.json",
+            "schema_duck.json",
+        }
 
 
 @pytest.mark.usefixtures("stub_viewer_serve")
@@ -71,9 +79,12 @@ class TestDiscoverResume:
 
         sqlite = tmp_path / "src.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
-        cfg = multi_source_yaml(tmp_path, [
-            {"name": "db", "type": "sqlite", "path": str(sqlite)},
-        ])
+        cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "db", "type": "sqlite", "path": str(sqlite)},
+            ],
+        )
         monkeypatch.chdir(tmp_path)
 
         r1 = runner.invoke(app, ["discover", "--config", str(cfg)])
@@ -94,9 +105,12 @@ class TestDiscoverResume:
 
         sqlite = tmp_path / "src.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
-        cfg = multi_source_yaml(tmp_path, [
-            {"name": "db", "type": "sqlite", "path": str(sqlite)},
-        ])
+        cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "db", "type": "sqlite", "path": str(sqlite)},
+            ],
+        )
         monkeypatch.chdir(tmp_path)
 
         r = runner.invoke(app, ["discover", "--config", str(cfg)])
@@ -115,6 +129,7 @@ CONN_STR = "dbname=feather_test host=localhost"
 def _postgres_available() -> bool:
     try:
         import psycopg2
+
         psycopg2.connect(CONN_STR).close()
         return True
     except Exception:
@@ -131,6 +146,7 @@ postgres = pytest.mark.skipif(
 class TestDiscoverPostgresMultiDatabase:
     def _create_databases(self, names):
         import psycopg2
+
         conn = psycopg2.connect(CONN_STR)
         conn.autocommit = True
         cur = conn.cursor()
@@ -142,6 +158,7 @@ class TestDiscoverPostgresMultiDatabase:
 
     def _drop_databases(self, names):
         import psycopg2
+
         conn = psycopg2.connect(CONN_STR)
         conn.autocommit = True
         cur = conn.cursor()
@@ -156,16 +173,24 @@ class TestDiscoverPostgresMultiDatabase:
         names = ["feather_a", "feather_b"]
         self._create_databases(names)
         try:
-            cfg = multi_source_yaml(tmp_path, [
-                {"name": "wh", "type": "postgres", "host": "localhost",
-                 "user": "", "password": "", "databases": names},
-            ])
+            cfg = multi_source_yaml(
+                tmp_path,
+                [
+                    {
+                        "name": "wh",
+                        "type": "postgres",
+                        "host": "localhost",
+                        "user": "",
+                        "password": "",
+                        "databases": names,
+                    },
+                ],
+            )
             monkeypatch.chdir(tmp_path)
             r = runner.invoke(app, ["discover", "--config", str(cfg)])
             assert r.exit_code == 0, r.output
             files = {p.name for p in tmp_path.glob("schema_*.json")}
-            assert files == {"schema_wh__feather_a.json",
-                             "schema_wh__feather_b.json"}
+            assert files == {"schema_wh__feather_a.json", "schema_wh__feather_b.json"}
         finally:
             self._drop_databases(names)
 
@@ -175,10 +200,18 @@ class TestDiscoverPostgresMultiDatabase:
         names = ["feather_x", "feather_y"]
         self._create_databases(names)
         try:
-            cfg = multi_source_yaml(tmp_path, [
-                {"name": "wh", "type": "postgres", "host": "localhost",
-                 "user": "", "password": ""},
-            ])
+            cfg = multi_source_yaml(
+                tmp_path,
+                [
+                    {
+                        "name": "wh",
+                        "type": "postgres",
+                        "host": "localhost",
+                        "user": "",
+                        "password": "",
+                    },
+                ],
+            )
             monkeypatch.chdir(tmp_path)
             r = runner.invoke(app, ["discover", "--config", str(cfg)])
             assert r.exit_code == 0, r.output
@@ -196,9 +229,12 @@ class TestDiscoverFlags:
 
         sqlite = tmp_path / "src.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
-        cfg = multi_source_yaml(tmp_path, [
-            {"name": "db", "type": "sqlite", "path": str(sqlite)},
-        ])
+        cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "db", "type": "sqlite", "path": str(sqlite)},
+            ],
+        )
         monkeypatch.chdir(tmp_path)
 
         runner.invoke(app, ["discover", "--config", str(cfg)])
@@ -209,9 +245,7 @@ class TestDiscoverFlags:
         assert r.exit_code == 0
         assert (tmp_path / "schema_db.json").stat().st_mtime_ns > first_mtime
 
-    def test_retry_failed_only_retries_failures(
-        self, runner, tmp_path, monkeypatch
-    ):
+    def test_retry_failed_only_retries_failures(self, runner, tmp_path, monkeypatch):
         """Simulate a failed source then verify --retry-failed retries only it."""
         from feather_etl.cli import app
 
@@ -219,10 +253,13 @@ class TestDiscoverFlags:
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
         bogus = tmp_path / "missing.sqlite"  # doesn't exist → check() fails
 
-        cfg = multi_source_yaml(tmp_path, [
-            {"name": "ok", "type": "sqlite", "path": str(sqlite)},
-            {"name": "bad", "type": "sqlite", "path": str(bogus)},
-        ])
+        cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "ok", "type": "sqlite", "path": str(sqlite)},
+                {"name": "bad", "type": "sqlite", "path": str(bogus)},
+            ],
+        )
         monkeypatch.chdir(tmp_path)
 
         r1 = runner.invoke(app, ["discover", "--config", str(cfg)])
@@ -233,36 +270,39 @@ class TestDiscoverFlags:
         shutil.copy2(sqlite, bogus)
 
         time.sleep(0.05)
-        r2 = runner.invoke(
-            app, ["discover", "--config", str(cfg), "--retry-failed"]
-        )
+        r2 = runner.invoke(app, ["discover", "--config", str(cfg), "--retry-failed"])
         assert r2.exit_code == 0
         # ok was not re-discovered.
         assert (tmp_path / "schema_ok.json").stat().st_mtime_ns == ok_mtime
         # bad now has a schema file.
         assert (tmp_path / "schema_bad.json").is_file()
 
-    def test_prune_removes_orphaned_state_and_file(
-        self, runner, tmp_path, monkeypatch
-    ):
+    def test_prune_removes_orphaned_state_and_file(self, runner, tmp_path, monkeypatch):
         from feather_etl.cli import app
 
-        a = tmp_path / "a.sqlite"; b = tmp_path / "b.sqlite"
+        a = tmp_path / "a.sqlite"
+        b = tmp_path / "b.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", a)
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", b)
-        cfg = multi_source_yaml(tmp_path, [
-            {"name": "a", "type": "sqlite", "path": str(a)},
-            {"name": "b", "type": "sqlite", "path": str(b)},
-        ])
+        cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "a", "type": "sqlite", "path": str(a)},
+                {"name": "b", "type": "sqlite", "path": str(b)},
+            ],
+        )
         monkeypatch.chdir(tmp_path)
         runner.invoke(app, ["discover", "--config", str(cfg)])
         assert (tmp_path / "schema_a.json").exists()
         assert (tmp_path / "schema_b.json").exists()
 
         # Remove 'b' from feather.yaml.
-        cfg2 = multi_source_yaml(tmp_path, [
-            {"name": "a", "type": "sqlite", "path": str(a)},
-        ])
+        cfg2 = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "a", "type": "sqlite", "path": str(a)},
+            ],
+        )
         runner.invoke(app, ["discover", "--config", str(cfg2)])
         # 'b' marked removed in state, file still exists.
         assert (tmp_path / "schema_b.json").exists()
@@ -270,9 +310,7 @@ class TestDiscoverFlags:
         r = runner.invoke(app, ["discover", "--config", str(cfg2), "--prune"])
         assert r.exit_code == 0
         assert not (tmp_path / "schema_b.json").exists()
-        state = json.loads(
-            (tmp_path / "feather_discover_state.json").read_text()
-        )
+        state = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert "b" not in state["sources"]
 
 
@@ -285,12 +323,18 @@ class TestRenameNonTtyExit3:
 
         sqlite = tmp_path / "src.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
-        first_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp.yaml")
-        renamed_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp_main.yaml")
+        first_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp_main.yaml")
         monkeypatch.chdir(tmp_path)
 
         first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
@@ -305,50 +349,54 @@ class TestRenameNonTtyExit3:
         assert "erp" in second.output
         assert "erp_main" in second.output
 
-    def test_yes_flag_migrates_state_and_files(
-        self, runner, tmp_path, monkeypatch
-    ):
+    def test_yes_flag_migrates_state_and_files(self, runner, tmp_path, monkeypatch):
         from feather_etl.cli import app
 
         sqlite = tmp_path / "src.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
-        first_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp.yaml")
-        renamed_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp_main.yaml")
+        first_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp_main.yaml")
         monkeypatch.chdir(tmp_path)
 
         first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
         assert first.exit_code == 0, first.output
 
-        second = runner.invoke(
-            app, ["discover", "--config", str(renamed_cfg), "--yes"]
-        )
+        second = runner.invoke(app, ["discover", "--config", str(renamed_cfg), "--yes"])
         assert second.exit_code == 0, second.output
         assert (tmp_path / "schema_erp_main.json").is_file()
         assert not (tmp_path / "schema_erp.json").exists()
 
-        state = json.loads(
-            (tmp_path / "feather_discover_state.json").read_text()
-        )
+        state = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert "erp_main" in state["sources"]
         assert "erp" not in state["sources"]
 
-    def test_no_renames_orphans_old_entry(
-        self, runner, tmp_path, monkeypatch
-    ):
+    def test_no_renames_orphans_old_entry(self, runner, tmp_path, monkeypatch):
         from feather_etl.cli import app
 
         sqlite = tmp_path / "src.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
-        first_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp.yaml")
-        renamed_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp_main.yaml")
+        first_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp_main.yaml")
         monkeypatch.chdir(tmp_path)
 
         first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
@@ -359,9 +407,7 @@ class TestRenameNonTtyExit3:
         )
         assert second.exit_code == 0, second.output
 
-        state = json.loads(
-            (tmp_path / "feather_discover_state.json").read_text()
-        )
+        state = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert state["sources"]["erp"]["status"] == "orphaned"
         assert state["sources"]["erp_main"]["status"] == "ok"
 
@@ -372,12 +418,18 @@ class TestRenameNonTtyExit3:
 
         sqlite = tmp_path / "src.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
-        first_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp.yaml")
-        renamed_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp_main.yaml")
+        first_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp_main.yaml")
         monkeypatch.chdir(tmp_path)
 
         first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
@@ -390,9 +442,7 @@ class TestRenameNonTtyExit3:
         assert "Rename confirmation required" not in refreshed.output
         assert (tmp_path / "schema_erp_main.json").is_file()
 
-        state = json.loads(
-            (tmp_path / "feather_discover_state.json").read_text()
-        )
+        state = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert state["sources"]["erp_main"]["status"] == "ok"
         assert state["sources"]["erp"]["status"] == "removed"
 
@@ -403,12 +453,18 @@ class TestRenameNonTtyExit3:
 
         sqlite = tmp_path / "src.sqlite"
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", sqlite)
-        first_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp.yaml")
-        renamed_cfg = multi_source_yaml(tmp_path, [
-            {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
-        ]).rename(tmp_path / "feather_erp_main.yaml")
+        first_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp.yaml")
+        renamed_cfg = multi_source_yaml(
+            tmp_path,
+            [
+                {"name": "erp_main", "type": "sqlite", "path": str(sqlite)},
+            ],
+        ).rename(tmp_path / "feather_erp_main.yaml")
         monkeypatch.chdir(tmp_path)
 
         first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
@@ -423,7 +479,5 @@ class TestRenameNonTtyExit3:
         assert not (tmp_path / "schema_erp.json").exists()
         assert not (tmp_path / "schema_erp_main.json").exists()
 
-        state = json.loads(
-            (tmp_path / "feather_discover_state.json").read_text()
-        )
+        state = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert "erp" not in state["sources"]

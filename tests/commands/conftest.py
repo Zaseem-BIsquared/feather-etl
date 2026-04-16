@@ -97,9 +97,12 @@ def stub_viewer_serve(monkeypatch):
     monkeypatch.setattr(discover_cmd, "serve_and_open", lambda *args, **kwargs: None)
 
 
-def multi_source_yaml(tmp_path: Path, sources: list[dict],
-                      destination_path: str | None = None,
-                      tables: list[dict] | None = None) -> Path:
+def multi_source_yaml(
+    tmp_path: Path,
+    sources: list[dict],
+    destination_path: str | None = None,
+    tables: list[dict] | None = None,
+) -> Path:
     """Build a feather.yaml with arbitrary sources/destinations/tables."""
     cfg = {
         "sources": sources,
