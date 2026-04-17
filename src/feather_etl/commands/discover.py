@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 
 import typer
 
 from feather_etl.commands._common import _load_and_validate
+from feather_etl.config import schema_output_path
 from feather_etl.discover_state import (
     DiscoverState,
     apply_renames,
@@ -17,10 +17,6 @@ from feather_etl.discover_state import (
     detect_renames,
 )
 from feather_etl.viewer_server import serve_and_open
-
-
-def _sanitised_filename(name: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
 
 
 def _write_schema(source, target_dir: Path) -> tuple[Path, int]:
@@ -33,7 +29,7 @@ def _write_schema(source, target_dir: Path) -> tuple[Path, int]:
         }
         for s in schemas
     ]
-    out = target_dir / f"schema_{_sanitised_filename(source.name)}.json"
+    out = target_dir / schema_output_path(source)
     out.write_text(json.dumps(payload, indent=2))
     return out, len(schemas)
 
