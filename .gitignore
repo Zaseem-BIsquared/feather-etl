@@ -14,3 +14,5 @@ feather_discover_state.json
 .coverage
 .nvmrc
 repomix-output.xml
+.playwright-mcp/
+.superpowers/
