@@ -162,7 +162,9 @@ class TestSchemaOutputPath:
         from feather_etl.config import schema_output_path
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        src = SqlServerSource(connection_string="x", name="erp__db1", host="db.internal")
+        src = SqlServerSource(
+            connection_string="x", name="erp__db1", host="db.internal"
+        )
         src._explicit_name = True
         assert schema_output_path(src) == Path("schema_sqlserver_erp__db1.json")
 
@@ -172,6 +174,8 @@ class TestSchemaOutputPath:
         from feather_etl.config import schema_output_path
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        src = SqlServerSource(connection_string="x", name="erp__db1", host="db.internal")
+        src = SqlServerSource(
+            connection_string="x", name="erp__db1", host="db.internal"
+        )
         src._explicit_name = False
         assert schema_output_path(src) == Path("schema_erp__db1.json")

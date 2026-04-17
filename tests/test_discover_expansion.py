@@ -46,7 +46,9 @@ def test_expand_db_sources_children_inherit_explicit_false_from_parent() -> None
     assert all(child._explicit_name is False for child in expanded)
 
 
-def test_expand_db_sources_with_concrete_database_is_unchanged_and_preserves_flag() -> None:
+def test_expand_db_sources_with_concrete_database_is_unchanged_and_preserves_flag() -> (
+    None
+):
     parent = _make_postgres_source(explicit_name=False, database="sales")
 
     expanded = _expand_db_sources([parent])

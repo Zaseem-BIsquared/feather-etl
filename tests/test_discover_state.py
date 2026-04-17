@@ -7,7 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-
 class TestDiscoverStateRoundTrip:
     def test_load_returns_empty_when_file_missing(self, tmp_path: Path):
         from feather_etl.discover_state import DiscoverState
@@ -323,7 +322,9 @@ class TestRenameInference:
 
         assert "erp" not in state.sources
         assert "erp_main" in state.sources
-        assert state.sources["erp_main"]["output_path"] == "schema_postgres_erp_main.json"
+        assert (
+            state.sources["erp_main"]["output_path"] == "schema_postgres_erp_main.json"
+        )
         assert "erp__db1" not in state.sources
         assert "erp_main__db1" in state.sources
         assert state.sources["erp_main__db1"]["output_path"] == (
