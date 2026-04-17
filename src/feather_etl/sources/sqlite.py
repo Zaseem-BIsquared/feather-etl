@@ -30,7 +30,9 @@ class SqliteSource(FileSource):
     def from_yaml(cls, entry: dict, config_dir: Path) -> "SqliteSource":
         _reject_db_fields(entry, cls.type)
         path = _resolve_file_path(entry, config_dir)
-        return cls(path=path, name=entry.get("name", ""))
+        source = cls(path=path, name=entry.get("name", ""))
+        source._explicit_name = bool(entry.get("name"))
+        return source
 
     def validate_source_table(self, source_table: str) -> list[str]:
         if "." in source_table:

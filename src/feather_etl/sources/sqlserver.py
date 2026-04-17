@@ -154,7 +154,7 @@ class SqlServerSource(DatabaseSource):
                 "'host' (with user/password/database)."
             )
 
-        return cls(
+        source = cls(
             connection_string=conn_str,
             name=name,
             host=host,
@@ -164,6 +164,8 @@ class SqlServerSource(DatabaseSource):
             database=database,
             databases=databases,
         )
+        source._explicit_name = bool(entry.get("name"))
+        return source
 
     def validate_source_table(self, source_table: str) -> list[str]:
         # SQL Server: lenient — allow 'schema.table' or 'table'. Real

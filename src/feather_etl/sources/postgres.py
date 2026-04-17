@@ -126,7 +126,7 @@ class PostgresSource(DatabaseSource):
                 "postgres source requires either 'connection_string' or 'host'."
             )
 
-        return cls(
+        source = cls(
             connection_string=conn_str,
             name=name,
             host=host,
@@ -136,6 +136,8 @@ class PostgresSource(DatabaseSource):
             database=database,
             databases=databases,
         )
+        source._explicit_name = bool(entry.get("name"))
+        return source
 
     def validate_source_table(self, source_table: str) -> list[str]:
         # Postgres: lenient — real validation happens at extract time when

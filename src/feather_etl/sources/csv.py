@@ -42,7 +42,9 @@ class CsvSource(FileSource):
         path = _resolve_file_path(entry, config_dir)
         if not path.is_dir():
             raise ValueError(f"CSV source path must be a directory: {path}")
-        return cls(path=path, name=entry.get("name", ""))
+        source = cls(path=path, name=entry.get("name", ""))
+        source._explicit_name = bool(entry.get("name"))
+        return source
 
     def validate_source_table(self, source_table: str) -> list[str]:
         # CSV: filename or glob pattern; no SQL identifier rule.
