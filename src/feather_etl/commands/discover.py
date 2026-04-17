@@ -91,7 +91,7 @@ def _expand_db_sources(sources: list) -> list:
                 },
                 Path("."),
             )
-            child._explicit_name = src._explicit_name
+            child._explicit_name = getattr(src, "_explicit_name", False)
             expanded.append(child)
     return expanded
 

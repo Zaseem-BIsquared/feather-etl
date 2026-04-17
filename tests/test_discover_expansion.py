@@ -55,3 +55,20 @@ def test_expand_db_sources_with_concrete_database_is_unchanged_and_preserves_fla
 
     assert expanded == [parent]
     assert expanded[0]._explicit_name is False
+
+
+def test_expand_db_sources_defaults_explicit_name_when_parent_lacks_flag() -> None:
+    parent = PostgresSource(
+        connection_string="host=localhost port=5432 dbname=postgres",
+        name="warehouse",
+        host="localhost",
+        port=5432,
+        user="tester",
+        password="secret",
+        databases=["sales", "erp"],
+    )
+
+    expanded = _expand_db_sources([parent])
+
+    assert len(expanded) == 2
+    assert all(child._explicit_name is False for child in expanded)
