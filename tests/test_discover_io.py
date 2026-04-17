@@ -121,7 +121,31 @@ class TestResolvedSourceName:
 
 
 class TestSchemaOutputPath:
-    def test_db_source_includes_database_suffix(self):
+    def test_explicit_file_source_gets_type_prefix(self, tmp_path):
+        from pathlib import Path
+
+        from feather_etl.config import schema_output_path
+        from feather_etl.sources.sqlite import SqliteSource
+
+        sqlite_file = tmp_path / "source.sqlite"
+        sqlite_file.touch()
+        src = SqliteSource(path=sqlite_file, name="prod-erp")
+        src._explicit_name = True
+        assert schema_output_path(src) == Path("schema_sqlite_prod-erp.json")
+
+    def test_explicit_db_source_gets_type_prefix(self):
+        from pathlib import Path
+
+        from feather_etl.config import schema_output_path
+        from feather_etl.sources.sqlserver import SqlServerSource
+
+        src = SqlServerSource(
+            connection_string="x", name="prod-erp", host="db.internal", database="ZAKYA"
+        )
+        src._explicit_name = True
+        assert schema_output_path(src) == Path("schema_sqlserver_prod-erp.json")
+
+    def test_auto_derived_names_remain_unchanged(self):
         from pathlib import Path
 
         from feather_etl.config import schema_output_path
@@ -130,50 +154,24 @@ class TestSchemaOutputPath:
         src = SqlServerSource(
             connection_string="x", host="192.168.2.62", database="ZAKYA"
         )
-        assert schema_output_path(src) == Path(
-            "schema_sqlserver-192.168.2.62_ZAKYA.json"
-        )
+        assert schema_output_path(src) == Path("schema_sqlserver-192.168.2.62.json")
 
-    def test_db_source_sanitizes_database(self):
+    def test_expanded_child_name_with_explicit_true_gets_prefixed(self):
         from pathlib import Path
 
         from feather_etl.config import schema_output_path
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        src = SqlServerSource(
-            connection_string="x", host="db.internal", database="My DB"
-        )
-        assert schema_output_path(src) == Path(
-            "schema_sqlserver-db.internal_My_DB.json"
-        )
+        src = SqlServerSource(connection_string="x", name="erp__db1", host="db.internal")
+        src._explicit_name = True
+        assert schema_output_path(src) == Path("schema_sqlserver_erp__db1.json")
 
-    def test_db_source_without_database(self):
+    def test_expanded_child_name_with_explicit_false_has_no_extra_prefix(self):
         from pathlib import Path
 
         from feather_etl.config import schema_output_path
         from feather_etl.sources.sqlserver import SqlServerSource
 
-        src = SqlServerSource(connection_string="x", host="db.internal")
-        assert schema_output_path(src) == Path("schema_sqlserver-db.internal.json")
-
-    def test_file_source_has_no_database_suffix(self, tmp_path):
-        from pathlib import Path
-
-        from feather_etl.config import schema_output_path
-        from feather_etl.sources.sqlite import SqliteSource
-
-        sqlite_file = tmp_path / "source.sqlite"
-        sqlite_file.touch()
-        src = SqliteSource(path=sqlite_file)
-        assert schema_output_path(src) == Path("schema_sqlite-source.json")
-
-    def test_user_name_used_in_path(self):
-        from pathlib import Path
-
-        from feather_etl.config import schema_output_path
-        from feather_etl.sources.sqlserver import SqlServerSource
-
-        src = SqlServerSource(
-            connection_string="x", name="prod-erp", host="db", database="ZAKYA"
-        )
-        assert schema_output_path(src) == Path("schema_prod-erp_ZAKYA.json")
+        src = SqlServerSource(connection_string="x", name="erp__db1", host="db.internal")
+        src._explicit_name = False
+        assert schema_output_path(src) == Path("schema_erp__db1.json")

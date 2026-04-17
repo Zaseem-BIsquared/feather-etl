@@ -54,14 +54,13 @@ def schema_output_path(cfg: "Source") -> Path:
     """Return the target Path for `feather discover` JSON output.
 
     Format:
-      - DB source:   ./schema_<name>_<database>.json
-      - File source: ./schema_<name>.json
+      - Explicit source name: ./schema_<type>_<name>.json
+      - Auto-derived name:    ./schema_<name>.json
     """
-    parts = [f"schema_{resolved_source_name(cfg)}"]
-    database = getattr(cfg, "database", None)
-    if database:
-        parts.append(_sanitize(database))
-    return Path(f"{'_'.join(parts)}.json")
+    stem = resolved_source_name(cfg)
+    if getattr(cfg, "_explicit_name", False):
+        stem = f"{cfg.type}_{stem}"
+    return Path(f"schema_{stem}.json")
 
 
 VALID_STRATEGIES = {"full", "incremental", "append"}
