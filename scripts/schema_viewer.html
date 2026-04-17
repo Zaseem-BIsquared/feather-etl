@@ -162,7 +162,7 @@
     .sort-pill.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-border); font-weight: 500; }
 
     .bar-chart {
-      display: flex; height: 30px; border-radius: 8px; overflow: hidden;
+      display: flex; height: 32px; border-radius: 8px; overflow: hidden;
       margin-bottom: 6px; cursor: pointer;
     }
     .bar-chart div {
@@ -274,7 +274,7 @@
 (() => {
   /* ---- Constants ---- */
   const TYPE_FAMILIES = [
-    { key: "text",     match: ["varchar","nvarchar","text","char","nchar","ntext","sysname","xml","uniqueidentifier","sql_variant"],
+    { key: "text",     match: ["varchar","nvarchar","text","char","nchar","ntext","sysname"],
       color: "var(--type-text)", fg: "var(--type-text-fg)", bg: "var(--type-text-bg)", border: "var(--type-text-border)", label: "var(--type-text-label)" },
     { key: "numeric",  match: ["decimal","numeric","float","real","money","smallmoney"],
       color: "var(--type-numeric)", fg: "var(--type-numeric-fg)", bg: "var(--type-numeric-bg)", border: "var(--type-numeric-border)", label: "var(--type-numeric-label)" },
@@ -693,7 +693,7 @@
     const div = document.createElement("div");
     div.className = "empty-state";
     div.id = "empty-state";
-    div.innerHTML = `<h2>Select a table</h2><p>Click any table in the sidebar to view its columns, types, and structure.</p>`;
+    div.innerHTML = `<div style="font-size:28px;font-weight:300;color:#d1d5db;margin-bottom:12px">&#9664;</div><h2>Select a table</h2><p>Click any table in the sidebar to view its columns, types, and structure.</p>`;
     return div;
   }
 
