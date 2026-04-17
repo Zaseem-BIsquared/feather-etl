@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+from feather_etl.config import schema_output_path
 
 SCHEMA_VERSION = 1
 STATE_FILENAME = "feather_discover_state.json"
@@ -193,23 +194,16 @@ def detect_renames(
     return proposals, ambiguous
 
 
-def _sanitised_filename(name: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
-
-
-def _renamed_schema_path(path: str, old: str, new: str) -> str:
-    current = Path(path)
-    old_prefix = f"schema_{_sanitised_filename(old)}"
-    if not current.name.startswith(old_prefix):
-        return path
-    new_name = current.name.replace(old_prefix, f"schema_{_sanitised_filename(new)}", 1)
-    return str(current.with_name(new_name))
-
-
 def apply_renames(
-    *, state: DiscoverState, renames: list[tuple[str, str]], config_dir: Path
+    *,
+    state: DiscoverState,
+    renames: list[tuple[str, str]],
+    config_dir: Path,
+    sources: list,
 ) -> None:
     """Move matched state entries and schema files to their new names."""
+    source_by_name = {source.name: source for source in sources}
+
     for old, new in renames:
         if old not in state.sources:
             continue
@@ -232,27 +226,28 @@ def apply_renames(
             child_entry["output_path"] = _rename_schema_file(
                 config_dir=config_dir,
                 output_path=child_entry.get("output_path"),
-                old=child_old,
-                new=child_new,
+                new_source=source_by_name.get(child_new),
             )
             state.sources[child_new] = child_entry
 
         parent_entry["output_path"] = _rename_schema_file(
             config_dir=config_dir,
             output_path=parent_entry.get("output_path"),
-            old=old,
-            new=new,
+            new_source=source_by_name.get(new),
         )
 
 
 def _rename_schema_file(
-    *, config_dir: Path, output_path: str | None, old: str, new: str
+    *, config_dir: Path, output_path: str | None, new_source
 ) -> str | None:
     if output_path is None:
         return None
+    if new_source is None:
+        return output_path
+
     current = Path(output_path)
     current_name = current.name
-    new_path = _renamed_schema_path(output_path, old, new)
+    new_path = str(current.with_name(schema_output_path(new_source).name))
     if new_path == output_path:
         return output_path
 

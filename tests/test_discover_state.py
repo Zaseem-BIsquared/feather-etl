@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 
 
@@ -310,22 +311,30 @@ class TestRenameInference:
             state=state,
             renames=[("erp", "erp_main")],
             config_dir=tmp_path,
+            sources=[
+                SimpleNamespace(name="erp_main", type="postgres", _explicit_name=True),
+                SimpleNamespace(
+                    name="erp_main__db1",
+                    type="postgres",
+                    _explicit_name=True,
+                ),
+            ],
         )
 
         assert "erp" not in state.sources
         assert "erp_main" in state.sources
-        assert state.sources["erp_main"]["output_path"] == "schema_erp_main.json"
+        assert state.sources["erp_main"]["output_path"] == "schema_postgres_erp_main.json"
         assert "erp__db1" not in state.sources
         assert "erp_main__db1" in state.sources
         assert state.sources["erp_main__db1"]["output_path"] == (
-            "schema_erp_main__db1.json"
+            "schema_postgres_erp_main__db1.json"
         )
         assert "erp" not in state.auto_enumeration
         assert "erp_main" in state.auto_enumeration
         assert (tmp_path / "schema_erp.json").exists() is False
         assert (tmp_path / "schema_erp__db1.json").exists() is False
-        assert (tmp_path / "schema_erp_main.json").is_file()
-        assert (tmp_path / "schema_erp_main__db1.json").is_file()
+        assert (tmp_path / "schema_postgres_erp_main.json").is_file()
+        assert (tmp_path / "schema_postgres_erp_main__db1.json").is_file()
 
     def test_apply_renames_keeps_unrelated_files(self, tmp_path: Path):
         from feather_etl.discover_state import DiscoverState, apply_renames
@@ -343,7 +352,10 @@ class TestRenameInference:
             state=state,
             renames=[("erp", "erp_main")],
             config_dir=tmp_path,
+            sources=[
+                SimpleNamespace(name="erp_main", type="sqlite", _explicit_name=True),
+            ],
         )
 
-        assert (tmp_path / "schema_erp_main.json").is_file()
+        assert (tmp_path / "schema_sqlite_erp_main.json").is_file()
         assert (tmp_path / "schema_erp2.json").is_file()

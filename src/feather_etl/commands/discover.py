@@ -175,10 +175,20 @@ def discover(
                         f"  Kept {old_name} orphaned; treating {new_name} as new"
                     )
             elif yes:
-                apply_renames(state=state, renames=proposals, config_dir=target_dir)
+                apply_renames(
+                    state=state,
+                    renames=proposals,
+                    config_dir=target_dir,
+                    sources=sources,
+                )
             elif sys.stdin.isatty():
                 if typer.confirm("Accept all?", default=True):
-                    apply_renames(state=state, renames=proposals, config_dir=target_dir)
+                    apply_renames(
+                        state=state,
+                        renames=proposals,
+                        config_dir=target_dir,
+                        sources=sources,
+                    )
                 else:
                     for old_name, new_name in proposals:
                         state.record_orphaned(
