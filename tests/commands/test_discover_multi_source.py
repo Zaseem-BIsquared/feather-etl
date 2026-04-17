@@ -35,7 +35,7 @@ class TestDiscoverHeterogeneousSources:
         r = runner.invoke(app, ["discover", "--config", str(cfg)])
         assert r.exit_code == 0, r.output
         files = sorted(tmp_path.glob("schema_*.json"))
-        assert [f.name for f in files] == ["schema_sheets.json"]
+        assert [f.name for f in files] == ["schema_csv_sheets.json"]
         payload = json.loads(files[0].read_text())
         assert isinstance(payload, list)
         assert len(payload) == 3  # csv_data has 3 files
@@ -66,9 +66,9 @@ class TestDiscoverHeterogeneousSources:
         assert r.exit_code == 0, r.output
         names = {p.name for p in tmp_path.glob("schema_*.json")}
         assert names == {
-            "schema_sheets.json",
-            "schema_sqlite_db.json",
-            "schema_duck.json",
+            "schema_csv_sheets.json",
+            "schema_sqlite_sqlite_db.json",
+            "schema_duckdb_duck.json",
         }
 
 
@@ -89,7 +89,7 @@ class TestDiscoverResume:
 
         r1 = runner.invoke(app, ["discover", "--config", str(cfg)])
         assert r1.exit_code == 0
-        first_mtime = (tmp_path / "schema_db.json").stat().st_mtime_ns
+        first_mtime = (tmp_path / "schema_sqlite_db.json").stat().st_mtime_ns
 
         # Touch the schema JSON so we can detect whether it was rewritten.
         time.sleep(0.05)
@@ -98,7 +98,7 @@ class TestDiscoverResume:
         assert r2.exit_code == 0
         assert "cached" in r2.output
         # Cached run does NOT rewrite the schema file.
-        assert (tmp_path / "schema_db.json").stat().st_mtime_ns == first_mtime
+        assert (tmp_path / "schema_sqlite_db.json").stat().st_mtime_ns == first_mtime
 
     def test_state_file_written(self, runner, tmp_path, monkeypatch):
         from feather_etl.cli import app
@@ -190,7 +190,10 @@ class TestDiscoverPostgresMultiDatabase:
             r = runner.invoke(app, ["discover", "--config", str(cfg)])
             assert r.exit_code == 0, r.output
             files = {p.name for p in tmp_path.glob("schema_*.json")}
-            assert files == {"schema_wh__feather_a.json", "schema_wh__feather_b.json"}
+            assert files == {
+                "schema_postgres_wh__feather_a.json",
+                "schema_postgres_wh__feather_b.json",
+            }
         finally:
             self._drop_databases(names)
 
@@ -217,7 +220,7 @@ class TestDiscoverPostgresMultiDatabase:
             assert r.exit_code == 0, r.output
             files = {p.name for p in tmp_path.glob("schema_*.json")}
             for n in names:
-                assert f"schema_wh__{n}.json" in files
+                assert f"schema_postgres_wh__{n}.json" in files
         finally:
             self._drop_databases(names)
 
@@ -238,12 +241,12 @@ class TestDiscoverFlags:
         monkeypatch.chdir(tmp_path)
 
         runner.invoke(app, ["discover", "--config", str(cfg)])
-        first_mtime = (tmp_path / "schema_db.json").stat().st_mtime_ns
+        first_mtime = (tmp_path / "schema_sqlite_db.json").stat().st_mtime_ns
 
         time.sleep(0.05)
         r = runner.invoke(app, ["discover", "--config", str(cfg), "--refresh"])
         assert r.exit_code == 0
-        assert (tmp_path / "schema_db.json").stat().st_mtime_ns > first_mtime
+        assert (tmp_path / "schema_sqlite_db.json").stat().st_mtime_ns > first_mtime
 
     def test_retry_failed_only_retries_failures(self, runner, tmp_path, monkeypatch):
         """Simulate a failed source then verify --retry-failed retries only it."""
@@ -264,7 +267,7 @@ class TestDiscoverFlags:
 
         r1 = runner.invoke(app, ["discover", "--config", str(cfg)])
         assert r1.exit_code == 2  # one failed
-        ok_mtime = (tmp_path / "schema_ok.json").stat().st_mtime_ns
+        ok_mtime = (tmp_path / "schema_sqlite_ok.json").stat().st_mtime_ns
 
         # Make the bogus path valid.
         shutil.copy2(sqlite, bogus)
@@ -273,9 +276,9 @@ class TestDiscoverFlags:
         r2 = runner.invoke(app, ["discover", "--config", str(cfg), "--retry-failed"])
         assert r2.exit_code == 0
         # ok was not re-discovered.
-        assert (tmp_path / "schema_ok.json").stat().st_mtime_ns == ok_mtime
+        assert (tmp_path / "schema_sqlite_ok.json").stat().st_mtime_ns == ok_mtime
         # bad now has a schema file.
-        assert (tmp_path / "schema_bad.json").is_file()
+        assert (tmp_path / "schema_sqlite_bad.json").is_file()
 
     def test_prune_removes_orphaned_state_and_file(self, runner, tmp_path, monkeypatch):
         from feather_etl.cli import app
@@ -293,8 +296,8 @@ class TestDiscoverFlags:
         )
         monkeypatch.chdir(tmp_path)
         runner.invoke(app, ["discover", "--config", str(cfg)])
-        assert (tmp_path / "schema_a.json").exists()
-        assert (tmp_path / "schema_b.json").exists()
+        assert (tmp_path / "schema_sqlite_a.json").exists()
+        assert (tmp_path / "schema_sqlite_b.json").exists()
 
         # Remove 'b' from feather.yaml.
         cfg2 = multi_source_yaml(
@@ -305,11 +308,11 @@ class TestDiscoverFlags:
         )
         runner.invoke(app, ["discover", "--config", str(cfg2)])
         # 'b' marked removed in state, file still exists.
-        assert (tmp_path / "schema_b.json").exists()
+        assert (tmp_path / "schema_sqlite_b.json").exists()
 
         r = runner.invoke(app, ["discover", "--config", str(cfg2), "--prune"])
         assert r.exit_code == 0
-        assert not (tmp_path / "schema_b.json").exists()
+        assert not (tmp_path / "schema_sqlite_b.json").exists()
         state = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert "b" not in state["sources"]
 
@@ -373,8 +376,8 @@ class TestRenameNonTtyExit3:
 
         second = runner.invoke(app, ["discover", "--config", str(renamed_cfg), "--yes"])
         assert second.exit_code == 0, second.output
-        assert (tmp_path / "schema_erp_main.json").is_file()
-        assert not (tmp_path / "schema_erp.json").exists()
+        assert (tmp_path / "schema_sqlite_erp_main.json").is_file()
+        assert not (tmp_path / "schema_sqlite_erp.json").exists()
 
         state = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert "erp_main" in state["sources"]
@@ -440,7 +443,7 @@ class TestRenameNonTtyExit3:
         )
         assert refreshed.exit_code == 0, refreshed.output
         assert "Rename confirmation required" not in refreshed.output
-        assert (tmp_path / "schema_erp_main.json").is_file()
+        assert (tmp_path / "schema_sqlite_erp_main.json").is_file()
 
         state = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert state["sources"]["erp_main"]["status"] == "ok"
@@ -469,15 +472,15 @@ class TestRenameNonTtyExit3:
 
         first = runner.invoke(app, ["discover", "--config", str(first_cfg)])
         assert first.exit_code == 0, first.output
-        assert (tmp_path / "schema_erp.json").is_file()
+        assert (tmp_path / "schema_sqlite_erp.json").is_file()
 
         pruned = runner.invoke(
             app, ["discover", "--config", str(renamed_cfg), "--prune"]
         )
         assert pruned.exit_code == 0, pruned.output
         assert "Rename confirmation required" not in pruned.output
-        assert not (tmp_path / "schema_erp.json").exists()
-        assert not (tmp_path / "schema_erp_main.json").exists()
+        assert not (tmp_path / "schema_sqlite_erp.json").exists()
+        assert not (tmp_path / "schema_sqlite_erp_main.json").exists()
 
         state = json.loads((tmp_path / "feather_discover_state.json").read_text())
         assert "erp" not in state["sources"]

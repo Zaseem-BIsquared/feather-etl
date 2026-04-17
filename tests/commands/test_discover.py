@@ -209,7 +209,7 @@ class TestDiscover:
 
         result = runner.invoke(app, ["discover", "--config", str(config_path)])
         assert result.exit_code == 0
-        assert (tmp_path / "schema_prod-erp.json").exists()
+        assert (tmp_path / "schema_sqlite_prod-erp.json").exists()
         assert not (tmp_path / "schema_sqlite-source.json").exists()
 
     def test_user_name_with_unsafe_chars_is_sanitized(
@@ -222,7 +222,7 @@ class TestDiscover:
 
         result = runner.invoke(app, ["discover", "--config", str(config_path)])
         assert result.exit_code == 0
-        assert (tmp_path / "schema_prod_erp.json").exists()
+        assert (tmp_path / "schema_sqlite_prod_erp.json").exists()
 
     def test_second_run_uses_cache_by_default(
         self, runner, tmp_path: Path, monkeypatch
