@@ -65,7 +65,7 @@
     header button:hover { background: var(--border-light); }
 
     /* ---- Main layout ---- */
-    main { display: grid; grid-template-columns: 280px 1fr; overflow: hidden; background: var(--surface); }
+    main { display: grid; grid-template-columns: 340px 1fr; overflow: hidden; background: var(--surface); }
 
     /* ---- Sidebar ---- */
     .sidebar {
@@ -504,23 +504,25 @@
         html += `<div class="tm-source-label" style="color:var(--src-${si % 6}-label)">${esc(src.name.toUpperCase())}</div>`;
       }
       html += '<div class="tm-grid">';
-      const maxCols = tables[0]?.columns.length || 1;
+      const bgVar = `var(--src-${si % 6})`;
+      const borderVar = `var(--src-${si % 6}-border)`;
+      const nameColor = `var(--src-${si % 6}-strong)`;
+      const countColor = `var(--src-${si % 6}-label)`;
+      // Hero layout: largest table spans 2 rows on the left when 3+ tables exist
+      const useHero = tables.length >= 3;
       for (let ti = 0; ti < tables.length; ti++) {
         const t = tables[ti];
-        const isLarge = ti < 2 && t.columns.length > maxCols * 0.5;
-        const span = isLarge ? ' style="grid-column:span 2"' : "";
-        const bgVar = `var(--src-${si % 6})`;
-        const borderVar = `var(--src-${si % 6}-border)`;
-        const nameColor = `var(--src-${si % 6}-strong)`;
-        const countColor = `var(--src-${si % 6}-label)`;
-        const fontSize = isLarge ? 13 : (t.columns.length > 20 ? 11 : 10);
-        const countSize = isLarge ? 18 : (t.columns.length > 20 ? 14 : 12);
+        const isHero = ti === 0 && useHero;
+        let blockStyle = `background:${bgVar};border:1px solid ${borderVar}`;
+        if (isHero) blockStyle += ";grid-row:span 2";
         const sel = (t.table_name === state.selected && src.name === state.selectedSource) ? ";outline:2px solid var(--accent);outline-offset:-2px" : "";
+        const fontSize = isHero ? 13 : (t.columns.length > 20 ? 11 : 10);
+        const countSize = isHero ? 18 : (t.columns.length > 20 ? 14 : 12);
         html += `<div class="tm-block" data-table="${esc(t.table_name)}" data-source="${esc(src.name)}"
-          ${span} style="background:${bgVar};border:1px solid ${borderVar}${sel}">
+          style="${blockStyle}${sel}">
           <div class="tm-name" style="font-size:${fontSize}px;color:${nameColor}">${esc(t.table_name.replace(/^dbo\./, ""))}</div>
           <div class="tm-count" style="font-size:${countSize}px;color:${countColor}">${t.columns.length}</div>
-          ${isLarge ? '<div class="tm-unit">columns</div>' : ""}
+          ${isHero ? '<div class="tm-unit">columns</div>' : ""}
         </div>`;
       }
       html += "</div>";

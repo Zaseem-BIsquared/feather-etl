@@ -1,3 +1,29 @@
+# Schema Viewer v2 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Replace the dark-themed developer schema viewer with a client-facing light SaaS design featuring unified multi-source view, treemap/sparkline sidebar, and grouped column detail with type filtering.
+
+**Architecture:** Single self-contained HTML file (inline CSS + JS, no build step, no CDN). Loads all `schema*.json` files from the served directory, merges them into a unified multi-source view. Two sidebar modes (treemap map + sparkline list) with toggle. Content area shows stacked bar chart, clickable type legend, and grouped-by-type column grid with sort controls.
+
+**Tech Stack:** Vanilla HTML/CSS/JS. Served by existing `python http.server` via `feather view`.
+
+**Spec:** `docs/superpowers/specs/2026-04-17-schema-viewer-v2-design.md`
+
+---
+
+### Task 1: Write the CSS foundation and HTML structure
+
+**Files:**
+- Create: `scripts/schema_viewer.html` (overwrite existing)
+
+This task writes the complete static shell — all CSS and the HTML skeleton. No JavaScript yet. The page will render a styled but empty layout.
+
+- [ ] **Step 1: Write the CSS and HTML skeleton**
+
+Write the full file `scripts/schema_viewer.html` with all CSS and the HTML structure. JS will be added in subsequent tasks.
+
+```html
 <!doctype html>
 <html lang="en">
 <head>
@@ -65,7 +91,7 @@
     header button:hover { background: var(--border-light); }
 
     /* ---- Main layout ---- */
-    main { display: grid; grid-template-columns: 340px 1fr; overflow: hidden; background: var(--surface); }
+    main { display: grid; grid-template-columns: 280px 1fr; overflow: hidden; background: var(--surface); }
 
     /* ---- Sidebar ---- */
     .sidebar {
@@ -162,7 +188,7 @@
     .sort-pill.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-border); font-weight: 500; }
 
     .bar-chart {
-      display: flex; height: 32px; border-radius: 8px; overflow: hidden;
+      display: flex; height: 30px; border-radius: 8px; overflow: hidden;
       margin-bottom: 6px; cursor: pointer;
     }
     .bar-chart div {
@@ -271,10 +297,47 @@
   </main>
 
 <script>
+/* JS added in subsequent tasks */
+</script>
+</body>
+</html>
+```
+
+- [ ] **Step 2: Open in browser to verify static layout renders**
+
+Run: `cd /path/to/feather-etl && python -m http.server 8000 -d scripts/ &`
+
+Open `http://localhost:8000/schema_viewer.html` and verify:
+- Light background, white content area
+- Header with "feather" logo, Reload and Load file buttons
+- Sidebar with Map/List toggle and search input
+- Empty state with drop zone message
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add scripts/schema_viewer.html
+git commit -m "feat(viewer): CSS foundation + HTML skeleton for v2 redesign"
+```
+
+---
+
+### Task 2: Write the JavaScript data layer
+
+**Files:**
+- Modify: `scripts/schema_viewer.html` (replace the `<script>` block)
+
+This task adds the core JS: state management, schema parsing, unified multi-source loading, type classification, and source name parsing from filenames.
+
+- [ ] **Step 1: Replace the `<script>` placeholder with the data layer**
+
+In `scripts/schema_viewer.html`, replace `/* JS added in subsequent tasks */` with:
+
+```javascript
 (() => {
   /* ---- Constants ---- */
   const TYPE_FAMILIES = [
-    { key: "text",     match: ["varchar","nvarchar","text","char","nchar","ntext","sysname"],
+    { key: "text",     match: ["varchar","nvarchar","text","char","nchar","ntext","sysname","xml","uniqueidentifier","sql_variant"],
       color: "var(--type-text)", fg: "var(--type-text-fg)", bg: "var(--type-text-bg)", border: "var(--type-text-border)", label: "var(--type-text-label)" },
     { key: "numeric",  match: ["decimal","numeric","float","real","money","smallmoney"],
       color: "var(--type-numeric)", fg: "var(--type-numeric-fg)", bg: "var(--type-numeric-bg)", border: "var(--type-numeric-border)", label: "var(--type-numeric-label)" },
@@ -348,7 +411,7 @@
     let stem = filename.replace(/^schema_/, "").replace(/\.(json|ndjson)$/i, "");
     // Strip known source-type prefix when followed by underscore (explicit name format).
     for (const st of SOURCE_TYPES) {
-      if (stem.startsWith(`${st}_`)) { stem = stem.slice(st.length + 1); break; }
+      if (stem.startsWith(st + "_")) { stem = stem.slice(st.length + 1); break; }
     }
     // Split on __ to separate client from source database name.
     const parts = stem.split("__");
@@ -428,7 +491,7 @@
     }
     // Derive client label from first source that has one.
     const clientName = sources.find(s => s.client)?.client || "";
-    $clientLabel.textContent = clientName ? `${clientName} — Schema Discovery` : "Schema Discovery";
+    $clientLabel.textContent = clientName ? clientName + " — Schema Discovery" : "Schema Discovery";
 
     const totalCols = state.allTables.reduce((s, t) => s + t.columns.length, 0);
     $stats.textContent = `${sources.length} source${sources.length !== 1 ? "s" : ""} · ${state.allTables.length} tables · ${totalCols} columns`;
@@ -446,18 +509,74 @@
         const tables = parseSchema(reader.result);
         const parsed = parseSourceName(file.name);
         setUnifiedData([{ name: parsed.source || file.name, client: parsed.client, filename: file.name, tables }]);
-      } catch (e) { alert(`Failed to parse: ${e.message}`); }
+      } catch (e) { alert("Failed to parse: " + e.message); }
     };
     reader.readAsText(file);
   }
 
-  /* ---- Render ---- */
+  /* ---- Render placeholder (expanded in next tasks) ---- */
   function render() {
     renderSidebar();
     renderContent();
   }
+  function renderSidebar() {
+    $sidebar.innerHTML = '<div style="padding:16px;color:var(--text-faint);font-size:11px">Sidebar rendering — Task 3</div>';
+  }
+  function renderContent() {
+    if (!state.selected) {
+      const es = $("empty-state");
+      if (es) es.style.display = "";
+      return;
+    }
+  }
 
-  /* ---- Sidebar rendering (Task 3) ---- */
+  /* ---- Events ---- */
+  $search.addEventListener("input", e => { state.filter = e.target.value; render(); });
+  $loadBtn.addEventListener("click", () => $fileInput.click());
+  if ($pickBtn) $pickBtn.addEventListener("click", () => $fileInput.click());
+  $fileInput.addEventListener("change", e => { const f = e.target.files[0]; if (f) loadFromFile(f); });
+  $reloadBtn.addEventListener("click", () => loadAllSources().then(ok => {
+    if (!ok) alert("No schema*.json files found — use Load file… instead.");
+  }));
+  if ($dropzone) {
+    ["dragenter","dragover"].forEach(ev => $dropzone.addEventListener(ev, e => { e.preventDefault(); $dropzone.classList.add("hover"); }));
+    ["dragleave","drop"].forEach(ev => $dropzone.addEventListener(ev, e => { e.preventDefault(); $dropzone.classList.remove("hover"); }));
+    $dropzone.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) loadFromFile(f); });
+  }
+
+  /* ---- Boot ---- */
+  loadAllSources();
+})();
+```
+
+- [ ] **Step 2: Verify data loading works**
+
+Open `http://localhost:8000/schema_viewer.html` and verify:
+- The header shows client name and aggregate stats (e.g., "4 sources · 48 tables · 1,065 columns")
+- The sidebar shows the placeholder text "Sidebar rendering — Task 3"
+- Console has no errors (check DevTools)
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add scripts/schema_viewer.html
+git commit -m "feat(viewer): JS data layer — unified multi-source loading + type classification"
+```
+
+---
+
+### Task 3: Write sidebar rendering (List + Treemap + Toggle)
+
+**Files:**
+- Modify: `scripts/schema_viewer.html` (replace `renderSidebar` function and add toggle wiring)
+
+This task replaces the placeholder `renderSidebar()` with two modes: sparkline list and treemap. Adds the view toggle behavior and search filtering.
+
+- [ ] **Step 1: Replace the renderSidebar function**
+
+In `scripts/schema_viewer.html`, replace the entire `renderSidebar()` function with:
+
+```javascript
   function renderSidebar() {
     if (state.sidebarMode === "map") renderTreemap();
     else renderSparkList();
@@ -476,6 +595,7 @@
       for (const t of tables) {
         const sel = (t.table_name === state.selected && src.name === state.selectedSource) ? " selected" : "";
         const tc = typeCounts(t.columns);
+        const total = t.columns.length || 1;
         const sparkBars = tc.map(g => `<div style="flex:${g.count};background:${g.family.color}"></div>`).join("");
         html += `<div class="tbl-item${sel}" data-table="${esc(t.table_name)}" data-source="${esc(src.name)}">
           <div class="info"><div class="tname">${esc(t.table_name)}</div><div class="tcols">${t.columns.length} cols</div></div>
@@ -504,25 +624,23 @@
         html += `<div class="tm-source-label" style="color:var(--src-${si % 6}-label)">${esc(src.name.toUpperCase())}</div>`;
       }
       html += '<div class="tm-grid">';
-      const bgVar = `var(--src-${si % 6})`;
-      const borderVar = `var(--src-${si % 6}-border)`;
-      const nameColor = `var(--src-${si % 6}-strong)`;
-      const countColor = `var(--src-${si % 6}-label)`;
-      // Hero layout: largest table spans 2 rows on the left when 3+ tables exist
-      const useHero = tables.length >= 3;
+      const maxCols = tables[0]?.columns.length || 1;
       for (let ti = 0; ti < tables.length; ti++) {
         const t = tables[ti];
-        const isHero = ti === 0 && useHero;
-        let blockStyle = `background:${bgVar};border:1px solid ${borderVar}`;
-        if (isHero) blockStyle += ";grid-row:span 2";
+        const isLarge = ti < 2 && t.columns.length > maxCols * 0.5;
+        const span = isLarge ? ' style="grid-column:span 2"' : "";
+        const bgVar = `var(--src-${si % 6})`;
+        const borderVar = `var(--src-${si % 6}-border)`;
+        const nameColor = `var(--src-${si % 6}-strong)`;
+        const countColor = `var(--src-${si % 6}-label)`;
+        const fontSize = isLarge ? 13 : (t.columns.length > 20 ? 11 : 10);
+        const countSize = isLarge ? 18 : (t.columns.length > 20 ? 14 : 12);
         const sel = (t.table_name === state.selected && src.name === state.selectedSource) ? ";outline:2px solid var(--accent);outline-offset:-2px" : "";
-        const fontSize = isHero ? 13 : (t.columns.length > 20 ? 11 : 10);
-        const countSize = isHero ? 18 : (t.columns.length > 20 ? 14 : 12);
         html += `<div class="tm-block" data-table="${esc(t.table_name)}" data-source="${esc(src.name)}"
-          style="${blockStyle}${sel}">
+          ${span} style="background:${bgVar};border:1px solid ${borderVar}${sel}">
           <div class="tm-name" style="font-size:${fontSize}px;color:${nameColor}">${esc(t.table_name.replace(/^dbo\./, ""))}</div>
           <div class="tm-count" style="font-size:${countSize}px;color:${countColor}">${t.columns.length}</div>
-          ${isHero ? '<div class="tm-unit">columns</div>' : ""}
+          ${isLarge ? '<div class="tm-unit">columns</div>' : ""}
         </div>`;
       }
       html += "</div>";
@@ -540,8 +658,52 @@
     state.typeFilter = null;
     render();
   }
+```
 
-  /* ---- Content rendering (Task 4) ---- */
+- [ ] **Step 2: Add the view toggle event listener**
+
+Add this code right after the existing `$reloadBtn` event listener (before the `$dropzone` block):
+
+```javascript
+  $viewToggle.querySelectorAll("span").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.sidebarMode = btn.dataset.mode;
+      $viewToggle.querySelectorAll("span").forEach(s => s.classList.toggle("active", s === btn));
+      renderSidebar();
+    });
+  });
+```
+
+- [ ] **Step 3: Verify sidebar rendering**
+
+Open `http://localhost:8000/schema_viewer.html` and verify:
+- **Map mode** (default): treemap blocks grouped by source, sized proportionally, largest tables prominent
+- **List mode**: sparkline rows with source section headers and mini type bars
+- **Toggle**: clicking Map/List switches between views
+- **Search**: typing in the filter box filters tables in both modes
+- **Click**: clicking a table highlights it (outline in map, blue bg in list)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add scripts/schema_viewer.html
+git commit -m "feat(viewer): sidebar rendering — treemap + sparkline list + toggle + search"
+```
+
+---
+
+### Task 4: Write content area rendering (bar chart, legend, grouped list, sort)
+
+**Files:**
+- Modify: `scripts/schema_viewer.html` (replace `renderContent` function)
+
+This task replaces the placeholder `renderContent()` with the full table detail view: stacked bar chart, clickable legend, sort controls, grouped-by-type column list, and flat A-Z/Original views.
+
+- [ ] **Step 1: Replace the renderContent function**
+
+In `scripts/schema_viewer.html`, replace the entire `renderContent()` function with:
+
+```javascript
   function renderContent() {
     const emptyEl = $("empty-state");
     if (!state.selected) {
@@ -564,7 +726,7 @@
     // Table header
     html += `<div class="tbl-title">${esc(table.table_name)}</div>`;
     if (state.sources.length > 1) {
-      html += `<div class="tbl-source">Source: ${esc(state.selectedSource)}${srcType ? ` · ${esc(srcType)}` : ""}</div>`;
+      html += `<div class="tbl-source">Source: ${esc(state.selectedSource)}${srcType ? " · " + esc(srcType) : ""}</div>`;
     }
     html += `<div class="tbl-meta">${table.columns.length} columns</div>`;
 
@@ -597,7 +759,7 @@
       </span>`;
     }
     if (state.typeFilter) {
-      html += '<span class="legend-pill" data-type="" style="color:var(--accent);border-color:var(--accent-border)">&#x2715; clear</span>';
+      html += '<span class="legend-pill" data-type="" style="color:var(--accent);border-color:var(--accent-border)">✕ clear</span>';
     }
     html += "</div>";
 
@@ -695,36 +857,101 @@
     const div = document.createElement("div");
     div.className = "empty-state";
     div.id = "empty-state";
-    div.innerHTML = `<div style="font-size:28px;font-weight:300;color:#d1d5db;margin-bottom:12px">&#9664;</div><h2>Select a table</h2><p>Click any table in the sidebar to view its columns, types, and structure.</p>`;
+    div.innerHTML = `<h2>Select a table</h2><p>Click any table in the sidebar to view its columns, types, and structure.</p>`;
     return div;
   }
+```
 
-  /* ---- Events ---- */
-  $search.addEventListener("input", e => { state.filter = e.target.value; render(); });
-  $loadBtn.addEventListener("click", () => $fileInput.click());
-  if ($pickBtn) $pickBtn.addEventListener("click", () => $fileInput.click());
-  $fileInput.addEventListener("change", e => { const f = e.target.files[0]; if (f) loadFromFile(f); });
-  $reloadBtn.addEventListener("click", () => loadAllSources().then(ok => {
-    if (!ok) alert("No schema*.json files found — use Load file… instead.");
-  }));
+- [ ] **Step 2: Verify the full content area**
 
-  $viewToggle.querySelectorAll("span").forEach(btn => {
-    btn.addEventListener("click", () => {
-      state.sidebarMode = btn.dataset.mode;
-      $viewToggle.querySelectorAll("span").forEach(s => { s.classList.toggle("active", s === btn); });
-      renderSidebar();
-    });
-  });
+Open the viewer in a browser with schema files present and verify:
+- Click a table in the sidebar → content shows table name, source, column count
+- Stacked bar chart shows type proportions with labels
+- Legend pills show type names with counts
+- Click a bar segment or legend pill → filters to that type only, "✕ clear" pill appears
+- Sort pills: "By Type" shows grouped sections, "A → Z" shows alphabetical flat table, "Original" shows source-order flat table
+- Grouped view: sections with colored headers, 2-column grid, "+ N more" links that expand on click
+- Flat view: numbered table with colored type badges
 
-  if ($dropzone) {
-    ["dragenter","dragover"].forEach(ev => { $dropzone.addEventListener(ev, e => { e.preventDefault(); $dropzone.classList.add("hover"); }); });
-    ["dragleave","drop"].forEach(ev => { $dropzone.addEventListener(ev, e => { e.preventDefault(); $dropzone.classList.remove("hover"); }); });
-    $dropzone.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) loadFromFile(f); });
-  }
+- [ ] **Step 3: Commit**
 
-  /* ---- Boot ---- */
-  loadAllSources();
-})();
-</script>
-</body>
-</html>
+```bash
+git add scripts/schema_viewer.html
+git commit -m "feat(viewer): content area — bar chart, legend, grouped columns, sort, type filter"
+```
+
+---
+
+### Task 5: Sync to resources, run tests, final verification
+
+**Files:**
+- Modify: `src/feather_etl/resources/schema_viewer.html` (overwrite with new version)
+
+- [ ] **Step 1: Copy to the packaged resources location**
+
+```bash
+cp scripts/schema_viewer.html src/feather_etl/resources/schema_viewer.html
+```
+
+- [ ] **Step 2: Run the existing test suite**
+
+Run: `uv run pytest -q`
+
+Expected: All 597 tests pass. The `TestSyncViewerHtml` tests compare `scripts/schema_viewer.html` against the packaged resource — since we copied the file, they should match.
+
+- [ ] **Step 3: Run hands_on_test.sh**
+
+Run: `bash scripts/hands_on_test.sh`
+
+Expected: All 61 checks pass. The viewer HTML change does not affect CLI behavior.
+
+- [ ] **Step 4: Visual verification with real schema files**
+
+Run `feather view` from a directory containing schema files (e.g., from a previous `feather discover` run) and verify:
+
+1. **Landing**: header shows client name + aggregate stats, sidebar shows treemap
+2. **Treemap**: blocks are sized proportionally, grouped by source with colored labels
+3. **List mode**: toggle to List, verify sparkline bars and source section headers
+4. **Search**: type a table name fragment, verify both modes filter
+5. **Table detail**: click a table, verify bar chart + legend + grouped columns
+6. **Type filter**: click a bar segment, verify columns filter to that type
+7. **Sort**: toggle A → Z, Original, By Type — verify each renders correctly
+8. **Expand**: in grouped view, click "+ N more" to expand hidden columns
+9. **Multi-source**: verify all sources appear in sidebar and content shows source label
+10. **Drag/drop**: drag a schema JSON onto the drop zone, verify it loads
+11. **Load file**: click "Load file…" button, pick a schema JSON
+
+- [ ] **Step 5: Commit the synced copy**
+
+```bash
+git add src/feather_etl/resources/schema_viewer.html
+git commit -m "chore(viewer): sync packaged schema_viewer.html with scripts/ copy"
+```
+
+---
+
+### Task 6: Format and final commit
+
+**Files:**
+- All modified files
+
+- [ ] **Step 1: Run ruff format**
+
+```bash
+ruff format .
+```
+
+- [ ] **Step 2: Run full test suite one more time**
+
+```bash
+uv run pytest -q
+```
+
+Expected: All tests pass.
+
+- [ ] **Step 3: Final commit if ruff made changes**
+
+```bash
+git add -A
+git commit -m "style: apply ruff formatting"
+```
