@@ -249,3 +249,36 @@ class TestMySQLDiscoverIntegration:
         assert col_types["id"] == "int"
         assert col_types["product"] == "varchar"
         assert col_types["amount"] == "decimal"
+
+
+# ---------------------------------------------------------------------------
+# MySQLSource.get_schema() — integration tests (real MySQL)
+# ---------------------------------------------------------------------------
+
+
+@mysql_db
+class TestMySQLGetSchemaIntegration:
+    @pytest.fixture
+    def source(self):
+        from feather_etl.sources.mysql import MySQLSource
+
+        src = MySQLSource(connection_string="")
+        src._connect_kwargs = MYSQL_CONN_KWARGS
+        src.database = "feather_test"
+        return src
+
+    def test_get_schema_returns_columns(self, source):
+        cols = source.get_schema("erp_sales")
+        col_names = [c[0] for c in cols]
+        assert "id" in col_names
+        assert "customer_id" in col_names
+        assert "product" in col_names
+        assert "amount" in col_names
+        assert "modified_at" in col_names
+
+    def test_get_schema_returns_types(self, source):
+        cols = source.get_schema("erp_sales")
+        col_types = {c[0]: c[1] for c in cols}
+        assert col_types["id"] == "int"
+        assert col_types["amount"] == "decimal"
+        assert col_types["modified_at"] == "timestamp"

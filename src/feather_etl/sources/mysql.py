@@ -218,7 +218,21 @@ class MySQLSource(DatabaseSource):
             conn.close()
 
     def get_schema(self, table: str) -> list[tuple[str, str]]:
-        raise NotImplementedError("get_schema not yet implemented")
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COLUMN_NAME, DATA_TYPE "
+                "FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
+                "ORDER BY ORDINAL_POSITION",
+                (self.database, table),
+            )
+            cols = cursor.fetchall()
+            cursor.close()
+            return [(c[0], c[1]) for c in cols]
+        finally:
+            conn.close()
 
     def extract(
         self,
