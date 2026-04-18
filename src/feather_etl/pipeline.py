@@ -169,6 +169,7 @@ def run_table(
     config: FeatherConfig,
     table: TableConfig,
     working_dir: Path,
+    source: object | None = None,
 ) -> RunResult:
     """Run a single table through the pipeline: extract → load → update state."""
     logger.info("Starting extraction", extra={"table": table.name})
@@ -205,7 +206,8 @@ def run_table(
     dest = DuckDBDestination(path=config.destination.path)
     dest.setup_schemas()
 
-    source = config.sources[0]
+    if source is None:
+        source = config.sources[0]
     effective_target = _resolve_target(table, config.mode)
 
     # Prod mode with column_map: extract only mapped columns
@@ -540,9 +542,16 @@ def run_all(
                 f"Available tables: {available}"
             )
 
+    from feather_etl.curation import resolve_source
+
     results: list[RunResult] = []
     for table in tables:
-        result = run_table(config, table, working_dir)
+        table_source = (
+            resolve_source(table.database, config.sources)
+            if table.database
+            else config.sources[0]
+        )
+        result = run_table(config, table, working_dir, source=table_source)
         results.append(result)
 
     # Post-extraction transforms (mode-dependent)
