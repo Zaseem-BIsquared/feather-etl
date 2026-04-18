@@ -331,4 +331,21 @@ class MySQLSource(DatabaseSource):
         )
 
     def list_databases(self) -> list[str]:
-        raise NotImplementedError("list_databases not yet implemented")
+        """Return user databases on the server (excludes system databases).
+
+        Raises mysql.connector.Error on connection/query failure (caller handles).
+        """
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA "
+                "WHERE SCHEMA_NAME NOT IN "
+                "('information_schema', 'mysql', 'performance_schema', 'sys') "
+                "ORDER BY SCHEMA_NAME"
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+            return [r[0] for r in rows]
+        finally:
+            conn.close()

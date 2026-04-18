@@ -375,3 +375,62 @@ class TestMySQLDetectChangesIntegration:
         result = source.detect_changes("erp_sales", last_state=last_state)
         assert result.changed is True
         assert result.reason == "incremental"
+
+
+# ---------------------------------------------------------------------------
+# MySQLSource.list_databases — unit tests (mocked connector)
+# ---------------------------------------------------------------------------
+
+
+class TestMySQLListDatabases:
+    def test_query_filters_system_dbs(self, monkeypatch):
+        from feather_etl.sources import mysql as mysql_mod
+        from feather_etl.sources.mysql import MySQLSource
+
+        captured_sql: list[str] = []
+
+        class FakeCursor:
+            def execute(self, sql, *_):
+                captured_sql.append(sql)
+
+            def fetchall(self):
+                return [("warehouse",), ("analytics",)]
+
+            def close(self):
+                pass
+
+        class FakeConn:
+            def cursor(self):
+                return FakeCursor()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(
+            mysql_mod.mysql.connector, "connect", lambda **k: FakeConn()
+        )
+
+        src = MySQLSource(connection_string="dummy")
+        src._connect_kwargs = {"host": "localhost"}
+        result = src.list_databases()
+
+        assert result == ["warehouse", "analytics"]
+        sql = captured_sql[0]
+        assert "SCHEMA_NAME" in sql
+        assert "information_schema" in sql
+        assert "mysql" in sql
+        assert "performance_schema" in sql
+        assert "sys" in sql
+
+    def test_propagates_connector_error(self, monkeypatch):
+        from feather_etl.sources import mysql as mysql_mod
+        from feather_etl.sources.mysql import MySQLSource
+
+        def raise_(**k):
+            raise mysql_mod.mysql.connector.Error("connection refused")
+
+        monkeypatch.setattr(mysql_mod.mysql.connector, "connect", raise_)
+        src = MySQLSource(connection_string="dummy")
+        src._connect_kwargs = {"host": "nope"}
+        with pytest.raises(mysql_mod.mysql.connector.Error):
+            src.list_databases()
