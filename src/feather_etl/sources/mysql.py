@@ -144,8 +144,7 @@ class MySQLSource(DatabaseSource):
             if password:
                 connect_kwargs["password"] = password
             conn_str = (
-                f"host={host};port={port};database={database or ''}"
-                f";user={user or ''}"
+                f"host={host};port={port};database={database or ''};user={user or ''}"
             )
         else:
             raise ValueError(
