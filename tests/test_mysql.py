@@ -337,3 +337,41 @@ class TestMySQLExtractIntegration:
         table = source.extract("erp_sales", filter="id = -999")
         assert isinstance(table, pa.Table)
         assert table.num_rows == 0
+
+
+# ---------------------------------------------------------------------------
+# MySQLSource.detect_changes() — integration tests (real MySQL)
+# ---------------------------------------------------------------------------
+
+
+@mysql_db
+class TestMySQLDetectChangesIntegration:
+    @pytest.fixture
+    def source(self):
+        from feather_etl.sources.mysql import MySQLSource
+
+        src = MySQLSource(connection_string="")
+        src._connect_kwargs = MYSQL_CONN_KWARGS
+        src.database = "feather_test"
+        return src
+
+    def test_detect_changes_first_run(self, source):
+        result = source.detect_changes("erp_sales", last_state=None)
+        assert result.changed is True
+        assert result.reason == "first_run"
+        assert "checksum" in result.metadata
+
+    def test_detect_changes_unchanged(self, source):
+        first = source.detect_changes("erp_sales", last_state=None)
+        last_state = {
+            "last_checksum": first.metadata.get("checksum"),
+        }
+        second = source.detect_changes("erp_sales", last_state=last_state)
+        assert second.changed is False
+        assert second.reason == "unchanged"
+
+    def test_detect_changes_incremental_always_changed(self, source):
+        last_state = {"strategy": "incremental"}
+        result = source.detect_changes("erp_sales", last_state=last_state)
+        assert result.changed is True
+        assert result.reason == "incremental"

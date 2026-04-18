@@ -294,7 +294,41 @@ class MySQLSource(DatabaseSource):
     def detect_changes(
         self, table: str, last_state: dict[str, object] | None = None
     ) -> ChangeResult:
-        raise NotImplementedError("detect_changes not yet implemented")
+        if last_state is not None and last_state.get("strategy") == "incremental":
+            return ChangeResult(changed=True, reason="incremental")
+
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            # CHECKSUM TABLE returns (table_name, checksum_value)
+            qualified = f"{self.database}.{table}" if self.database else table
+            cursor.execute(f"CHECKSUM TABLE {qualified}")
+            row = cursor.fetchone()
+            cursor.close()
+            conn.close()
+        except mysql.connector.Error:
+            return ChangeResult(changed=True, reason="checksum_error")
+
+        if row is None:
+            return ChangeResult(changed=True, reason="first_run")
+
+        current_checksum = row[1]
+
+        if last_state is None or last_state.get("last_checksum") is None:
+            return ChangeResult(
+                changed=True,
+                reason="first_run",
+                metadata={"checksum": current_checksum},
+            )
+
+        if current_checksum == last_state.get("last_checksum"):
+            return ChangeResult(changed=False, reason="unchanged")
+
+        return ChangeResult(
+            changed=True,
+            reason="checksum_changed",
+            metadata={"checksum": current_checksum},
+        )
 
     def list_databases(self) -> list[str]:
         raise NotImplementedError("list_databases not yet implemented")
