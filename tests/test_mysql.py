@@ -360,11 +360,13 @@ class TestMySQLDetectChangesIntegration:
         assert result.changed is True
         assert result.reason == "first_run"
         assert "checksum" in result.metadata
+        assert "row_count" in result.metadata
 
     def test_detect_changes_unchanged(self, source):
         first = source.detect_changes("erp_sales", last_state=None)
         last_state = {
             "last_checksum": first.metadata.get("checksum"),
+            "last_row_count": first.metadata.get("row_count"),
         }
         second = source.detect_changes("erp_sales", last_state=last_state)
         assert second.changed is False
@@ -434,3 +436,30 @@ class TestMySQLListDatabases:
         src._connect_kwargs = {"host": "nope"}
         with pytest.raises(mysql_mod.mysql.connector.Error):
             src.list_databases()
+
+
+# ---------------------------------------------------------------------------
+# Registry — unit test
+# ---------------------------------------------------------------------------
+
+
+class TestMySQLRegistry:
+    def test_source_in_registry(self):
+        from feather_etl.sources.mysql import MySQLSource
+        from feather_etl.sources.registry import get_source_class
+
+        assert get_source_class("mysql") is MySQLSource
+
+
+# ---------------------------------------------------------------------------
+# MySQLSource.discover() — guard when database is None
+# ---------------------------------------------------------------------------
+
+
+class TestMySQLDiscoverGuard:
+    def test_discover_without_database_raises(self):
+        from feather_etl.sources.mysql import MySQLSource
+
+        src = MySQLSource(connection_string="dummy")
+        with pytest.raises(ValueError, match="requires database"):
+            src.discover()

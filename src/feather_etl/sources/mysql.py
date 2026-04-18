@@ -114,7 +114,7 @@ class MySQLSource(DatabaseSource):
         """Return a MySQL connection using stored kwargs or connection_string."""
         if self._connect_kwargs:
             return mysql.connector.connect(**self._connect_kwargs)
-        return mysql.connector.connect(self.connection_string)
+        return mysql.connector.connect(connection_string=self.connection_string)
 
     @classmethod
     def from_yaml(cls, entry: dict, config_dir: Path) -> "MySQLSource":
@@ -180,6 +180,8 @@ class MySQLSource(DatabaseSource):
             return False
 
     def discover(self) -> list[StreamSchema]:
+        if not self.database:
+            raise ValueError("discover() requires database to be set.")
         conn = self._connect()
         try:
             cursor = conn.cursor()
@@ -244,52 +246,55 @@ class MySQLSource(DatabaseSource):
         watermark_value: str | None = None,
     ) -> pa.Table:
         conn = self._connect()
-        cursor = conn.cursor()
+        try:
+            cursor = conn.cursor()
 
-        col_clause = ", ".join(columns) if columns else "*"
-        where = self._build_where_clause(filter, watermark_column, watermark_value)
-        query = f"SELECT {col_clause} FROM {table}{where}"
+            col_clause = ", ".join(columns) if columns else "*"
+            where = self._build_where_clause(filter, watermark_column, watermark_value)
+            query = f"SELECT {col_clause} FROM {table}{where}"
 
-        cursor.execute(query)
+            cursor.execute(query)
 
-        if cursor.description is None:
-            cursor.close()
-            conn.close()
-            return pa.table({})
+            if cursor.description is None:
+                cursor.close()
+                return pa.table({})
 
-        col_names = [desc[0] for desc in cursor.description]
-        col_types = [_mysql_field_type_to_arrow(desc[1]) for desc in cursor.description]
-        arrow_schema = pa.schema(
-            [pa.field(name, typ) for name, typ in zip(col_names, col_types)]
-        )
-
-        batches: list[pa.RecordBatch] = []
-        while True:
-            rows = cursor.fetchmany(self.batch_size)
-            if not rows:
-                break
-            col_data: dict[str, list] = {name: [] for name in col_names}
-            for row in rows:
-                for i, name in enumerate(col_names):
-                    val = row[i]
-                    if isinstance(val, decimal.Decimal):
-                        val = float(val)
-                    col_data[name].append(val)
-            batch = pa.RecordBatch.from_pydict(col_data, schema=arrow_schema)
-            batches.append(batch)
-
-        cursor.close()
-        conn.close()
-
-        if not batches:
-            return pa.table(
-                {
-                    name: pa.array([], type=typ)
-                    for name, typ in zip(col_names, col_types)
-                }
+            col_names = [desc[0] for desc in cursor.description]
+            col_types = [
+                _mysql_field_type_to_arrow(desc[1]) for desc in cursor.description
+            ]
+            arrow_schema = pa.schema(
+                [pa.field(name, typ) for name, typ in zip(col_names, col_types)]
             )
 
-        return pa.Table.from_batches(batches, schema=arrow_schema)
+            batches: list[pa.RecordBatch] = []
+            while True:
+                rows = cursor.fetchmany(self.batch_size)
+                if not rows:
+                    break
+                col_data: dict[str, list] = {name: [] for name in col_names}
+                for row in rows:
+                    for i, name in enumerate(col_names):
+                        val = row[i]
+                        if isinstance(val, decimal.Decimal):
+                            val = float(val)
+                        col_data[name].append(val)
+                batch = pa.RecordBatch.from_pydict(col_data, schema=arrow_schema)
+                batches.append(batch)
+
+            cursor.close()
+
+            if not batches:
+                return pa.table(
+                    {
+                        name: pa.array([], type=typ)
+                        for name, typ in zip(col_names, col_types)
+                    }
+                )
+
+            return pa.Table.from_batches(batches, schema=arrow_schema)
+        finally:
+            conn.close()
 
     def detect_changes(
         self, table: str, last_state: dict[str, object] | None = None
@@ -300,10 +305,11 @@ class MySQLSource(DatabaseSource):
         try:
             conn = self._connect()
             cursor = conn.cursor()
-            # CHECKSUM TABLE returns (table_name, checksum_value)
             qualified = f"{self.database}.{table}" if self.database else table
             cursor.execute(f"CHECKSUM TABLE {qualified}")
             row = cursor.fetchone()
+            cursor.execute(f"SELECT COUNT(*) FROM {qualified}")
+            count_row = cursor.fetchone()
             cursor.close()
             conn.close()
         except mysql.connector.Error:
@@ -313,21 +319,30 @@ class MySQLSource(DatabaseSource):
             return ChangeResult(changed=True, reason="first_run")
 
         current_checksum = row[1]
+        current_row_count = count_row[0] if count_row else 0
 
         if last_state is None or last_state.get("last_checksum") is None:
             return ChangeResult(
                 changed=True,
                 reason="first_run",
-                metadata={"checksum": current_checksum},
+                metadata={
+                    "checksum": current_checksum,
+                    "row_count": current_row_count,
+                },
             )
 
-        if current_checksum == last_state.get("last_checksum"):
+        if current_checksum == last_state.get(
+            "last_checksum"
+        ) and current_row_count == last_state.get("last_row_count"):
             return ChangeResult(changed=False, reason="unchanged")
 
         return ChangeResult(
             changed=True,
             reason="checksum_changed",
-            metadata={"checksum": current_checksum},
+            metadata={
+                "checksum": current_checksum,
+                "row_count": current_row_count,
+            },
         )
 
     def list_databases(self) -> list[str]:
