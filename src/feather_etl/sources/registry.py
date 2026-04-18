@@ -20,6 +20,7 @@ SOURCE_CLASSES: dict[str, str] = {
     "sqlite": "feather_etl.sources.sqlite.SqliteSource",
     "sqlserver": "feather_etl.sources.sqlserver.SqlServerSource",
     "postgres": "feather_etl.sources.postgres.PostgresSource",
+    "mysql": "feather_etl.sources.mysql.MySQLSource",
     "excel": "feather_etl.sources.excel.ExcelSource",
     "json": "feather_etl.sources.json_source.JsonSource",
 }
