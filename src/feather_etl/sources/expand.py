@@ -55,7 +55,7 @@ def expand_db_sources(sources: list) -> list:
                     "password": src.password,
                     "database": db,
                 },
-                Path("."),
+                Path("."),  # DB sources' from_yaml ignores config_dir (file-path only)
             )
             child._explicit_name = getattr(src, "_explicit_name", False)
             expanded.append(child)
