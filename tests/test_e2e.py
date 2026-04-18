@@ -8,12 +8,13 @@ import yaml
 from typer.testing import CliRunner
 
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 runner = CliRunner()
 
 
 def test_full_onboarding_flow(tmp_path: Path, monkeypatch):
-    """init → validate → discover → setup → run → status → run again."""
+    """init -> validate -> discover -> setup -> run -> status -> run again."""
     from feather_etl.cli import app
 
     # --- 1. feather init ---
@@ -30,31 +31,20 @@ def test_full_onboarding_flow(tmp_path: Path, monkeypatch):
     shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
 
     config = {
-        "sources": [{"type": "duckdb", "path": str(client_db)}],
+        "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
         "destination": {"path": str(project_dir / "feather_data.duckdb")},
-        "tables": [
-            {
-                "name": "sales_invoice",
-                "source_table": "icube.SALESINVOICE",
-                "target_table": "bronze.sales_invoice",
-                "strategy": "full",
-            },
-            {
-                "name": "customer_master",
-                "source_table": "icube.CUSTOMERMASTER",
-                "target_table": "bronze.customer_master",
-                "strategy": "full",
-            },
-            {
-                "name": "inventory_group",
-                "source_table": "icube.InventoryGroup",
-                "target_table": "bronze.inventory_group",
-                "strategy": "full",
-            },
-        ],
     }
     config_path = project_dir / "feather.yaml"
     config_path.write_text(yaml.dump(config, default_flow_style=False))
+
+    write_curation(
+        project_dir,
+        [
+            make_curation_entry("icube", "icube.SALESINVOICE", "sales_invoice"),
+            make_curation_entry("icube", "icube.CUSTOMERMASTER", "customer_master"),
+            make_curation_entry("icube", "icube.InventoryGroup", "inventory_group"),
+        ],
+    )
 
     # --- 3. feather validate ---
     result = runner.invoke(app, ["validate", "--config", str(config_path)])
@@ -66,7 +56,6 @@ def test_full_onboarding_flow(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(project_dir)
     import feather_etl.commands.discover as discover_cmd
 
-    # Stub viewer runtime to avoid blocking e2e on the long-lived server/browser flow.
     monkeypatch.setattr(discover_cmd, "serve_and_open", lambda *args, **kwargs: None)
     result = runner.invoke(app, ["discover", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
@@ -96,32 +85,38 @@ def test_full_onboarding_flow(tmp_path: Path, monkeypatch):
     data_db = str(project_dir / "feather_data.duckdb")
     con = duckdb.connect(data_db, read_only=True)
 
-    si_count = con.execute("SELECT COUNT(*) FROM bronze.sales_invoice").fetchone()[0]
+    si_count = con.execute(
+        "SELECT COUNT(*) FROM bronze.icube_sales_invoice"
+    ).fetchone()[0]
     assert si_count == 11676
 
-    cm_count = con.execute("SELECT COUNT(*) FROM bronze.customer_master").fetchone()[0]
+    cm_count = con.execute(
+        "SELECT COUNT(*) FROM bronze.icube_customer_master"
+    ).fetchone()[0]
     assert cm_count == 1339
 
-    ig_count = con.execute("SELECT COUNT(*) FROM bronze.inventory_group").fetchone()[0]
+    ig_count = con.execute(
+        "SELECT COUNT(*) FROM bronze.icube_inventory_group"
+    ).fetchone()[0]
     assert ig_count == 66
 
     # Verify ETL metadata columns
     row = con.execute(
-        "SELECT _etl_loaded_at, _etl_run_id FROM bronze.sales_invoice LIMIT 1"
+        "SELECT _etl_loaded_at, _etl_run_id FROM bronze.icube_sales_invoice LIMIT 1"
     ).fetchone()
-    assert row[0] is not None  # _etl_loaded_at
-    assert "sales_invoice" in row[1]  # _etl_run_id
+    assert row[0] is not None
+    assert "icube_sales_invoice" in row[1]
     con.close()
 
     # --- 7. feather status ---
     result = runner.invoke(app, ["status", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
-    assert "sales_invoice" in result.output
-    assert "customer_master" in result.output
-    assert "inventory_group" in result.output
+    assert "icube_sales_invoice" in result.output
+    assert "icube_customer_master" in result.output
+    assert "icube_inventory_group" in result.output
     assert "success" in result.output
 
-    # --- 8. Second feather run (change detection → skip unchanged) ---
+    # --- 8. Second feather run (change detection -> skip unchanged) ---
     result = runner.invoke(app, ["run", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
     assert "skipped (unchanged)" in result.output

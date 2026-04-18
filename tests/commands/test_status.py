@@ -10,6 +10,7 @@ import yaml
 
 from tests.commands.conftest import cli_config
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 class TestStatus:
@@ -20,7 +21,7 @@ class TestStatus:
         runner.invoke(app, ["run", "--config", str(config_path)])
         result = runner.invoke(app, ["status", "--config", str(config_path)])
         assert result.exit_code == 0
-        assert "inventory_group" in result.output
+        assert "icube_inventory_group" in result.output
 
     def test_status_no_state_db(self, runner, cli_env: tuple[Path, Path]):
         from feather_etl.cli import app
@@ -46,19 +47,15 @@ class TestStatus:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
         config = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "bad_table",
-                    "source_table": "icube.NONEXISTENT",
-                    "target_table": "bronze.bad_table",
-                    "strategy": "full",
-                },
-            ],
         }
         config_path = tmp_path / "feather.yaml"
         config_path.write_text(yaml.dump(config, default_flow_style=False))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("icube", "icube.NONEXISTENT", "bad_table")],
+        )
 
         runner.invoke(app, ["run", "--config", str(config_path)])
         result = runner.invoke(app, ["status", "--config", str(config_path)])
@@ -73,41 +70,34 @@ class TestStatus:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
 
+        # First config: inventory_group
         config_a = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "inventory_group",
-                    "source_table": "icube.InventoryGroup",
-                    "target_table": "bronze.inventory_group",
-                    "strategy": "full",
-                },
-            ],
         }
         config_path = tmp_path / "feather.yaml"
         config_path.write_text(yaml.dump(config_a, default_flow_style=False))
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry("icube", "icube.InventoryGroup", "inventory_group"),
+            ],
+        )
         runner.invoke(app, ["run", "--config", str(config_path)])
 
-        config_b = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
-            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "customer_master",
-                    "source_table": "icube.CUSTOMERMASTER",
-                    "target_table": "bronze.customer_master",
-                    "strategy": "full",
-                },
+        # Second config: customer_master
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry("icube", "icube.CUSTOMERMASTER", "customer_master"),
             ],
-        }
-        config_path.write_text(yaml.dump(config_b, default_flow_style=False))
+        )
         runner.invoke(app, ["run", "--config", str(config_path)])
 
         result = runner.invoke(app, ["status", "--config", str(config_path)])
         assert result.exit_code == 0
-        assert "inventory_group" in result.output
-        assert "customer_master" in result.output
+        assert "icube_inventory_group" in result.output
+        assert "icube_customer_master" in result.output
 
     def test_status_json_outputs_ndjson(self, runner, tmp_path: Path):
         """AC-FR11.d: feather status --json outputs NDJSON with required fields."""

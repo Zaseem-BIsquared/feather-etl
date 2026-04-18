@@ -8,8 +8,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from feather_etl.config import TableConfig
-
 
 def _write_curation(
     tmp_path: Path, tables: list[dict], source_systems: dict | None = None
@@ -79,7 +77,7 @@ class TestLoadCuration:
         _write_curation(tmp_path, [entry])
         result = load_curation_tables(tmp_path)
         assert result[0].name == "gofrugal_sales"
-        assert result[0].target_table == "bronze.gofrugal_sales"
+        assert result[0].target_table == ""  # mode-derived at runtime
 
     def test_maps_strategy(self, tmp_path: Path):
         from feather_etl.curation import load_curation_tables

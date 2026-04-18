@@ -17,6 +17,8 @@ from feather_etl.transforms import (
     rebuild_materialized_gold,
 )
 
+from tests.helpers import make_curation_entry, write_curation
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -355,7 +357,6 @@ class TestExecuteTransforms:
         assert results[0].status == "success"
         assert results[0].type == "table"
 
-        # Verify it's a TABLE not a VIEW
         info = con.execute(
             "SELECT table_type FROM information_schema.tables "
             "WHERE table_schema='gold' AND table_name='emp_snapshot'"
@@ -413,7 +414,6 @@ class TestExecuteTransforms:
             sql="SELECT '${unknown}' AS val, * FROM bronze.employees",
         )
 
-        # safe_substitute doesn't raise on unknown vars — leaves them as-is
         results = execute_transforms(con, [t], variables={})
         assert results[0].status == "success"
         con.close()
@@ -461,15 +461,12 @@ class TestRebuildMaterializedGold:
             materialized=True,
         )
 
-        # Initial creation
         execute_transforms(con, [mat])
         count1 = con.execute("SELECT count(*) FROM gold.emp_snap").fetchone()[0]
         assert count1 == 3
 
-        # Insert new data into bronze
         con.execute("INSERT INTO bronze.employees VALUES (4, 'E004', 'Diana')")
 
-        # Rebuild
         rebuild_materialized_gold(con, [mat])
         count2 = con.execute("SELECT count(*) FROM gold.emp_snap").fetchone()[0]
         assert count2 == 4
@@ -492,12 +489,10 @@ class TestE2ETransformPipeline:
     """End-to-end: bronze data -> discover -> order -> execute -> verify."""
 
     def test_full_pipeline_with_fixtures(self, tmp_path: Path):
-        # 1. Set up bronze data
         db_path = tmp_path / "test.duckdb"
         con = duckdb.connect(str(db_path))
         _make_bronze_tables(con)
 
-        # 2. Write transform SQL files
         _write_sql(
             tmp_path,
             "silver",
@@ -545,46 +540,38 @@ class TestE2ETransformPipeline:
             ),
         )
 
-        # 3. Discover and order
         transforms = discover_transforms(tmp_path)
         assert len(transforms) == 3
 
         ordered = build_execution_order(transforms)
         names = [t.qualified_name for t in ordered]
 
-        # Gold must come after both silver deps
         assert names.index("silver.employee_master") < names.index("gold.sales_summary")
         assert names.index("silver.item_master") < names.index("gold.sales_summary")
 
-        # 4. Execute all transforms
         results = execute_transforms(con, ordered)
         assert all(r.status == "success" for r in results)
 
-        # 5. Verify silver views
         emp_rows = con.execute("SELECT * FROM silver.employee_master").fetchall()
         assert len(emp_rows) == 3
-        assert emp_rows[0][2] == "Alice"  # employee_name
+        assert emp_rows[0][2] == "Alice"
 
         item_rows = con.execute("SELECT * FROM silver.item_master").fetchall()
         assert len(item_rows) == 2
 
-        # 6. Verify gold materialized table
         gold_rows = con.execute(
             "SELECT * FROM gold.sales_summary ORDER BY sale_id"
         ).fetchall()
         assert len(gold_rows) == 3
-        # sale_id=1: Alice, Widget, Hardware, 100.00
         assert gold_rows[0][1] == "Alice"
         assert gold_rows[0][2] == "Widget"
 
-        # 7. Verify it's a TABLE (materialized)
         ttype = con.execute(
             "SELECT table_type FROM information_schema.tables "
             "WHERE table_schema='gold' AND table_name='sales_summary'"
         ).fetchone()
         assert ttype[0] == "BASE TABLE"
 
-        # 8. Insert new data into bronze, rebuild gold
         con.execute("INSERT INTO bronze.sales VALUES (4, 'E003', 'I001', 500.00)")
         rebuild_results = rebuild_materialized_gold(con, ordered)
         assert len(rebuild_results) == 1
@@ -596,8 +583,6 @@ class TestE2ETransformPipeline:
         con.close()
 
     def test_bronze_dependencies_silently_skipped(self, tmp_path: Path):
-        """Dependencies on bronze.* are external (extraction layer) and should
-        be silently ignored by the dependency graph — no error raised."""
         db_path = tmp_path / "test.duckdb"
         con = duckdb.connect(str(db_path))
         _make_bronze_tables(con)
@@ -615,13 +600,11 @@ class TestE2ETransformPipeline:
         assert len(ordered) == 1
         assert ordered[0].qualified_name == "silver.emp"
 
-        # Verify it actually executes
         results = execute_transforms(con, ordered)
         assert results[0].status == "success"
         con.close()
 
     def test_missing_silver_dependency_still_raises(self, tmp_path: Path):
-        """Dependencies on silver/gold that don't exist should still error."""
         _write_sql(
             tmp_path, "gold", "bad", ("-- depends_on: silver.nonexistent\nSELECT 1")
         )
@@ -632,7 +615,7 @@ class TestE2ETransformPipeline:
 
 
 # ===========================================================================
-# Task 4: CLI integration — feather setup
+# Task 4: CLI integration -- feather setup
 # ===========================================================================
 
 
@@ -640,13 +623,11 @@ class TestCLISetupTransforms:
     """Test that `feather setup` discovers and executes transforms."""
 
     def test_setup_creates_transforms(self, tmp_path: Path):
-        """feather setup with transform SQL files creates views/tables in DuckDB."""
         import yaml
         from typer.testing import CliRunner
 
         from feather_etl.cli import app
 
-        # Create a source DB (needed for config validation)
         source_db = tmp_path / "source.duckdb"
         con = duckdb.connect(str(source_db))
         con.execute("CREATE SCHEMA IF NOT EXISTS erp")
@@ -654,36 +635,29 @@ class TestCLISetupTransforms:
         con.execute("INSERT INTO erp.employees VALUES (1, 'Alice'), (2, 'Bob')")
         con.close()
 
-        # Pre-populate destination with bronze data (normally done by `feather run`)
         dest_db = tmp_path / "feather_data.duckdb"
         con = duckdb.connect(str(dest_db))
         con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
-        con.execute("CREATE TABLE bronze.employees (id INT, name VARCHAR)")
-        con.execute("INSERT INTO bronze.employees VALUES (1, 'Alice'), (2, 'Bob')")
+        con.execute("CREATE TABLE bronze.src_employees (id INT, name VARCHAR)")
+        con.execute("INSERT INTO bronze.src_employees VALUES (1, 'Alice'), (2, 'Bob')")
         con.close()
 
-        # Write feather.yaml
         config = {
-            "sources": [{"type": "duckdb", "path": str(source_db)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(source_db)}],
             "destination": {"path": str(dest_db)},
-            "tables": [
-                {
-                    "name": "employees",
-                    "source_table": "erp.employees",
-                    "target_table": "bronze.employees",
-                    "strategy": "full",
-                }
-            ],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "erp.employees", "employees")],
+        )
 
-        # Write transform SQL files
         _write_sql(
             tmp_path,
             "silver",
             "emp_clean",
-            ("SELECT id, name AS employee_name FROM bronze.employees"),
+            ("SELECT id, name AS employee_name FROM bronze.src_employees"),
         )
 
         runner = CliRunner()
@@ -694,7 +668,6 @@ class TestCLISetupTransforms:
         assert "1 silver view(s)" in result.output
 
     def test_setup_no_transforms_dir_ok(self, tmp_path: Path):
-        """feather setup without transforms/ dir should not fail."""
         import yaml
         from typer.testing import CliRunner
 
@@ -707,19 +680,15 @@ class TestCLISetupTransforms:
         con.close()
 
         config = {
-            "sources": [{"type": "duckdb", "path": str(source_db)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(source_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "employees",
-                    "source_table": "erp.employees",
-                    "target_table": "bronze.employees",
-                    "strategy": "full",
-                }
-            ],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "erp.employees", "employees")],
+        )
 
         runner = CliRunner()
         result = runner.invoke(app, ["setup", "--config", str(config_file)])
@@ -729,7 +698,7 @@ class TestCLISetupTransforms:
 
 
 # ===========================================================================
-# Task 5: Pipeline integration — feather run
+# Task 5: Pipeline integration -- feather run
 # ===========================================================================
 
 
@@ -737,13 +706,11 @@ class TestPipelineTransformRebuild:
     """Test that run_all() rebuilds materialized gold after extraction."""
 
     def test_run_rebuilds_materialized_gold(self, tmp_path: Path):
-        """After extraction, materialized gold tables are rebuilt."""
         import yaml
 
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        # Create source with data
         source_db = tmp_path / "source.duckdb"
         con = duckdb.connect(str(source_db))
         con.execute("CREATE SCHEMA IF NOT EXISTS erp")
@@ -753,26 +720,21 @@ class TestPipelineTransformRebuild:
 
         dest_db = tmp_path / "feather_data.duckdb"
         config = {
-            "sources": [{"type": "duckdb", "path": str(source_db)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(source_db)}],
             "destination": {"path": str(dest_db)},
-            "tables": [
-                {
-                    "name": "employees",
-                    "source_table": "erp.employees",
-                    "target_table": "bronze.employees",
-                    "strategy": "full",
-                }
-            ],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "erp.employees", "employees")],
+        )
 
-        # Write transforms
         _write_sql(
             tmp_path,
             "silver",
             "emp_clean",
-            "SELECT id, name AS employee_name FROM bronze.employees",
+            "SELECT id, name AS employee_name FROM bronze.src_employees",
         )
         _write_sql(
             tmp_path,
@@ -790,20 +752,17 @@ class TestPipelineTransformRebuild:
 
         assert any(r.status == "success" for r in results)
 
-        # Verify gold table was created by the rebuild
         con = duckdb.connect(str(dest_db))
         gold_rows = con.execute("SELECT * FROM gold.emp_snapshot").fetchall()
         assert len(gold_rows) == 2
         con.close()
 
     def test_run_mode_switch_rematerializes_gold(self, tmp_path: Path):
-        """Dev→prod mode switch rematerializes gold VIEW as TABLE even when extraction skipped."""
         import yaml
 
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        # Create source with data
         source_db = tmp_path / "source.duckdb"
         con = duckdb.connect(str(source_db))
         con.execute("CREATE SCHEMA IF NOT EXISTS erp")
@@ -813,27 +772,22 @@ class TestPipelineTransformRebuild:
 
         dest_db = tmp_path / "feather_data.duckdb"
         config = {
-            "sources": [{"type": "duckdb", "path": str(source_db)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(source_db)}],
             "destination": {"path": str(dest_db)},
             "mode": "dev",
-            "tables": [
-                {
-                    "name": "employees",
-                    "source_table": "erp.employees",
-                    "target_table": "bronze.employees",
-                    "strategy": "full",
-                }
-            ],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "erp.employees", "employees")],
+        )
 
-        # Write transforms
         _write_sql(
             tmp_path,
             "silver",
             "emp_clean",
-            "SELECT id, name AS employee_name FROM bronze.employees",
+            "SELECT id, name AS employee_name FROM bronze.src_employees",
         )
         _write_sql(
             tmp_path,
@@ -846,7 +800,6 @@ class TestPipelineTransformRebuild:
             ),
         )
 
-        # Run 1: dev mode — gold should be a VIEW
         cfg_dev = load_config(config_file)
         results1 = run_all(cfg_dev, config_file)
         assert any(r.status == "success" for r in results1)
@@ -859,7 +812,6 @@ class TestPipelineTransformRebuild:
         con.close()
         assert gold_type_dev == "VIEW"
 
-        # Run 2: switch to prod mode — extraction skipped (unchanged), but gold should become TABLE
         config["mode"] = "prod"
         config_file.write_text(yaml.dump(config))
         cfg_prod = load_config(config_file)
@@ -872,13 +824,9 @@ class TestPipelineTransformRebuild:
             "WHERE table_schema='gold' AND table_name='emp_snapshot'"
         ).fetchone()[0]
         con.close()
-        assert gold_type_prod == "BASE TABLE", (
-            f"Expected gold to be materialized as BASE TABLE after prod mode switch, "
-            f"got {gold_type_prod}"
-        )
+        assert gold_type_prod == "BASE TABLE"
 
     def test_run_no_rebuild_when_all_skipped(self, tmp_path: Path):
-        """If all tables are skipped, gold table still exists from prior run."""
         import yaml
 
         from feather_etl.config import load_config
@@ -893,19 +841,15 @@ class TestPipelineTransformRebuild:
 
         dest_db = tmp_path / "feather_data.duckdb"
         config = {
-            "sources": [{"type": "duckdb", "path": str(source_db)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(source_db)}],
             "destination": {"path": str(dest_db)},
-            "tables": [
-                {
-                    "name": "employees",
-                    "source_table": "erp.employees",
-                    "target_table": "bronze.employees",
-                    "strategy": "full",
-                }
-            ],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "erp.employees", "employees")],
+        )
 
         _write_sql(
             tmp_path, "gold", "emp_snap", ("-- materialized: true\nSELECT 1 AS val")
@@ -913,15 +857,12 @@ class TestPipelineTransformRebuild:
 
         cfg = load_config(config_file)
 
-        # First run: extracts data (success)
         results1 = run_all(cfg, config_file)
         assert any(r.status == "success" for r in results1)
 
-        # Second run: should skip (source unchanged)
         results2 = run_all(cfg, config_file)
         assert all(r.status == "skipped" for r in results2)
 
-        # Gold table should still exist from the first run's rebuild
         con = duckdb.connect(str(dest_db))
         row = con.execute("SELECT * FROM gold.emp_snap").fetchone()
         assert row is not None

@@ -8,6 +8,7 @@ import duckdb
 import pytest
 
 from feather_etl.dq import run_dq_checks
+from tests.helpers import make_curation_entry, write_curation
 
 
 @pytest.fixture
@@ -49,7 +50,7 @@ class TestNotNull:
         not_null = [r for r in results if r.check_type == "not_null"]
         assert len(not_null) == 1
         assert not_null[0].result == "fail"
-        assert "1" in not_null[0].details  # 1 NULL row
+        assert "1" in not_null[0].details
 
     def test_not_null_passes_on_clean_column(self, dq_db: Path):
         con = duckdb.connect(str(dq_db))
@@ -102,7 +103,6 @@ class TestUnique:
 
 class TestRowCount:
     def test_row_count_always_runs(self, dq_db: Path):
-        """row_count runs even with no quality_checks configured."""
         con = duckdb.connect(str(dq_db))
         results = run_dq_checks(con, "orders", "bronze.orders", None, "run_1")
         con.close()
@@ -125,7 +125,6 @@ class TestRowCount:
 
 class TestDuplicate:
     def test_config_driven_duplicate_detects_exact_rows(self, dq_db: Path):
-        """quality_checks: {duplicate: true} detects exact duplicate rows."""
         con = duckdb.connect(str(dq_db))
         results = run_dq_checks(
             con,
@@ -177,7 +176,6 @@ class TestDuplicate:
 
 class TestPipelineIntegration:
     def test_dq_results_stored_in_state(self, tmp_path: Path):
-        """DQ results are recorded in _dq_results after a run."""
         import shutil
         import yaml
 
@@ -189,36 +187,36 @@ class TestPipelineIntegration:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
         config = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "customers",
-                    "source_table": "erp.customers",
-                    "target_table": "bronze.customers",
-                    "strategy": "full",
-                    "quality_checks": {"not_null": ["name"]},
-                }
-            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry(
+                    "src",
+                    "erp.customers",
+                    "customers",
+                    primary_key=["customer_id"],
+                ),
+            ],
+        )
         cfg = load_config(tmp_path / "feather.yaml")
+        cfg.tables[0].quality_checks = {"not_null": ["name"]}
 
         result = run_table(cfg, cfg.tables[0], tmp_path)
         assert result.status == "success"
 
-        # Check _dq_results has entries
         sm = StateManager(tmp_path / "feather_state.duckdb")
         con = sm._connect()
         rows = con.execute(
-            "SELECT * FROM _dq_results WHERE table_name = 'customers'"
+            "SELECT * FROM _dq_results WHERE table_name = 'src_customers'"
         ).fetchall()
         con.close()
-        # Should have at least row_count + not_null checks
         assert len(rows) >= 2
 
     def test_dq_failure_does_not_block_pipeline(self, tmp_path: Path):
-        """Pipeline continues even when DQ check fails."""
         import shutil
         import yaml
 
@@ -229,23 +227,23 @@ class TestPipelineIntegration:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
         config = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "customers",
-                    "source_table": "erp.customers",
-                    "target_table": "bronze.customers",
-                    "strategy": "full",
-                    # name column has some NULLs in sample_erp — force a check on id
-                    # that will pass, confirming pipeline completes
-                    "quality_checks": {"unique": ["name"]},
-                }
-            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry(
+                    "src",
+                    "erp.customers",
+                    "customers",
+                    primary_key=["customer_id"],
+                ),
+            ],
+        )
         cfg = load_config(tmp_path / "feather.yaml")
+        cfg.tables[0].quality_checks = {"unique": ["name"]}
 
         result = run_table(cfg, cfg.tables[0], tmp_path)
-        # Pipeline still succeeds even though unique check may fail
         assert result.status == "success"

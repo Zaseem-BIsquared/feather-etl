@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.helpers import make_curation_entry, write_curation
+
 
 def pytest_configure(config):
     """Start PostgreSQL before test collection (so skipif checks see it)."""
@@ -34,40 +36,29 @@ def client_db(tmp_path) -> Path:
 
 @pytest.fixture
 def config_path(client_db, tmp_path) -> Path:
-    """Write a feather.yaml pointing at client_db, return path."""
+    """Write a feather.yaml + curation.json pointing at client_db, return path."""
     config = {
         "sources": [
             {
                 "type": "duckdb",
+                "name": "icube",
                 "path": str(client_db),
             }
         ],
         "destination": {
             "path": str(tmp_path / "feather_data.duckdb"),
         },
-        "tables": [
-            {
-                "name": "sales_invoice",
-                "source_table": "icube.SALESINVOICE",
-                "target_table": "bronze.sales_invoice",
-                "strategy": "full",
-            },
-            {
-                "name": "customer_master",
-                "source_table": "icube.CUSTOMERMASTER",
-                "target_table": "bronze.customer_master",
-                "strategy": "full",
-            },
-            {
-                "name": "inventory_group",
-                "source_table": "icube.InventoryGroup",
-                "target_table": "bronze.inventory_group",
-                "strategy": "full",
-            },
-        ],
     }
     config_file = tmp_path / "feather.yaml"
     config_file.write_text(yaml.dump(config, default_flow_style=False))
+    write_curation(
+        tmp_path,
+        [
+            make_curation_entry("icube", "icube.SALESINVOICE", "sales_invoice"),
+            make_curation_entry("icube", "icube.CUSTOMERMASTER", "customer_master"),
+            make_curation_entry("icube", "icube.InventoryGroup", "inventory_group"),
+        ],
+    )
     return config_file
 
 

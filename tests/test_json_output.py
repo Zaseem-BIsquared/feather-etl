@@ -1,4 +1,4 @@
-"""Tests for JSONL structured logging (V18 — Task 6) and --json output (Tasks 7-8)."""
+"""Tests for JSONL structured logging (V18 -- Task 6) and --json output (Tasks 7-8)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from tests.commands.conftest import cli_config
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 class TestJsonlLogging:
@@ -22,19 +23,15 @@ class TestJsonlLogging:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
         config = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "inventory_group",
-                    "source_table": "icube.InventoryGroup",
-                    "target_table": "bronze.inventory_group",
-                    "strategy": "full",
-                }
-            ],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config, default_flow_style=False))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("icube", "icube.InventoryGroup", "inventory_group")],
+        )
         cfg = load_config(config_file)
 
         run_all(cfg, config_file)
@@ -49,19 +46,15 @@ class TestJsonlLogging:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
         config = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "inventory_group",
-                    "source_table": "icube.InventoryGroup",
-                    "target_table": "bronze.inventory_group",
-                    "strategy": "full",
-                }
-            ],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config, default_flow_style=False))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("icube", "icube.InventoryGroup", "inventory_group")],
+        )
         cfg = load_config(config_file)
 
         run_all(cfg, config_file)
@@ -82,19 +75,15 @@ class TestJsonlLogging:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
         config = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "inventory_group",
-                    "source_table": "icube.InventoryGroup",
-                    "target_table": "bronze.inventory_group",
-                    "strategy": "full",
-                }
-            ],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config, default_flow_style=False))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("icube", "icube.InventoryGroup", "inventory_group")],
+        )
         cfg = load_config(config_file)
 
         run_all(cfg, config_file)
@@ -157,5 +146,4 @@ class TestCliJsonFlag:
         config_file = cli_config(tmp_path)
         result = runner.invoke(app, ["validate", "--config", str(config_file)])
         assert result.exit_code == 0
-        # Should have human text, not JSON
         assert "Config valid" in result.output

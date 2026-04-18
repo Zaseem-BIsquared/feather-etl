@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 GLOB_FIXTURES = FIXTURES_DIR / "csv_glob"
@@ -22,23 +23,19 @@ class TestCsvGlobExtraction:
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
         config = {
-            "sources": [{"type": "csv", "path": str(data_dir)}],
+            "sources": [{"type": "csv", "name": "csvs", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "sales",
-                    "source_table": "sales_*.csv",
-                    "target_table": "bronze.sales",
-                    "strategy": "full",
-                }
-            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("csvs", "sales_*.csv", "sales")],
+        )
         cfg = load_config(tmp_path / "feather.yaml")
 
         result = run_table(cfg, cfg.tables[0], tmp_path)
         assert result.status == "success"
-        assert result.rows_loaded == 5  # 3 from jan + 2 from feb
+        assert result.rows_loaded == 5
 
     def test_glob_no_match_fails(self, tmp_path: Path):
         """Glob that matches no files should fail gracefully."""
@@ -47,24 +44,19 @@ class TestCsvGlobExtraction:
 
         data_dir = tmp_path / "data"
         data_dir.mkdir()
-        (data_dir / "other.csv").write_text("id\n1\n")  # No sales_* files
+        (data_dir / "other.csv").write_text("id\n1\n")
         config = {
-            "sources": [{"type": "csv", "path": str(data_dir)}],
+            "sources": [{"type": "csv", "name": "csvs", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "sales",
-                    "source_table": "sales_*.csv",
-                    "target_table": "bronze.sales",
-                    "strategy": "full",
-                }
-            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("csvs", "sales_*.csv", "sales")],
+        )
         cfg = load_config(tmp_path / "feather.yaml")
 
         result = run_table(cfg, cfg.tables[0], tmp_path)
-        # No matching files → change detection returns unchanged → skipped
         assert result.status == "skipped"
 
 
@@ -77,18 +69,14 @@ class TestCsvGlobChangeDetection:
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
         config = {
-            "sources": [{"type": "csv", "path": str(data_dir)}],
+            "sources": [{"type": "csv", "name": "csvs", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "sales",
-                    "source_table": "sales_*.csv",
-                    "target_table": "bronze.sales",
-                    "strategy": "full",
-                }
-            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("csvs", "sales_*.csv", "sales")],
+        )
         cfg = load_config(tmp_path / "feather.yaml")
 
         run_table(cfg, cfg.tables[0], tmp_path)
@@ -103,30 +91,25 @@ class TestCsvGlobChangeDetection:
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
         config = {
-            "sources": [{"type": "csv", "path": str(data_dir)}],
+            "sources": [{"type": "csv", "name": "csvs", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "sales",
-                    "source_table": "sales_*.csv",
-                    "target_table": "bronze.sales",
-                    "strategy": "full",
-                }
-            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("csvs", "sales_*.csv", "sales")],
+        )
         cfg = load_config(tmp_path / "feather.yaml")
 
         run_table(cfg, cfg.tables[0], tmp_path)
 
-        # Add a new file
         (data_dir / "sales_mar.csv").write_text(
             "order_id,customer,amount,month\n6,Frank,400,mar\n"
         )
 
         result2 = run_table(cfg, cfg.tables[0], tmp_path)
         assert result2.status == "success"
-        assert result2.rows_loaded == 6  # 3 + 2 + 1
+        assert result2.rows_loaded == 6
 
     def test_modified_file_triggers_reextract(self, tmp_path: Path):
         """Modifying a matching file should trigger re-extraction."""
@@ -137,23 +120,18 @@ class TestCsvGlobChangeDetection:
         data_dir = tmp_path / "data"
         shutil.copytree(GLOB_FIXTURES, data_dir)
         config = {
-            "sources": [{"type": "csv", "path": str(data_dir)}],
+            "sources": [{"type": "csv", "name": "csvs", "path": str(data_dir)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "sales",
-                    "source_table": "sales_*.csv",
-                    "target_table": "bronze.sales",
-                    "strategy": "full",
-                }
-            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("csvs", "sales_*.csv", "sales")],
+        )
         cfg = load_config(tmp_path / "feather.yaml")
 
         run_table(cfg, cfg.tables[0], tmp_path)
 
-        # Modify an existing file
         time.sleep(0.1)
         (data_dir / "sales_jan.csv").write_text(
             "order_id,customer,amount,month\n1,Alice,100,jan\n2,Bob,200,jan\n"
@@ -161,7 +139,7 @@ class TestCsvGlobChangeDetection:
 
         result2 = run_table(cfg, cfg.tables[0], tmp_path)
         assert result2.status == "success"
-        assert result2.rows_loaded == 4  # 2 from modified jan + 2 from feb
+        assert result2.rows_loaded == 4
 
 
 class TestCsvGlobDiscover:
@@ -173,7 +151,6 @@ class TestCsvGlobDiscover:
         shutil.copytree(GLOB_FIXTURES, data_dir)
         source = CsvSource(data_dir)
         schemas = source.discover()
-        # Should include individual files as before
         names = [s.name for s in schemas]
         assert "sales_jan.csv" in names
         assert "sales_feb.csv" in names

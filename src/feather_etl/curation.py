@@ -106,7 +106,7 @@ def load_curation_tables(config_dir: Path) -> list[TableConfig]:
                 name=bronze_name,
                 source_table=entry["source_table"],
                 strategy=entry["strategy"],
-                target_table=f"bronze.{bronze_name}",
+                target_table="",  # mode-derived at runtime by _resolve_target
                 primary_key=entry.get("primary_key"),
                 timestamp_column=timestamp_column,
                 source_name=source_db,

@@ -23,18 +23,24 @@ class TestHistory:
         assert "customer_master" in result.output
 
     def test_history_table_filter(self, runner, two_table_env: tuple[Path, Path]):
-        """feather history --table inventory_group shows only that table's runs."""
+        """feather history --table icube_inventory_group shows only that table's runs."""
         from feather_etl.cli import app
 
         config_path, _ = two_table_env
         runner.invoke(app, ["run", "--config", str(config_path)])
         result = runner.invoke(
             app,
-            ["history", "--config", str(config_path), "--table", "inventory_group"],
+            [
+                "history",
+                "--config",
+                str(config_path),
+                "--table",
+                "icube_inventory_group",
+            ],
         )
         assert result.exit_code == 0
-        assert "inventory_group" in result.output
-        assert "customer_master" not in result.output
+        assert "icube_inventory_group" in result.output
+        assert "icube_customer_master" not in result.output
 
     def test_history_limit(self, runner, two_table_env: tuple[Path, Path]):
         """feather history --limit 1 shows at most 1 run."""

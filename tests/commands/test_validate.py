@@ -28,7 +28,6 @@ class TestValidate:
                 {
                     "sources": [{"type": "mongodb", "path": "/nope"}],
                     "destination": {"path": "./data.duckdb"},
-                    "tables": [],
                 }
             )
         )

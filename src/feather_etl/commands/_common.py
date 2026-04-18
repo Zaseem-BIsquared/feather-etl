@@ -28,12 +28,24 @@ def _enforce_single_source(cfg: FeatherConfig, command_name: str) -> None:
         raise typer.Exit(code=2)
 
 
-def _load_and_validate(config_path: Path, mode_override: str | None = None):
-    """Load config, validate, write validation JSON. Raises on failure."""
+def _load_and_validate(
+    config_path: Path,
+    mode_override: str | None = None,
+    discover_mode: bool = False,
+):
+    """Load config, validate, write validation JSON. Raises on failure.
+
+    When *discover_mode* is True the loader skips table validation because
+    ``feather discover`` runs **before** curation.json exists.
+    """
     from feather_etl.config import load_config, write_validation_json
 
     try:
-        cfg = load_config(config_path, mode_override=mode_override)
+        cfg = load_config(
+            config_path,
+            mode_override=mode_override,
+            validate=not discover_mode,
+        )
         write_validation_json(config_path, cfg)
         return cfg
     except (ValueError, FileNotFoundError) as e:

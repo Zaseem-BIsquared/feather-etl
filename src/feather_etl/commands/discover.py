@@ -70,7 +70,7 @@ def discover(
     ),
 ) -> None:
     """Save each source's schema to an auto-named schema JSON file, then serve/open the schema viewer."""
-    cfg = _load_and_validate(config)
+    cfg = _load_and_validate(config, discover_mode=True)
     target_dir = Path(".")
     state = DiscoverState.load(target_dir)
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 def _multi_source_yaml(tmp_path: Path) -> Path:
@@ -21,17 +22,13 @@ def _multi_source_yaml(tmp_path: Path) -> Path:
             {"name": "b", "type": "duckdb", "path": str(src2)},
         ],
         "destination": {"path": str(tmp_path / "out.duckdb")},
-        "tables": [
-            {
-                "name": "ig",
-                "source_table": "icube.InventoryGroup",
-                "target_table": "bronze.ig",
-                "strategy": "full",
-            },
-        ],
     }
     p = tmp_path / "feather.yaml"
     p.write_text(yaml.dump(cfg))
+    write_curation(
+        tmp_path,
+        [make_curation_entry("a", "icube.InventoryGroup", "ig")],
+    )
     return p
 
 

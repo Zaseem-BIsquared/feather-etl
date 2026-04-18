@@ -10,6 +10,7 @@ import yaml
 
 from tests.commands.conftest import cli_config
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 class TestRun:
@@ -27,18 +28,14 @@ class TestRun:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
         config = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "bad_table",
-                    "source_table": "icube.NONEXISTENT",
-                    "target_table": "bronze.bad_table",
-                    "strategy": "full",
-                },
-            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("icube", "icube.NONEXISTENT", "bad_table")],
+        )
         result = runner.invoke(app, ["run", "--config", str(tmp_path / "feather.yaml")])
         assert result.exit_code == 1
         assert "failure" in result.output.lower()
@@ -50,24 +47,17 @@ class TestRun:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
         config = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "good_table",
-                    "source_table": "icube.SALESINVOICE",
-                    "target_table": "bronze.good_table",
-                    "strategy": "full",
-                },
-                {
-                    "name": "bad_table",
-                    "source_table": "nonexistent.NOPE",
-                    "target_table": "bronze.bad_table",
-                    "strategy": "full",
-                },
-            ],
         }
         (tmp_path / "feather.yaml").write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry("icube", "icube.SALESINVOICE", "good_table"),
+                make_curation_entry("icube", "nonexistent.NOPE", "bad_table"),
+            ],
+        )
 
         result1 = runner.invoke(
             app, ["run", "--config", str(tmp_path / "feather.yaml")]
@@ -98,16 +88,23 @@ class TestTableFilter:
     def test_table_filter_extracts_only_matching_table(
         self, runner, two_table_env: tuple[Path, Path]
     ):
-        """--table inventory_group should extract only that table."""
+        """--table icube_inventory_group should extract only that table."""
         from feather_etl.cli import app
 
         config_path, tmp_path = two_table_env
         result = runner.invoke(
-            app, ["run", "--config", str(config_path), "--table", "inventory_group"]
+            app,
+            [
+                "run",
+                "--config",
+                str(config_path),
+                "--table",
+                "icube_inventory_group",
+            ],
         )
         assert result.exit_code == 0
-        assert "inventory_group" in result.output
-        assert "customer_master" not in result.output
+        assert "icube_inventory_group" in result.output
+        assert "icube_customer_master" not in result.output
 
     def test_table_filter_nonexistent_table_exits_with_error(
         self, runner, two_table_env: tuple[Path, Path]
@@ -134,8 +131,8 @@ class TestTableFilter:
         config_path, _ = two_table_env
         result = runner.invoke(app, ["run", "--config", str(config_path)])
         assert result.exit_code == 0
-        assert "inventory_group" in result.output
-        assert "customer_master" in result.output
+        assert "icube_inventory_group" in result.output
+        assert "icube_customer_master" in result.output
 
 
 class TestRunAutoCreates:

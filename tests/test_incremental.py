@@ -9,13 +9,13 @@ import pyarrow as pa
 from feather_etl.destinations.duckdb import DuckDBDestination
 from feather_etl.sources.file_source import FileSource
 from feather_etl.state import StateManager
+from tests.helpers import make_curation_entry, write_curation
 
 
 class TestBuildWhereClause:
     """Unit tests for FileSource._build_where_clause()."""
 
     def setup_method(self):
-        # FileSource needs a path but we only test the clause builder
         self.fs = FileSource(Path("/dummy"))
 
     def test_watermark_only(self):
@@ -60,19 +60,16 @@ class TestLoadIncremental:
 
     def test_incremental_inserts_new_rows(self, tmp_path: Path):
         dest = self._setup_dest(tmp_path)
-        # Initial full load
         data1 = _ts_arrow_table(["2025-01-01T00:00:00", "2025-01-02T00:00:00"], [1, 2])
         dest.load_full("bronze.sales", data1, "run_1")
 
-        # Incremental load with overlapping + new rows
         data2 = _ts_arrow_table(["2025-01-02T00:00:00", "2025-01-03T00:00:00"], [2, 3])
         rows = dest.load_incremental("bronze.sales", data2, "run_2", "modified_at")
         assert rows == 2
 
-        # Verify: row id=2 replaced (not duplicated), row id=3 added
         con = duckdb.connect(str(tmp_path / "dest.duckdb"), read_only=True)
         total = con.execute("SELECT COUNT(*) FROM bronze.sales").fetchone()[0]
-        assert total == 3  # ids 1, 2, 3
+        assert total == 3
         con.close()
 
     def test_incremental_zero_rows_is_noop(self, tmp_path: Path):
@@ -80,7 +77,6 @@ class TestLoadIncremental:
         data1 = _ts_arrow_table(["2025-01-01T00:00:00"], [1])
         dest.load_full("bronze.sales", data1, "run_1")
 
-        # Empty batch
         empty = pa.table(
             {
                 "id": pa.array([], type=pa.int64()),
@@ -91,7 +87,6 @@ class TestLoadIncremental:
         rows = dest.load_incremental("bronze.sales", empty, "run_2", "modified_at")
         assert rows == 0
 
-        # Original data untouched
         con = duckdb.connect(str(tmp_path / "dest.duckdb"), read_only=True)
         total = con.execute("SELECT COUNT(*) FROM bronze.sales").fetchone()[0]
         assert total == 1
@@ -99,14 +94,12 @@ class TestLoadIncremental:
 
     def test_incremental_deletes_by_timestamp(self, tmp_path: Path):
         dest = self._setup_dest(tmp_path)
-        # Load 3 rows
         data1 = _ts_arrow_table(
             ["2025-01-01T00:00:00", "2025-01-02T00:00:00", "2025-01-03T00:00:00"],
             [1, 2, 3],
         )
         dest.load_full("bronze.sales", data1, "run_1")
 
-        # Incremental: only rows >= 2025-01-02 should be deleted and replaced
         data2 = _ts_arrow_table(
             ["2025-01-02T00:00:00", "2025-01-03T00:00:00"], [20, 30]
         )
@@ -117,7 +110,6 @@ class TestLoadIncremental:
             r[0] for r in con.execute("SELECT id FROM bronze.sales").fetchall()
         )
         con.close()
-        # id=1 untouched, ids 2,3 replaced by 20,30
         assert ids == [1, 20, 30]
 
 
@@ -181,24 +173,29 @@ class TestPipelineIncremental:
         import yaml
         from feather_etl.config import load_config
 
-        table_def = {
-            "name": "orders",
-            "source_table": "erp.orders",
-            "target_table": "bronze.orders",
-            "strategy": "incremental",
-            "timestamp_column": "modified_at",
-        }
-        if filter:
-            table_def["filter"] = filter
-
         config_data = {
-            "sources": [{"type": "duckdb", "path": str(src_path)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(src_path)}],
             "destination": {"path": str(tmp_path / "dest.duckdb")},
-            "tables": [table_def],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config_data))
-        return load_config(config_file), config_file
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry(
+                    "src",
+                    "erp.orders",
+                    "orders",
+                    strategy="incremental",
+                    timestamp_column="modified_at",
+                    primary_key=["order_id"],
+                ),
+            ],
+        )
+        cfg = load_config(config_file)
+        if filter:
+            cfg.tables[0].filter = filter
+        return cfg, config_file
 
     def test_first_incremental_run_extracts_all(self, tmp_path: Path):
         from feather_etl.pipeline import run_table
@@ -210,9 +207,8 @@ class TestPipelineIncremental:
         assert result.status == "success"
         assert result.rows_loaded == 5
 
-        # Watermark should be set to MAX(modified_at)
         sm = StateManager(tmp_path / "feather_state.duckdb")
-        wm = sm.read_watermark("orders")
+        wm = sm.read_watermark("src_orders")
         assert wm is not None
         assert wm["last_value"] is not None
         assert "2025-01-05" in str(wm["last_value"])
@@ -223,9 +219,7 @@ class TestPipelineIncremental:
         src_path = self._make_source_db(tmp_path)
         cfg, _ = self._make_config(tmp_path, src_path)
 
-        # First run
         run_table(cfg, cfg.tables[0], tmp_path)
-        # Second run — file unchanged so change detection should skip
         result = run_table(cfg, cfg.tables[0], tmp_path)
         assert result.status == "skipped"
 
@@ -235,10 +229,8 @@ class TestPipelineIncremental:
         src_path = self._make_source_db(tmp_path)
         cfg, _ = self._make_config(tmp_path, src_path)
 
-        # First run
         run_table(cfg, cfg.tables[0], tmp_path)
 
-        # Add new rows to source
         con = duckdb.connect(str(src_path))
         con.execute("""
             INSERT INTO erp.orders VALUES
@@ -247,64 +239,41 @@ class TestPipelineIncremental:
         """)
         con.close()
 
-        # Second run — should extract only new rows + overlap window
         result = run_table(cfg, cfg.tables[0], tmp_path)
         assert result.status == "success"
-        # With overlap_window_minutes=2, effective watermark = 2025-01-05 - 2min
-        # = 2025-01-04T23:58:00, so rows with modified_at >= that are extracted
-        # That means rows 5, 6, 7 (3 rows)
         assert result.rows_loaded == 3
 
-        # Watermark should advance to 2025-01-07
         sm = StateManager(tmp_path / "feather_state.duckdb")
-        wm = sm.read_watermark("orders")
+        wm = sm.read_watermark("src_orders")
         assert "2025-01-07" in str(wm["last_value"])
 
     def test_run_after_incremental_no_new_rows_watermark_unchanged(
         self, tmp_path: Path
     ):
-        """PRD scenario 4: run after incremental, no new rows → watermark unchanged."""
         from feather_etl.pipeline import run_table
 
         src_path = self._make_source_db(tmp_path)
         cfg, _ = self._make_config(tmp_path, src_path)
 
-        # First run
         run_table(cfg, cfg.tables[0], tmp_path)
 
-        # Add new rows
         con = duckdb.connect(str(src_path))
         con.execute("INSERT INTO erp.orders VALUES (6, 600.00, '2025-01-06 00:00:00')")
         con.close()
 
-        # Second run picks up new rows
         run_table(cfg, cfg.tables[0], tmp_path)
         sm = StateManager(tmp_path / "feather_state.duckdb")
-        wm_after_second = sm.read_watermark("orders")
+        wm_after_second = sm.read_watermark("src_orders")
         watermark_after_second = wm_after_second["last_value"]
 
-        # Third run — file unchanged → skipped, watermark unchanged
         result = run_table(cfg, cfg.tables[0], tmp_path)
         assert result.status == "skipped"
-        wm_after_third = sm.read_watermark("orders")
+        wm_after_third = sm.read_watermark("src_orders")
         assert wm_after_third["last_value"] == watermark_after_second
 
     def test_filter_excludes_matching_rows(self, tmp_path: Path):
-        """PRD scenario 5: filter field prevents matching rows from appearing."""
         from feather_etl.pipeline import run_table
 
-        src_path = self._make_source_db(tmp_path)
-        # Add a cancelled row
-        con = duckdb.connect(str(src_path))
-        con.execute("""
-            INSERT INTO erp.orders VALUES
-            (6, 600.00, '2025-01-06 00:00:00')
-        """)
-        # Update one row to cancelled status
-        con.execute("ALTER TABLE erp.orders ADD COLUMN status VARCHAR DEFAULT 'active'")
-        con.close()
-
-        # Recreate source with status column for cleaner test
         src_path2 = tmp_path / "source2.duckdb"
         con = duckdb.connect(str(src_path2))
         con.execute("CREATE SCHEMA erp")
@@ -328,12 +297,11 @@ class TestPipelineIncremental:
         result = run_table(cfg, cfg.tables[0], tmp_path)
 
         assert result.status == "success"
-        assert result.rows_loaded == 3  # only active rows
+        assert result.rows_loaded == 3
 
-        # Verify no cancelled rows in destination
         dest_con = duckdb.connect(str(tmp_path / "dest.duckdb"), read_only=True)
         cancelled = dest_con.execute(
-            "SELECT COUNT(*) FROM bronze.orders WHERE status = 'cancelled'"
+            "SELECT COUNT(*) FROM bronze.src_orders WHERE status = 'cancelled'"
         ).fetchone()[0]
         dest_con.close()
         assert cancelled == 0
@@ -346,45 +314,46 @@ class TestIncrementalWithFixture:
         import yaml
         from feather_etl.config import load_config
 
-        table_def = {
-            "name": "sales",
-            "source_table": "erp.sales",
-            "target_table": "bronze.sales",
-            "strategy": "incremental",
-            "timestamp_column": "modified_at",
-        }
-        if filter:
-            table_def["filter"] = filter
-
         config_data = {
-            "sources": [{"type": "duckdb", "path": str(src_path)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(src_path)}],
             "destination": {"path": str(tmp_path / "dest.duckdb")},
-            "tables": [table_def],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config_data))
-        return load_config(config_file), config_file
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry(
+                    "src",
+                    "erp.sales",
+                    "sales",
+                    strategy="incremental",
+                    timestamp_column="modified_at",
+                    primary_key=["sale_id"],
+                ),
+            ],
+        )
+        cfg = load_config(config_file)
+        if filter:
+            cfg.tables[0].filter = filter
+        return cfg, config_file
 
     def test_full_incremental_cycle_with_fixture(self, sample_erp_db, tmp_path: Path):
-        """Full PRD cycle: first run → no change → add rows → incremental."""
         from feather_etl.pipeline import run_table
 
         cfg, _ = self._make_config(tmp_path, sample_erp_db)
 
-        # 1. First run: all 10 rows extracted
         r1 = run_table(cfg, cfg.tables[0], tmp_path)
         assert r1.status == "success"
         assert r1.rows_loaded == 10
 
         sm = StateManager(tmp_path / "feather_state.duckdb")
-        wm1 = sm.read_watermark("sales")
+        wm1 = sm.read_watermark("src_sales")
         assert "2025-01-10" in str(wm1["last_value"])
 
-        # 2. Second run: file unchanged → skipped
         r2 = run_table(cfg, cfg.tables[0], tmp_path)
         assert r2.status == "skipped"
 
-        # 3. Add new rows to source
         con = duckdb.connect(str(sample_erp_db))
         con.execute("""
             INSERT INTO erp.sales VALUES
@@ -393,28 +362,22 @@ class TestIncrementalWithFixture:
         """)
         con.close()
 
-        # 4. Third run: only new rows + overlap
         r3 = run_table(cfg, cfg.tables[0], tmp_path)
         assert r3.status == "success"
-        # effective wm = 2025-01-10 - 2min = 2025-01-09T23:58:00
-        # rows >= that: sale_id 10 (Jan 10), 11 (Jan 11), 12 (Jan 12) = 3 rows
         assert r3.rows_loaded == 3
 
-        wm3 = sm.read_watermark("sales")
+        wm3 = sm.read_watermark("src_sales")
         assert "2025-01-12" in str(wm3["last_value"])
 
-        # 5. Fourth run: file unchanged again → skipped
         r4 = run_table(cfg, cfg.tables[0], tmp_path)
         assert r4.status == "skipped"
 
-        # Verify total rows in destination: 10 original - 1 overlapping + 3 new = 12
         dest_con = duckdb.connect(str(tmp_path / "dest.duckdb"), read_only=True)
-        total = dest_con.execute("SELECT COUNT(*) FROM bronze.sales").fetchone()[0]
+        total = dest_con.execute("SELECT COUNT(*) FROM bronze.src_sales").fetchone()[0]
         dest_con.close()
         assert total == 12
 
     def test_filter_with_fixture(self, sample_erp_db, tmp_path: Path):
-        """erp.sales has 2 cancelled rows — filter should exclude them."""
         from feather_etl.pipeline import run_table
 
         cfg, _ = self._make_config(
@@ -423,30 +386,27 @@ class TestIncrementalWithFixture:
         result = run_table(cfg, cfg.tables[0], tmp_path)
 
         assert result.status == "success"
-        assert result.rows_loaded == 8  # 10 total - 2 cancelled
+        assert result.rows_loaded == 8
 
         dest_con = duckdb.connect(str(tmp_path / "dest.duckdb"), read_only=True)
         cancelled = dest_con.execute(
-            "SELECT COUNT(*) FROM bronze.sales WHERE status = 'cancelled'"
+            "SELECT COUNT(*) FROM bronze.src_sales WHERE status = 'cancelled'"
         ).fetchone()[0]
         dest_con.close()
         assert cancelled == 0
 
     def test_overlap_window_arithmetic(self, sample_erp_db, tmp_path: Path):
-        """Verify effective_watermark = stored_watermark - overlap_window_minutes."""
         from feather_etl.pipeline import run_table
 
         cfg, _ = self._make_config(tmp_path, sample_erp_db)
 
-        # First run
         run_table(cfg, cfg.tables[0], tmp_path)
 
         sm = StateManager(tmp_path / "feather_state.duckdb")
-        wm = sm.read_watermark("sales")
+        wm = sm.read_watermark("src_sales")
         stored_wm = str(wm["last_value"])
         assert "2025-01-10" in stored_wm
 
-        # Add a row barely after the overlap window
         con = duckdb.connect(str(sample_erp_db))
         con.execute("""
             INSERT INTO erp.sales VALUES
@@ -454,8 +414,6 @@ class TestIncrementalWithFixture:
         """)
         con.close()
 
-        # Run again — effective watermark = 2025-01-10T00:00:00 - 2min = 2025-01-09T23:58:00
-        # Row at 2025-01-10 00:00:00 (sale_id=10) and 2025-01-10 00:05:00 (sale_id=11) should be extracted
         r2 = run_table(cfg, cfg.tables[0], tmp_path)
         assert r2.status == "success"
-        assert r2.rows_loaded == 2  # sale_id 10 and 11
+        assert r2.rows_loaded == 2

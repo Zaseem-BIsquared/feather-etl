@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 class TestIncrementRetry:
@@ -35,7 +36,6 @@ class TestIncrementRetry:
         sm.increment_retry("orders")
         wm = sm.read_watermark("orders")
 
-        # retry_after should be ~15 min from now
         retry_after = wm["retry_after"]
         assert retry_after is not None
         expected_min = before + timedelta(minutes=14)
@@ -43,7 +43,6 @@ class TestIncrementRetry:
         assert expected_min <= retry_after <= expected_max
 
     def test_two_failures_30_min_backoff(self, tmp_path: Path):
-        """AC-FR13.a: 2 failures → retry_after = now + 30 min."""
         from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
@@ -62,7 +61,6 @@ class TestIncrementRetry:
         assert expected_min <= retry_after <= expected_max
 
     def test_ten_failures_capped_at_120_min(self, tmp_path: Path):
-        """AC-FR13.c: 10 failures → capped at 120 min, not 150."""
         from feather_etl.state import StateManager
 
         sm = StateManager(tmp_path / "state.duckdb")
@@ -73,7 +71,7 @@ class TestIncrementRetry:
             sm.increment_retry("orders")
 
         before = datetime.now(timezone.utc).replace(tzinfo=None)
-        sm.increment_retry("orders")  # 10th failure
+        sm.increment_retry("orders")
         wm = sm.read_watermark("orders")
 
         assert wm["retry_count"] == 10
@@ -87,7 +85,6 @@ class TestIncrementRetry:
 
         sm = StateManager(tmp_path / "state.duckdb")
         sm.init_state()
-        # No write_watermark call — table doesn't exist yet
 
         sm.increment_retry("new_table")
         wm = sm.read_watermark("new_table")
@@ -118,7 +115,6 @@ class TestResetRetry:
         sm.init_state()
         sm.write_watermark("orders", strategy="full")
 
-        # Should not error
         sm.reset_retry("orders")
         wm = sm.read_watermark("orders")
         assert wm["retry_count"] == 0
@@ -143,7 +139,6 @@ class TestShouldSkipRetry:
         sm.init_state()
         sm.write_watermark("orders", strategy="full")
 
-        # Record a failure run so error message is available
         now = datetime.now(timezone.utc)
         sm.record_run(
             run_id="orders_fail",
@@ -169,7 +164,6 @@ class TestShouldSkipRetry:
         sm.write_watermark("orders", strategy="full")
         sm.increment_retry("orders")
 
-        # Manually set retry_after to past (naive UTC, matching DuckDB storage)
         con = duckdb.connect(str(sm.path))
         past = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)
         con.execute(
@@ -274,19 +268,15 @@ def _make_broken_config(tmp_path: Path) -> Path:
     client_db = tmp_path / "client.duckdb"
     shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
     config = {
-        "sources": [{"type": "duckdb", "path": str(client_db)}],
+        "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        "tables": [
-            {
-                "name": "orders",
-                "source_table": "icube.nonexistent_table_xyz",
-                "target_table": "bronze.orders",
-                "strategy": "full",
-            }
-        ],
     }
     config_file = tmp_path / "feather.yaml"
     config_file.write_text(yaml.dump(config, default_flow_style=False))
+    write_curation(
+        tmp_path,
+        [make_curation_entry("icube", "icube.nonexistent_table_xyz", "orders")],
+    )
     return config_file
 
 
@@ -295,19 +285,15 @@ def _make_good_config(tmp_path: Path) -> Path:
     client_db = tmp_path / "client.duckdb"
     shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
     config = {
-        "sources": [{"type": "duckdb", "path": str(client_db)}],
+        "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        "tables": [
-            {
-                "name": "inventory_group",
-                "source_table": "icube.InventoryGroup",
-                "target_table": "bronze.inventory_group",
-                "strategy": "full",
-            }
-        ],
     }
     config_file = tmp_path / "feather.yaml"
     config_file.write_text(yaml.dump(config, default_flow_style=False))
+    write_curation(
+        tmp_path,
+        [make_curation_entry("icube", "icube.InventoryGroup", "inventory_group")],
+    )
     return config_file
 
 
@@ -324,7 +310,7 @@ class TestRetryPipelineIntegration:
         assert result.status == "failure"
 
         sm = StateManager(tmp_path / "feather_state.duckdb")
-        wm = sm.read_watermark("orders")
+        wm = sm.read_watermark("icube_orders")
         assert wm is not None
         assert wm["retry_count"] == 1
         assert wm["retry_after"] is not None
@@ -336,10 +322,8 @@ class TestRetryPipelineIntegration:
         config_path = _make_broken_config(tmp_path)
         cfg = load_config(config_path)
 
-        # First failure sets backoff
         run_table(cfg, cfg.tables[0], tmp_path)
 
-        # Second call should skip (in backoff window)
         result = run_table(cfg, cfg.tables[0], tmp_path)
         assert result.status == "skipped"
         assert result.error_message is not None
@@ -349,37 +333,34 @@ class TestRetryPipelineIntegration:
         from feather_etl.pipeline import run_table
         from feather_etl.state import StateManager
 
-        # Start with good config, manually set retry state
         config_path = _make_good_config(tmp_path)
         cfg = load_config(config_path)
 
         sm = StateManager(tmp_path / "feather_state.duckdb")
         sm.init_state()
-        sm.write_watermark("inventory_group", strategy="full")
-        sm.increment_retry("inventory_group")
-        sm.increment_retry("inventory_group")
+        sm.write_watermark("icube_inventory_group", strategy="full")
+        sm.increment_retry("icube_inventory_group")
+        sm.increment_retry("icube_inventory_group")
 
-        wm = sm.read_watermark("inventory_group")
+        wm = sm.read_watermark("icube_inventory_group")
         assert wm["retry_count"] == 2
 
-        # Manually clear backoff so the run actually executes
-        sm.reset_retry("inventory_group")
-        sm.increment_retry("inventory_group")  # set count=1 but far future backoff
+        sm.reset_retry("icube_inventory_group")
+        sm.increment_retry("icube_inventory_group")
         import duckdb
 
         con = duckdb.connect(str(sm.path))
         con.execute(
             "UPDATE _watermarks SET retry_count = 2, retry_after = ? "
-            "WHERE table_name = 'inventory_group'",
+            "WHERE table_name = 'icube_inventory_group'",
             [datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)],
         )
         con.close()
 
-        # Run should succeed and reset retry
         result = run_table(cfg, cfg.tables[0], tmp_path)
         assert result.status == "success"
 
-        wm = sm.read_watermark("inventory_group")
+        wm = sm.read_watermark("icube_inventory_group")
         assert wm["retry_count"] == 0
         assert wm["retry_after"] is None
 
@@ -391,29 +372,22 @@ class TestRetryPipelineIntegration:
         client_db = tmp_path / "client.duckdb"
         shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
         config = {
-            "sources": [{"type": "duckdb", "path": str(client_db)}],
+            "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
             "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [
-                {
-                    "name": "inventory_group",
-                    "source_table": "icube.InventoryGroup",
-                    "target_table": "bronze.inventory_group",
-                    "strategy": "full",
-                },
-                {
-                    "name": "bad_table",
-                    "source_table": "icube.nonexistent_table",
-                    "target_table": "bronze.bad_table",
-                    "strategy": "full",
-                },
-            ],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(config, default_flow_style=False))
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry("icube", "icube.InventoryGroup", "inventory_group"),
+                make_curation_entry("icube", "icube.nonexistent_table", "bad_table"),
+            ],
+        )
 
         cfg = load_config(config_file)
         results = run_all(cfg, config_file)
 
         statuses = {r.table_name: r.status for r in results}
-        assert statuses["inventory_group"] == "success"
-        assert statuses["bad_table"] == "failure"
+        assert statuses["icube_inventory_group"] == "success"
+        assert statuses["icube_bad_table"] == "failure"
