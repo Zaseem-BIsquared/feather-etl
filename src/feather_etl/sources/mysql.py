@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import decimal
 from pathlib import Path
 from typing import ClassVar
 
@@ -108,10 +107,13 @@ class MySQLSource(DatabaseSource):
         self.batch_size = batch_size
         self._last_error: str | None = None
         self._connect_kwargs: dict = {}
+        self._explicit_name: bool = False
 
     def _connect(self):
-        """Return a MySQL connection using stored kwargs."""
-        return mysql.connector.connect(**self._connect_kwargs)
+        """Return a MySQL connection using stored kwargs or connection_string."""
+        if self._connect_kwargs:
+            return mysql.connector.connect(**self._connect_kwargs)
+        return mysql.connector.connect(self.connection_string)
 
     @classmethod
     def from_yaml(cls, entry: dict, config_dir: Path) -> "MySQLSource":
