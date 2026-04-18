@@ -97,6 +97,8 @@ class TableConfig:
     schedule: str | None = None
     dedup: bool = False
     dedup_columns: list[str] | None = None
+    source_name: str | None = None  # resolved source name from curation
+    database: str | None = None  # resolved database from curation
 
 
 @dataclass
