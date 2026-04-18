@@ -16,18 +16,6 @@ def _is_json(ctx: typer.Context) -> bool:
     return ctx.ensure_object(dict).get("json_mode", False)
 
 
-def _enforce_single_source(cfg: FeatherConfig, command_name: str) -> None:
-    """Exit 2 if cfg has multiple sources. Used by every non-discover command."""
-    if len(cfg.sources) > 1:
-        typer.echo(
-            f"Command '{command_name}' is single-source for now (multi-source support is tracked in issue #8). "
-            f"Use `feather discover` to enumerate multi-source schemas, or "
-            f"split into one feather.yaml per source for non-discover operations.",
-            err=True,
-        )
-        raise typer.Exit(code=2)
-
-
 def _load_and_validate(
     config_path: Path,
     mode_override: str | None = None,
