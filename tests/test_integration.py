@@ -7,18 +7,10 @@ These tests use real DuckDB fixtures (no mocking) and cover:
   - Known bugs (documented with BUG-N labels matching the review report)
   - UX scenarios (error isolation, idempotency, path resolution, tables/ merge)
 
-When a bug is fixed the corresponding assertion should be INVERTED and the
-BUG label removed from the test name.
-
 Fixture layout
 --------------
-tests/fixtures/sample_erp.duckdb  — synthetic ERP (erp schema, 3 tables, 12 rows)
-    erp.orders    5 rows  — order_id, customer_id, order_date, total_amount, status, created_at
-    erp.customers 4 rows  — customer_id, name, email, city, credit_limit, created_at
-    erp.products  3 rows  — product_id, product_name, category, unit_price, stock_qty
-                            row 3: stock_qty IS NULL  (tests NULL pass-through)
-
-tests/fixtures/client.duckdb       — real Icube ERP data (icube schema, 6 tables)
+tests/fixtures/sample_erp.duckdb  -- synthetic ERP (erp schema, 3 tables, 12 rows)
+tests/fixtures/client.duckdb      -- real Icube ERP data (icube schema, 6 tables)
 """
 
 from __future__ import annotations
@@ -30,7 +22,10 @@ import duckdb
 import pytest
 import yaml
 
+from tests.helpers import make_curation_entry, write_curation
+
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -55,19 +50,25 @@ def client_db_copy(tmp_path) -> Path:
     return dst
 
 
-def _write_config(tmp_path: Path, source_db: Path, tables: list[dict]) -> Path:
+def _write_config(
+    tmp_path: Path,
+    source_db: Path,
+    curation_tables: list[dict],
+    source_name: str = "src",
+    source_type: str = "duckdb",
+) -> Path:
     cfg = {
-        "sources": [{"type": "duckdb", "path": str(source_db)}],
+        "sources": [{"type": source_type, "name": source_name, "path": str(source_db)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        "tables": tables,
     }
     p = tmp_path / "feather.yaml"
     p.write_text(yaml.dump(cfg, default_flow_style=False))
+    write_curation(tmp_path, curation_tables)
     return p
 
 
 # ---------------------------------------------------------------------------
-# sample_erp fixture — basic correctness
+# sample_erp fixture -- basic correctness
 # ---------------------------------------------------------------------------
 
 
@@ -96,7 +97,7 @@ class TestSampleErpFixture:
         con.close()
 
     def test_fixture_null_in_products(self, sample_erp_db):
-        """stock_qty is NULL for the 'Service Pack' row — tests NULL pass-through."""
+        """stock_qty is NULL for the 'Service Pack' row -- tests NULL pass-through."""
         con = duckdb.connect(str(sample_erp_db), read_only=True)
         row = con.execute(
             "SELECT stock_qty FROM erp.products WHERE product_name = 'Service Pack'"
@@ -115,24 +116,9 @@ class TestSampleErpFullPipeline:
             tmp_path,
             sample_erp_db,
             [
-                {
-                    "name": "orders",
-                    "source_table": "erp.orders",
-                    "target_table": "bronze.orders",
-                    "strategy": "full",
-                },
-                {
-                    "name": "customers",
-                    "source_table": "erp.customers",
-                    "target_table": "bronze.customers",
-                    "strategy": "full",
-                },
-                {
-                    "name": "products",
-                    "source_table": "erp.products",
-                    "target_table": "bronze.products",
-                    "strategy": "full",
-                },
+                make_curation_entry("src", "erp.orders", "orders"),
+                make_curation_entry("src", "erp.customers", "customers"),
+                make_curation_entry("src", "erp.products", "products"),
             ],
         )
 
@@ -143,7 +129,11 @@ class TestSampleErpFullPipeline:
         cfg = load_config(config)
         results = run_all(cfg, config)
         assert all(r.status == "success" for r in results)
-        assert {r.table_name for r in results} == {"orders", "customers", "products"}
+        assert {r.table_name for r in results} == {
+            "src_orders",
+            "src_customers",
+            "src_products",
+        }
 
     def test_row_counts_in_bronze(self, config):
         from feather_etl.config import load_config
@@ -153,9 +143,13 @@ class TestSampleErpFullPipeline:
         run_all(cfg, config)
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
-        assert con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0] == 5
-        assert con.execute("SELECT COUNT(*) FROM bronze.customers").fetchone()[0] == 4
-        assert con.execute("SELECT COUNT(*) FROM bronze.products").fetchone()[0] == 3
+        assert con.execute("SELECT COUNT(*) FROM bronze.src_orders").fetchone()[0] == 5
+        assert (
+            con.execute("SELECT COUNT(*) FROM bronze.src_customers").fetchone()[0] == 4
+        )
+        assert (
+            con.execute("SELECT COUNT(*) FROM bronze.src_products").fetchone()[0] == 3
+        )
         con.close()
 
     def test_null_passthrough(self, config):
@@ -168,10 +162,10 @@ class TestSampleErpFullPipeline:
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
         row = con.execute(
-            "SELECT stock_qty FROM bronze.products WHERE product_name = 'Service Pack'"
+            "SELECT stock_qty FROM bronze.src_products WHERE product_name = 'Service Pack'"
         ).fetchone()
         con.close()
-        assert row is not None, "Service Pack row missing from bronze.products"
+        assert row is not None, "Service Pack row missing from bronze.src_products"
         assert row[0] is None, f"Expected NULL stock_qty, got {row[0]!r}"
 
     def test_etl_metadata_columns_added(self, config):
@@ -186,7 +180,7 @@ class TestSampleErpFullPipeline:
             r[0]
             for r in con.execute(
                 "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema = 'bronze' AND table_name = 'orders'"
+                "WHERE table_schema = 'bronze' AND table_name = 'src_orders'"
             ).fetchall()
         }
         con.close()
@@ -206,7 +200,7 @@ class TestSampleErpFullPipeline:
             r[0]
             for r in con.execute(
                 "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema = 'bronze' AND table_name = 'orders'"
+                "WHERE table_schema = 'bronze' AND table_name = 'src_orders'"
             ).fetchall()
         }
         con.close()
@@ -230,7 +224,7 @@ class TestSampleErpFullPipeline:
         run_all(cfg, config)
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
-        assert con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0] == 5
+        assert con.execute("SELECT COUNT(*) FROM bronze.src_orders").fetchone()[0] == 5
         con.close()
 
     def test_state_records_runs(self, config):
@@ -248,34 +242,26 @@ class TestSampleErpFullPipeline:
         ).fetchall()
         con.close()
         run_map = {r[0]: (r[1], r[2]) for r in runs}
-        assert run_map["orders"] == ("success", 5)
-        assert run_map["customers"] == ("success", 4)
-        assert run_map["products"] == ("success", 3)
+        assert run_map["src_orders"] == ("success", 5)
+        assert run_map["src_customers"] == ("success", 4)
+        assert run_map["src_products"] == ("success", 3)
 
 
 # ---------------------------------------------------------------------------
-# Icube client fixture — edge cases
+# Icube client fixture -- edge cases
 # ---------------------------------------------------------------------------
 
 
 class TestClientFixtureEdgeCases:
     def test_salesinvoicemaster_column_with_space(self, client_db_copy, tmp_path):
-        """SALESINVOICEMASTER has a column called 'Round Off' (space in name).
-        Arrow must preserve it without error or renaming."""
+        """SALESINVOICEMASTER has a column called 'Round Off' (space in name)."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
         config = _write_config(
             tmp_path,
             client_db_copy,
-            [
-                {
-                    "name": "sim",
-                    "source_table": "icube.SALESINVOICEMASTER",
-                    "target_table": "bronze.sim",
-                    "strategy": "full",
-                }
-            ],
+            [make_curation_entry("src", "icube.SALESINVOICEMASTER", "sim")],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
@@ -286,7 +272,7 @@ class TestClientFixtureEdgeCases:
             r[0]
             for r in con.execute(
                 "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema='bronze' AND table_name='sim'"
+                "WHERE table_schema='bronze' AND table_name='src_sim'"
             ).fetchall()
         }
         con.close()
@@ -300,14 +286,7 @@ class TestClientFixtureEdgeCases:
         config = _write_config(
             tmp_path,
             client_db_copy,
-            [
-                {
-                    "name": "invitem",
-                    "source_table": "icube.INVITEM",
-                    "target_table": "bronze.invitem",
-                    "strategy": "full",
-                }
-            ],
+            [make_curation_entry("src", "icube.INVITEM", "invitem")],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
@@ -319,45 +298,20 @@ class TestClientFixtureEdgeCases:
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        tables = [
-            {
-                "name": "sales_invoice",
-                "source_table": "icube.SALESINVOICE",
-                "target_table": "bronze.sales_invoice",
-                "strategy": "full",
-            },
-            {
-                "name": "customer_master",
-                "source_table": "icube.CUSTOMERMASTER",
-                "target_table": "bronze.customer_master",
-                "strategy": "full",
-            },
-            {
-                "name": "inventory_group",
-                "source_table": "icube.InventoryGroup",
-                "target_table": "bronze.inventory_group",
-                "strategy": "full",
-            },
-            {
-                "name": "inv_item",
-                "source_table": "icube.INVITEM",
-                "target_table": "bronze.inv_item",
-                "strategy": "full",
-            },
-            {
-                "name": "sales_invoice_master",
-                "source_table": "icube.SALESINVOICEMASTER",
-                "target_table": "bronze.sales_invoice_master",
-                "strategy": "full",
-            },
-            {
-                "name": "employee",
-                "source_table": "icube.EmployeeForm",
-                "target_table": "bronze.employee",
-                "strategy": "full",
-            },
-        ]
-        config = _write_config(tmp_path, client_db_copy, tables)
+        config = _write_config(
+            tmp_path,
+            client_db_copy,
+            [
+                make_curation_entry("src", "icube.SALESINVOICE", "sales_invoice"),
+                make_curation_entry("src", "icube.CUSTOMERMASTER", "customer_master"),
+                make_curation_entry("src", "icube.InventoryGroup", "inventory_group"),
+                make_curation_entry("src", "icube.INVITEM", "inv_item"),
+                make_curation_entry(
+                    "src", "icube.SALESINVOICEMASTER", "sales_invoice_master"
+                ),
+                make_curation_entry("src", "icube.EmployeeForm", "employee"),
+            ],
+        )
         cfg = load_config(config)
         results = run_all(cfg, config)
 
@@ -365,12 +319,12 @@ class TestClientFixtureEdgeCases:
             (r.table_name, r.error_message) for r in results if r.status != "success"
         ]
         row_map = {r.table_name: r.rows_loaded for r in results}
-        assert row_map["sales_invoice"] == 11676
-        assert row_map["customer_master"] == 1339
-        assert row_map["inventory_group"] == 66
-        assert row_map["inv_item"] == 1058
-        assert row_map["sales_invoice_master"] == 335
-        assert row_map["employee"] == 55
+        assert row_map["src_sales_invoice"] == 11676
+        assert row_map["src_customer_master"] == 1339
+        assert row_map["src_inventory_group"] == 66
+        assert row_map["src_inv_item"] == 1058
+        assert row_map["src_sales_invoice_master"] == 335
+        assert row_map["src_employee"] == 55
 
     def test_discover_icube_source(self, client_db_copy):
         """discover() returns all 6 Icube tables with column metadata."""
@@ -382,13 +336,12 @@ class TestClientFixtureEdgeCases:
         assert "icube.SALESINVOICE" in names
         assert "icube.CUSTOMERMASTER" in names
         assert len(schemas) == 6
-        # each schema has at least one column
         for s in schemas:
             assert len(s.columns) > 0, f"{s.name} has no columns"
 
 
 # ---------------------------------------------------------------------------
-# Error isolation — a bad table must not stop good tables
+# Error isolation -- a bad table must not stop good tables
 # ---------------------------------------------------------------------------
 
 
@@ -401,25 +354,15 @@ class TestErrorIsolation:
             tmp_path,
             sample_erp_db,
             [
-                {
-                    "name": "good",
-                    "source_table": "erp.orders",
-                    "target_table": "bronze.good",
-                    "strategy": "full",
-                },
-                {
-                    "name": "bad",
-                    "source_table": "erp.NOSUCH",
-                    "target_table": "bronze.bad",
-                    "strategy": "full",
-                },
+                make_curation_entry("src", "erp.orders", "good"),
+                make_curation_entry("src", "erp.NOSUCH", "bad"),
             ],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
 
-        good = next(r for r in results if r.table_name == "good")
-        bad = next(r for r in results if r.table_name == "bad")
+        good = next(r for r in results if r.table_name == "src_good")
+        bad = next(r for r in results if r.table_name == "src_bad")
         assert good.status == "success", "good table should succeed"
         assert bad.status == "failure", "bad table should fail"
         assert good.rows_loaded == 5
@@ -431,14 +374,7 @@ class TestErrorIsolation:
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [
-                {
-                    "name": "bad",
-                    "source_table": "erp.NOSUCH",
-                    "target_table": "bronze.bad",
-                    "strategy": "full",
-                }
-            ],
+            [make_curation_entry("src", "erp.NOSUCH", "bad")],
         )
         cfg = load_config(config)
         run_all(cfg, config)
@@ -446,7 +382,7 @@ class TestErrorIsolation:
         state_path = tmp_path / "feather_state.duckdb"
         con = duckdb.connect(str(state_path), read_only=True)
         row = con.execute(
-            "SELECT status, error_message FROM _runs WHERE table_name = 'bad'"
+            "SELECT status, error_message FROM _runs WHERE table_name = 'src_bad'"
         ).fetchone()
         con.close()
         assert row is not None
@@ -465,25 +401,15 @@ class TestErrorIsolation:
             tmp_path,
             sample_erp_db,
             [
-                {
-                    "name": "good",
-                    "source_table": "erp.orders",
-                    "target_table": "bronze.orders",
-                    "strategy": "full",
-                },
-                {
-                    "name": "bad",
-                    "source_table": "erp.NOSUCH",
-                    "target_table": "bronze.bad",
-                    "strategy": "full",
-                },
+                make_curation_entry("src", "erp.orders", "good"),
+                make_curation_entry("src", "erp.NOSUCH", "bad"),
             ],
         )
         cfg = load_config(config)
         run_all(cfg, config)
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
-        assert con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0] == 5
+        assert con.execute("SELECT COUNT(*) FROM bronze.src_good").fetchone()[0] == 5
         tables = {
             r[0]
             for r in con.execute(
@@ -491,115 +417,20 @@ class TestErrorIsolation:
             ).fetchall()
         }
         con.close()
-        assert "orders" in tables
-        assert "bad" not in tables  # failed table must not appear in bronze
+        assert "src_good" in tables
+        assert "src_bad" not in tables
 
 
 # ---------------------------------------------------------------------------
-# Tables/ directory merge
-# ---------------------------------------------------------------------------
-
-
-class TestTablesDirectoryMerge:
-    def test_tables_in_subdir_are_discovered(self, sample_erp_db, tmp_path):
-        """Tables defined in tables/*.yaml are merged with inline tables."""
-        from feather_etl.config import load_config
-
-        tables_dir = tmp_path / "tables"
-        tables_dir.mkdir()
-        (tables_dir / "sales.yaml").write_text(
-            yaml.dump(
-                {
-                    "tables": [
-                        {
-                            "name": "orders",
-                            "source_table": "erp.orders",
-                            "target_table": "bronze.orders",
-                            "strategy": "full",
-                        }
-                    ]
-                }
-            )
-        )
-        (tables_dir / "master.yaml").write_text(
-            yaml.dump(
-                {
-                    "tables": [
-                        {
-                            "name": "customers",
-                            "source_table": "erp.customers",
-                            "target_table": "bronze.customers",
-                            "strategy": "full",
-                        }
-                    ]
-                }
-            )
-        )
-        cfg_dict = {
-            "sources": [{"type": "duckdb", "path": str(sample_erp_db)}],
-            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-            "tables": [],
-        }
-        config_path = tmp_path / "feather.yaml"
-        config_path.write_text(yaml.dump(cfg_dict))
-
-        cfg = load_config(config_path)
-        assert len(cfg.tables) == 2
-        names = {t.name for t in cfg.tables}
-        assert names == {"orders", "customers"}
-
-    def test_tables_dir_and_inline_combined(self, sample_erp_db, tmp_path):
-        """Inline tables + tables/*.yaml tables are all loaded."""
-        from feather_etl.config import load_config
-        from feather_etl.pipeline import run_all
-
-        tables_dir = tmp_path / "tables"
-        tables_dir.mkdir()
-        (tables_dir / "extra.yaml").write_text(
-            yaml.dump(
-                {
-                    "tables": [
-                        {
-                            "name": "products",
-                            "source_table": "erp.products",
-                            "target_table": "bronze.products",
-                            "strategy": "full",
-                        }
-                    ]
-                }
-            )
-        )
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
-            [
-                {
-                    "name": "orders",
-                    "source_table": "erp.orders",
-                    "target_table": "bronze.orders",
-                    "strategy": "full",
-                }
-            ],
-        )
-        cfg = load_config(config)
-        assert len(cfg.tables) == 2
-
-        results = run_all(cfg, config)
-        assert all(r.status == "success" for r in results)
-
-
-# ---------------------------------------------------------------------------
-# Validation guards — graduated from TestKnownBugs after fixes
+# Validation guards -- graduated from TestKnownBugs after fixes
 # ---------------------------------------------------------------------------
 
 
 class TestValidationGuards:
-    """Tests that validate catches invalid config before runtime.
-    Graduated from TestKnownBugs after BUG-2, BUG-3, BUG-7 fixes."""
+    """Tests that validate catches invalid config before runtime."""
 
     def test_csv_source_validates_with_valid_directory(self, tmp_path):
-        """CSV source type with a valid directory passes validation.
-        (Graduated from BUG-2: csv is now a registered source type.)"""
+        """CSV source type with a valid directory passes validation."""
         from feather_etl.config import load_config
 
         csv_dir = tmp_path / "csv_data"
@@ -609,18 +440,14 @@ class TestValidationGuards:
         config_path.write_text(
             yaml.dump(
                 {
-                    "sources": [{"type": "csv", "path": str(csv_dir)}],
+                    "sources": [{"type": "csv", "name": "csvs", "path": str(csv_dir)}],
                     "destination": {"path": str(tmp_path / "data.duckdb")},
-                    "tables": [
-                        {
-                            "name": "t",
-                            "source_table": "orders.csv",
-                            "target_table": "bronze.t",
-                            "strategy": "full",
-                        }
-                    ],
                 }
             )
+        )
+        write_curation(
+            tmp_path,
+            [make_curation_entry("csvs", "orders.csv", "orders")],
         )
         cfg = load_config(config_path)
         assert cfg.sources[0].type == "csv"
@@ -635,18 +462,14 @@ class TestValidationGuards:
         config_path.write_text(
             yaml.dump(
                 {
-                    "sources": [{"type": "csv", "path": str(csv_file)}],
+                    "sources": [{"type": "csv", "name": "csvs", "path": str(csv_file)}],
                     "destination": {"path": str(tmp_path / "data.duckdb")},
-                    "tables": [
-                        {
-                            "name": "t",
-                            "source_table": "orders.csv",
-                            "target_table": "bronze.t",
-                            "strategy": "full",
-                        }
-                    ],
                 }
             )
+        )
+        write_curation(
+            tmp_path,
+            [make_curation_entry("csvs", "orders.csv", "orders")],
         )
         with pytest.raises(ValueError, match="CSV source path must be a directory"):
             load_config(config_path)
@@ -659,25 +482,25 @@ class TestValidationGuards:
         config_path.write_text(
             yaml.dump(
                 {
-                    "sources": [{"type": "csv", "path": str(tmp_path / "no_such_dir")}],
-                    "destination": {"path": str(tmp_path / "data.duckdb")},
-                    "tables": [
+                    "sources": [
                         {
-                            "name": "t",
-                            "source_table": "orders.csv",
-                            "target_table": "bronze.t",
-                            "strategy": "full",
+                            "type": "csv",
+                            "name": "csvs",
+                            "path": str(tmp_path / "no_such_dir"),
                         }
                     ],
+                    "destination": {"path": str(tmp_path / "data.duckdb")},
                 }
             )
+        )
+        write_curation(
+            tmp_path,
+            [make_curation_entry("csvs", "orders.csv", "orders")],
         )
         with pytest.raises(ValueError, match="CSV source path must be a directory"):
             load_config(config_path)
 
     def test_missing_source_section_raises_valueerror(self, tmp_path):
-        """Missing 'source' section raises ValueError with a clear message.
-        (Graduated from BUG-3: previously raised raw KeyError.)"""
         from feather_etl.config import load_config
 
         config_path = tmp_path / "feather.yaml"
@@ -685,69 +508,39 @@ class TestValidationGuards:
             yaml.dump(
                 {
                     "destination": {"path": str(tmp_path / "data.duckdb")},
-                    "tables": [],
                 }
             )
         )
         with pytest.raises(ValueError, match="Missing required config section"):
             load_config(config_path)
 
-    def test_missing_strategy_field_raises_valueerror(self, sample_erp_db, tmp_path):
-        """Missing required table fields raise ValueError with field name.
-        (Graduated from BUG-3/BUG-4: previously raised raw KeyError.)"""
-        from feather_etl.config import load_config
-
-        cfg_dict = {
-            "sources": [{"type": "duckdb", "path": str(sample_erp_db)}],
-            "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [
-                {"name": "t", "source_table": "erp.orders", "target_table": "bronze.t"}
-            ],  # strategy missing
-        }
-        config_path = tmp_path / "feather.yaml"
-        config_path.write_text(yaml.dump(cfg_dict))
-        with pytest.raises(ValueError, match="missing required field"):
-            load_config(config_path)
-
     def test_target_table_requires_schema_prefix(self, sample_erp_db, tmp_path):
-        """target_table without schema prefix (e.g. 'my_table') is rejected.
-        (Graduated from BUG-7: previously passed validate, crashed at runtime.)"""
-        from feather_etl.config import load_config
+        """target_table without schema prefix is rejected (tested via _validate)."""
+        from feather_etl.config import load_config, _validate
 
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [
-                {
-                    "name": "t",
-                    "source_table": "erp.orders",
-                    "target_table": "no_schema_table",
-                    "strategy": "full",
-                }
-            ],
+            [make_curation_entry("src", "erp.orders", "orders")],
         )
-        with pytest.raises(ValueError, match="must include a schema prefix"):
-            load_config(config)
+        cfg = load_config(config, validate=False)
+        cfg.tables[0].target_table = "no_schema_table"
+        errors = _validate(cfg)
+        assert any("must include a schema prefix" in e for e in errors)
 
     def test_hyphenated_target_table_rejected(self, sample_erp_db, tmp_path):
-        """Hyphens in target_table are caught at validate time.
-        (Graduated from BUG-7: previously passed validate, crashed at runtime.)"""
-        from feather_etl.config import load_config
+        """Hyphens in target_table are caught at validate time (tested via _validate)."""
+        from feather_etl.config import load_config, _validate
 
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [
-                {
-                    "name": "my-table",
-                    "source_table": "erp.orders",
-                    "target_table": "bronze.my-table",
-                    "strategy": "full",
-                }
-            ],
+            [make_curation_entry("src", "erp.orders", "orders")],
         )
-        with pytest.raises(ValueError, match="invalid characters"):
-            load_config(config)
+        cfg = load_config(config, validate=False)
+        cfg.tables[0].target_table = "bronze.my-table"
+        errors = _validate(cfg)
+        assert any("invalid characters" in e for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -756,10 +549,6 @@ class TestValidationGuards:
 
 
 class TestPipelineReturnsOnFailure:
-    """run_all() returns RunResult list (no exception) even when tables fail.
-    The CLI layer is responsible for exit codes.
-    (Graduated from BUG-5: CLI now exits 1 on failure.)"""
-
     def test_run_all_returns_results_on_total_failure(self, sample_erp_db, tmp_path):
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
@@ -767,14 +556,7 @@ class TestPipelineReturnsOnFailure:
         config = _write_config(
             tmp_path,
             sample_erp_db,
-            [
-                {
-                    "name": "bad",
-                    "source_table": "erp.NOSUCH",
-                    "target_table": "bronze.bad",
-                    "strategy": "full",
-                }
-            ],
+            [make_curation_entry("src", "erp.NOSUCH", "bad")],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
@@ -783,20 +565,15 @@ class TestPipelineReturnsOnFailure:
 
 
 # ---------------------------------------------------------------------------
-# Known bugs — remaining issues not yet fixed
+# Known bugs -- remaining issues not yet fixed
 # ---------------------------------------------------------------------------
 
 
 class TestKnownBugs:
-    # M-6 (strategy dispatch) — deferred to Slice 2
     def test_M6_incremental_strategy_silently_does_full_load(
         self, sample_erp_db, tmp_path
     ):
-        """M-6: strategy='incremental' (with timestamp_column) silently does a
-        full load instead of incremental extraction.  The validation gap (BUG-8:
-        incremental without timestamp_column) is now fixed.  This test documents
-        the remaining issue: strategy dispatch is not implemented yet.
-        After fix (Slice 2): run should perform actual incremental extraction."""
+        """M-6: strategy='incremental' silently does a full load."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
@@ -804,74 +581,63 @@ class TestKnownBugs:
             tmp_path,
             sample_erp_db,
             [
-                {
-                    "name": "orders",
-                    "source_table": "erp.orders",
-                    "target_table": "bronze.orders",
-                    "strategy": "incremental",
-                    "timestamp_column": "created_at",
-                }
+                make_curation_entry(
+                    "src",
+                    "erp.orders",
+                    "orders",
+                    strategy="incremental",
+                    timestamp_column="created_at",
+                    primary_key=["order_id"],
+                ),
             ],
         )
         cfg = load_config(config)
         results = run_all(cfg, config)
-        # Currently succeeds (full load performed silently) — strategy dispatch deferred
         assert results[0].status == "success"
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
-        count = con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0]
+        count = con.execute("SELECT COUNT(*) FROM bronze.src_orders").fetchone()[0]
         con.close()
-        assert count == 5  # all 5 rows loaded — full load, not incremental
+        assert count == 5
 
 
 # ---------------------------------------------------------------------------
-# CSV source — full pipeline integration
+# CSV source -- full pipeline integration
 # ---------------------------------------------------------------------------
 
 
-def _write_csv_config(tmp_path: Path, csv_dir: Path, tables: list[dict]) -> Path:
+def _write_csv_config(
+    tmp_path: Path, csv_dir: Path, curation_tables: list[dict]
+) -> Path:
     cfg = {
-        "sources": [{"type": "csv", "path": str(csv_dir)}],
+        "sources": [{"type": "csv", "name": "csvs", "path": str(csv_dir)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        "tables": tables,
     }
     p = tmp_path / "feather.yaml"
     p.write_text(yaml.dump(cfg, default_flow_style=False))
+    write_curation(tmp_path, curation_tables)
     return p
 
 
-def _write_sqlite_config(tmp_path: Path, sqlite_path: Path, tables: list[dict]) -> Path:
+def _write_sqlite_config(
+    tmp_path: Path, sqlite_path: Path, curation_tables: list[dict]
+) -> Path:
     cfg = {
-        "sources": [{"type": "sqlite", "path": str(sqlite_path)}],
+        "sources": [{"type": "sqlite", "name": "sqlitedb", "path": str(sqlite_path)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        "tables": tables,
     }
     p = tmp_path / "feather.yaml"
     p.write_text(yaml.dump(cfg, default_flow_style=False))
+    write_curation(tmp_path, curation_tables)
     return p
 
 
 class TestCsvFullPipeline:
     """Full pipeline run using CSV source."""
 
-    CSV_TABLES = [
-        {
-            "name": "orders",
-            "source_table": "orders.csv",
-            "target_table": "bronze.orders",
-            "strategy": "full",
-        },
-        {
-            "name": "customers",
-            "source_table": "customers.csv",
-            "target_table": "bronze.customers",
-            "strategy": "full",
-        },
-        {
-            "name": "products",
-            "source_table": "products.csv",
-            "target_table": "bronze.products",
-            "strategy": "full",
-        },
+    CSV_CURATION = [
+        make_curation_entry("csvs", "orders.csv", "orders"),
+        make_curation_entry("csvs", "customers.csv", "customers"),
+        make_curation_entry("csvs", "products.csv", "products"),
     ]
 
     @pytest.fixture
@@ -883,7 +649,7 @@ class TestCsvFullPipeline:
 
     @pytest.fixture
     def config(self, csv_data_dir, tmp_path) -> Path:
-        return _write_csv_config(tmp_path, csv_data_dir, self.CSV_TABLES)
+        return _write_csv_config(tmp_path, csv_data_dir, self.CSV_CURATION)
 
     def test_run_all_succeeds(self, config):
         from feather_etl.config import load_config
@@ -892,7 +658,11 @@ class TestCsvFullPipeline:
         cfg = load_config(config)
         results = run_all(cfg, config)
         assert all(r.status == "success" for r in results)
-        assert {r.table_name for r in results} == {"orders", "customers", "products"}
+        assert {r.table_name for r in results} == {
+            "csvs_orders",
+            "csvs_customers",
+            "csvs_products",
+        }
 
     def test_row_counts_in_bronze(self, config):
         from feather_etl.config import load_config
@@ -902,9 +672,13 @@ class TestCsvFullPipeline:
         run_all(cfg, config)
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
-        assert con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0] == 5
-        assert con.execute("SELECT COUNT(*) FROM bronze.customers").fetchone()[0] == 4
-        assert con.execute("SELECT COUNT(*) FROM bronze.products").fetchone()[0] == 3
+        assert con.execute("SELECT COUNT(*) FROM bronze.csvs_orders").fetchone()[0] == 5
+        assert (
+            con.execute("SELECT COUNT(*) FROM bronze.csvs_customers").fetchone()[0] == 4
+        )
+        assert (
+            con.execute("SELECT COUNT(*) FROM bronze.csvs_products").fetchone()[0] == 3
+        )
         con.close()
 
     def test_null_passthrough(self, config):
@@ -916,7 +690,7 @@ class TestCsvFullPipeline:
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
         row = con.execute(
-            "SELECT stock_qty FROM bronze.products WHERE product_name = 'Service Pack'"
+            "SELECT stock_qty FROM bronze.csvs_products WHERE product_name = 'Service Pack'"
         ).fetchone()
         con.close()
         assert row is not None
@@ -934,7 +708,7 @@ class TestCsvFullPipeline:
             r[0]
             for r in con.execute(
                 "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema = 'bronze' AND table_name = 'orders'"
+                "WHERE table_schema = 'bronze' AND table_name = 'csvs_orders'"
             ).fetchall()
         }
         con.close()
@@ -943,32 +717,17 @@ class TestCsvFullPipeline:
 
 
 # ---------------------------------------------------------------------------
-# SQLite source — full pipeline integration
+# SQLite source -- full pipeline integration
 # ---------------------------------------------------------------------------
 
 
 class TestSqliteFullPipeline:
     """Full pipeline run using SQLite source."""
 
-    SQLITE_TABLES = [
-        {
-            "name": "orders",
-            "source_table": "orders",
-            "target_table": "bronze.orders",
-            "strategy": "full",
-        },
-        {
-            "name": "customers",
-            "source_table": "customers",
-            "target_table": "bronze.customers",
-            "strategy": "full",
-        },
-        {
-            "name": "products",
-            "source_table": "products",
-            "target_table": "bronze.products",
-            "strategy": "full",
-        },
+    SQLITE_CURATION = [
+        make_curation_entry("sqlitedb", "orders", "orders"),
+        make_curation_entry("sqlitedb", "customers", "customers"),
+        make_curation_entry("sqlitedb", "products", "products"),
     ]
 
     @pytest.fixture
@@ -980,7 +739,7 @@ class TestSqliteFullPipeline:
 
     @pytest.fixture
     def config(self, sqlite_db, tmp_path) -> Path:
-        return _write_sqlite_config(tmp_path, sqlite_db, self.SQLITE_TABLES)
+        return _write_sqlite_config(tmp_path, sqlite_db, self.SQLITE_CURATION)
 
     def test_run_all_succeeds(self, config):
         from feather_etl.config import load_config
@@ -989,7 +748,11 @@ class TestSqliteFullPipeline:
         cfg = load_config(config)
         results = run_all(cfg, config)
         assert all(r.status == "success" for r in results)
-        assert {r.table_name for r in results} == {"orders", "customers", "products"}
+        assert {r.table_name for r in results} == {
+            "sqlitedb_orders",
+            "sqlitedb_customers",
+            "sqlitedb_products",
+        }
 
     def test_row_counts_in_bronze(self, config):
         from feather_etl.config import load_config
@@ -999,9 +762,18 @@ class TestSqliteFullPipeline:
         run_all(cfg, config)
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
-        assert con.execute("SELECT COUNT(*) FROM bronze.orders").fetchone()[0] == 5
-        assert con.execute("SELECT COUNT(*) FROM bronze.customers").fetchone()[0] == 4
-        assert con.execute("SELECT COUNT(*) FROM bronze.products").fetchone()[0] == 3
+        assert (
+            con.execute("SELECT COUNT(*) FROM bronze.sqlitedb_orders").fetchone()[0]
+            == 5
+        )
+        assert (
+            con.execute("SELECT COUNT(*) FROM bronze.sqlitedb_customers").fetchone()[0]
+            == 4
+        )
+        assert (
+            con.execute("SELECT COUNT(*) FROM bronze.sqlitedb_products").fetchone()[0]
+            == 3
+        )
         con.close()
 
     def test_null_passthrough(self, config):
@@ -1013,7 +785,7 @@ class TestSqliteFullPipeline:
 
         con = duckdb.connect(str(cfg.destination.path), read_only=True)
         row = con.execute(
-            "SELECT stock_qty FROM bronze.products WHERE product_name = 'Service Pack'"
+            "SELECT stock_qty FROM bronze.sqlitedb_products WHERE product_name = 'Service Pack'"
         ).fetchone()
         con.close()
         assert row is not None
@@ -1031,7 +803,7 @@ class TestSqliteFullPipeline:
             r[0]
             for r in con.execute(
                 "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema = 'bronze' AND table_name = 'orders'"
+                "WHERE table_schema = 'bronze' AND table_name = 'sqlitedb_orders'"
             ).fetchall()
         }
         con.close()

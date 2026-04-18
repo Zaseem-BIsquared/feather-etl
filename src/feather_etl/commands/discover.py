@@ -16,6 +16,7 @@ from feather_etl.discover_state import (
     classify,
     detect_renames,
 )
+from feather_etl.sources.expand import expand_db_sources
 from feather_etl.viewer_server import serve_and_open
 
 
@@ -32,69 +33,6 @@ def _write_schema(source, target_dir: Path) -> tuple[Path, int]:
     out = target_dir / schema_output_path(source)
     out.write_text(json.dumps(payload, indent=2))
     return out, len(schemas)
-
-
-def _expand_db_sources(sources: list) -> list:
-    """Expand sqlserver/postgres sources without explicit database into child sources.
-
-    For each parent source:
-      - If it has `database` set → keep as-is.
-      - If it has `databases: [...]` set → produce one child per entry, named
-        `<parent_name>__<db>`, with `database` set on the child.
-      - Otherwise (DB source, neither set) → call list_databases() and
-        produce one child per result.
-      - File sources → keep as-is.
-    """
-    from feather_etl.sources.mysql import MySQLSource
-    from feather_etl.sources.postgres import PostgresSource
-    from feather_etl.sources.sqlserver import SqlServerSource
-
-    expanded: list = []
-    for src in sources:
-        is_db = isinstance(src, (SqlServerSource, PostgresSource, MySQLSource))
-        if not is_db:
-            expanded.append(src)
-            continue
-        if src.database is not None:
-            expanded.append(src)
-            continue
-        databases = src.databases
-        if databases is None:
-            try:
-                databases = src.list_databases()
-            except Exception as e:
-                src._last_error = (
-                    f"Found 0 databases on host {src.host}. Either grant "
-                    f"VIEW ANY DATABASE to this login, or specify "
-                    f"`database:` / `databases: [...]` explicitly. ({e})"
-                )
-                expanded.append(src)
-                continue
-            if not databases:
-                src._last_error = (
-                    f"Found 0 databases on host {src.host}. Either grant "
-                    f"VIEW ANY DATABASE to this login, or specify "
-                    f"`database:` / `databases: [...]` explicitly."
-                )
-                expanded.append(src)
-                continue
-        # DB sources' from_yaml ignores config_dir (it's only used for file-path resolution)
-        for db in databases:
-            child = type(src).from_yaml(
-                {
-                    "name": f"{src.name}__{db}",
-                    "type": src.type,
-                    "host": src.host,
-                    "port": src.port,
-                    "user": src.user,
-                    "password": src.password,
-                    "database": db,
-                },
-                Path("."),
-            )
-            child._explicit_name = getattr(src, "_explicit_name", False)
-            expanded.append(child)
-    return expanded
 
 
 def _fingerprint_for(source) -> str:
@@ -132,11 +70,11 @@ def discover(
     ),
 ) -> None:
     """Save each source's schema to an auto-named schema JSON file, then serve/open the schema viewer."""
-    cfg = _load_and_validate(config)
+    cfg = _load_and_validate(config, discover_mode=True)
     target_dir = Path(".")
     state = DiscoverState.load(target_dir)
 
-    sources = _expand_db_sources(cfg.sources)
+    sources = expand_db_sources(cfg.sources)
     flag: str | None = None
     if refresh:
         flag = "refresh"
@@ -256,7 +194,7 @@ def discover(
             typer.echo(f"{prefix}  (skipped)")
             continue
 
-        # Source came from _expand_db_sources with a pre-set error (e.g. empty enumeration).
+        # Source came from expand_db_sources with a pre-set error (e.g. empty enumeration).
         if hasattr(source, "_last_error") and source._last_error:
             failed_count += 1
             state.record_failed(

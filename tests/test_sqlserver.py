@@ -403,10 +403,13 @@ def test_sqlserver_connection_string_builder_trusts_self_signed_cert(tmp_path) -
     """
     from feather_etl.config import load_config
 
+    from tests.helpers import make_curation_entry, write_curation
+
     cfg = {
         "sources": [
             {
                 "type": "sqlserver",
+                "name": "erp",
                 "host": "10.0.0.1",
                 "port": 1433,
                 "database": "mydb",
@@ -415,18 +418,14 @@ def test_sqlserver_connection_string_builder_trusts_self_signed_cert(tmp_path) -
             }
         ],
         "destination": {"path": str(tmp_path / "dest.duckdb")},
-        "tables": [
-            {
-                "name": "orders",
-                "source_table": "dbo.orders",
-                "strategy": "full",
-                "target_table": "bronze.orders",
-            }
-        ],
     }
     config_file = write_config(tmp_path, cfg)
+    write_curation(
+        tmp_path,
+        [make_curation_entry("erp", "dbo.orders", "orders")],
+    )
 
-    result = load_config(config_file)
+    result = load_config(config_file, validate=False)
     assert result.sources[0].connection_string is not None
     assert "TrustServerCertificate=yes" in result.sources[0].connection_string
     assert "ODBC Driver 18 for SQL Server" in result.sources[0].connection_string

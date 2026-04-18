@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 @pytest.fixture
@@ -18,25 +19,18 @@ def setup_env(tmp_path: Path) -> tuple[Path, Path]:
     shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
 
     config = {
-        "sources": [{"type": "duckdb", "path": str(client_db)}],
+        "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        "tables": [
-            {
-                "name": "inventory_group",
-                "source_table": "icube.InventoryGroup",
-                "target_table": "bronze.inventory_group",
-                "strategy": "full",
-            },
-            {
-                "name": "customer_master",
-                "source_table": "icube.CUSTOMERMASTER",
-                "target_table": "bronze.customer_master",
-                "strategy": "full",
-            },
-        ],
     }
     config_path = tmp_path / "feather.yaml"
     config_path.write_text(yaml.dump(config, default_flow_style=False))
+    write_curation(
+        tmp_path,
+        [
+            make_curation_entry("icube", "icube.InventoryGroup", "inventory_group"),
+            make_curation_entry("icube", "icube.CUSTOMERMASTER", "customer_master"),
+        ],
+    )
     return config_path, tmp_path
 
 
@@ -76,11 +70,11 @@ class TestRunTable:
 
         con = duckdb.connect(str(tmp_path / "feather_data.duckdb"), read_only=True)
         row = con.execute(
-            "SELECT _etl_loaded_at, _etl_run_id FROM bronze.inventory_group LIMIT 1"
+            "SELECT _etl_loaded_at, _etl_run_id FROM bronze.icube_inventory_group LIMIT 1"
         ).fetchone()
         con.close()
         assert row[0] is not None
-        assert "inventory_group" in row[1]
+        assert "icube_inventory_group" in row[1]
 
 
 class TestRunAll:
@@ -106,24 +100,22 @@ class TestRunAll:
 
         results = run_all(cfg, config_path)
         statuses = {r.table_name: r.status for r in results}
-        assert statuses["inventory_group"] == "failure"
-        assert statuses["customer_master"] == "success"
+        assert statuses["icube_inventory_group"] == "failure"
+        assert statuses["icube_customer_master"] == "success"
 
     def test_run_all_does_not_write_validation_json(self, setup_env: tuple[Path, Path]):
-        """L-1: run_all() should NOT write validation JSON — CLI owns that."""
+        """L-1: run_all() should NOT write validation JSON -- CLI owns that."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
 
-        # Remove any pre-existing validation file
         vj_path = config_path.parent / "feather_validation.json"
         vj_path.unlink(missing_ok=True)
 
         run_all(cfg, config_path)
 
-        # run_all should NOT create validation JSON
         assert not vj_path.exists()
 
     def test_first_run_always_extracts(self, setup_env: tuple[Path, Path]):
@@ -148,13 +140,13 @@ class TestRunAll:
         run_table(cfg, cfg.tables[0], tmp_path)
 
         sm = StateManager(tmp_path / "feather_state.duckdb")
-        wm = sm.read_watermark("inventory_group")
+        wm = sm.read_watermark("icube_inventory_group")
         assert wm is not None
         assert wm["last_file_mtime"] is not None
         assert wm["last_file_hash"] is not None
 
     def test_second_run_skips_unchanged(self, setup_env: tuple[Path, Path]):
-        """Second run on unchanged source → all tables skipped."""
+        """Second run on unchanged source -> all tables skipped."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
@@ -166,7 +158,7 @@ class TestRunAll:
         assert all(r.status == "skipped" for r in results2)
 
     def test_modified_source_reextracts(self, setup_env: tuple[Path, Path]):
-        """Modify source file → next run extracts again."""
+        """Modify source file -> next run extracts again."""
         import time
 
         from feather_etl.config import load_config
@@ -177,8 +169,7 @@ class TestRunAll:
 
         run_all(cfg, config_path)
 
-        # Modify source: add a row to change content and hash
-        time.sleep(0.05)  # ensure mtime differs on coarse-resolution filesystems
+        time.sleep(0.05)
         source_db = tmp_path / "client.duckdb"
         con = duckdb.connect(str(source_db))
         con.execute(
@@ -191,7 +182,7 @@ class TestRunAll:
         assert all(r.status == "success" for r in results2)
 
     def test_touch_source_skips(self, setup_env: tuple[Path, Path]):
-        """Touch source file (mtime changes, content identical) → skipped."""
+        """Touch source file (mtime changes, content identical) -> skipped."""
         import os
         import time
 
@@ -203,7 +194,6 @@ class TestRunAll:
 
         run_all(cfg, config_path)
 
-        # Touch: update mtime without changing content
         time.sleep(0.05)
         os.utime(tmp_path / "client.duckdb", None)
 
@@ -224,7 +214,6 @@ class TestRunAll:
 
         sm = StateManager(tmp_path / "feather_state.duckdb")
         status = sm.get_status()
-        # get_status returns last run per table — should be "skipped"
         assert all(s["status"] == "skipped" for s in status)
 
     def test_failed_extraction_doesnt_update_watermark(
@@ -237,15 +226,13 @@ class TestRunAll:
 
         config_path, tmp_path = setup_env
         cfg = load_config(config_path)
-        # Point to nonexistent table to trigger failure
         cfg.tables[0].source_table = "icube.NONEXISTENT"
 
         run_table(cfg, cfg.tables[0], tmp_path)
 
         sm = StateManager(tmp_path / "feather_state.duckdb")
-        wm = sm.read_watermark("inventory_group")
-        # Watermark value not advanced on failure (retry metadata may exist)
+        wm = sm.read_watermark("icube_inventory_group")
         if wm is not None:
             assert wm["last_value"] is None
             assert wm["last_run_at"] is None
-            assert wm["retry_count"] == 1  # retry state set by V14
+            assert wm["retry_count"] == 1

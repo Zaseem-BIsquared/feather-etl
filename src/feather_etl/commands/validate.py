@@ -7,7 +7,6 @@ from pathlib import Path
 import typer
 
 from feather_etl.commands._common import (
-    _enforce_single_source,
     _is_json,
     _load_and_validate,
 )
@@ -19,11 +18,25 @@ def validate(
 ) -> None:
     """Validate config, test source connection, and write feather_validation.json."""
     cfg = _load_and_validate(config)
-    _enforce_single_source(cfg, "validate")
 
-    # Test source connection
-    source = cfg.sources[0]
-    source_ok = source.check()
+    # Test source connections
+    all_ok = True
+    for source in cfg.sources:
+        source_ok = source.check()
+        if not source_ok:
+            all_ok = False
+        if not _is_json(ctx):
+            source_label = (
+                getattr(source, "path", None)
+                or getattr(source, "host", None)
+                or "configured"
+            )
+            conn_status = "connected" if source_ok else "FAILED"
+            typer.echo(f"  Source: {source.type} ({source_label}) — {conn_status}")
+            if not source_ok:
+                err = getattr(source, "_last_error", None)
+                if err:
+                    typer.echo(f"    Details: {err}", err=True)
 
     if _is_json(ctx):
         emit_line(
@@ -33,29 +46,19 @@ def validate(
                 "source_type": cfg.sources[0].type,
                 "destination": str(cfg.destination.path),
                 "mode": cfg.mode,
-                "source_connected": source_ok,
+                "source_connected": all_ok,
             },
             json_mode=True,
         )
     else:
         typer.echo(f"Config valid: {len(cfg.tables)} table(s)")
-        source_label = (
-            getattr(cfg.sources[0], "path", None)
-            or getattr(cfg.sources[0], "host", None)
-            or "configured"
-        )
-        conn_status = "connected" if source_ok else "FAILED"
-        typer.echo(f"  Source: {cfg.sources[0].type} ({source_label}) — {conn_status}")
         typer.echo(f"  Destination: {cfg.destination.path}")
         typer.echo(f"  State: {cfg.config_dir / 'feather_state.duckdb'}")
         for t in cfg.tables:
             typer.echo(f"  Table: {t.name} → {t.target_table} ({t.strategy})")
 
-    if not source_ok:
+    if not all_ok:
         typer.echo("Source connection failed.", err=True)
-        err = getattr(source, "_last_error", None)
-        if err:
-            typer.echo(f"  Details: {err}", err=True)
         raise typer.Exit(code=2)
 
 

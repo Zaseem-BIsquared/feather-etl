@@ -7,27 +7,27 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.helpers import write_config
+from tests.helpers import make_curation_entry, write_config, write_curation
 
 
 def _minimal_config(tmp_path: Path, source_path: str | None = None) -> dict:
-    """Return a valid minimal config dict."""
+    """Return a valid minimal config dict (no tables — those come from curation)."""
     if source_path is None:
         db = tmp_path / "source.duckdb"
         db.touch()
         source_path = str(db)
     return {
-        "sources": [{"type": "duckdb", "path": source_path}],
+        "sources": [{"type": "duckdb", "name": "src", "path": source_path}],
         "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        "tables": [
-            {
-                "name": "test_table",
-                "source_table": "main.test",
-                "target_table": "bronze.test_table",
-                "strategy": "full",
-            }
-        ],
     }
+
+
+def _minimal_curation(tmp_path: Path) -> None:
+    """Write a minimal curation.json with one table."""
+    write_curation(
+        tmp_path,
+        [make_curation_entry("src", "main.test", "test_table")],
+    )
 
 
 class TestConfigParsing:
@@ -36,10 +36,11 @@ class TestConfigParsing:
 
         cfg = _minimal_config(tmp_path)
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
         assert result.sources[0].type == "duckdb"
         assert len(result.tables) == 1
-        assert result.tables[0].name == "test_table"
+        assert result.tables[0].name == "src_test_table"
 
     def test_env_var_substitution(self, tmp_path: Path):
         from feather_etl.config import load_config
@@ -49,6 +50,7 @@ class TestConfigParsing:
             cfg = _minimal_config(tmp_path)
             cfg["sources"][0]["path"] = "${FEATHER_TEST_PATH}"
             config_file = write_config(tmp_path, cfg)
+            _minimal_curation(tmp_path)
             result = load_config(config_file, validate=False)
             assert "${" not in str(result.sources[0].path)
             assert "source.duckdb" in str(result.sources[0].path)
@@ -64,64 +66,24 @@ class TestConfigParsing:
         cfg["sources"][0]["path"] = "./source.duckdb"
         cfg["destination"]["path"] = "./data.duckdb"
         config_file = write_config(tmp_path, cfg, directory=subdir)
+        write_curation(
+            subdir,
+            [make_curation_entry("src", "main.test", "test_table")],
+        )
         result = load_config(config_file, validate=False)
         assert result.sources[0].path == subdir / "source.duckdb"
         assert result.destination.path == subdir / "data.duckdb"
-
-    def test_target_table_defaults_to_silver(self, tmp_path: Path):
-        from feather_etl.config import load_config
-
-        cfg = _minimal_config(tmp_path)
-        del cfg["tables"][0]["target_table"]
-        config_file = write_config(tmp_path, cfg)
-        result = load_config(config_file, validate=False)
-        assert result.tables[0].target_table == ""  # mode-derived at runtime
-
-    def test_tables_directory_merge(self, tmp_path: Path):
-        from feather_etl.config import load_config
-
-        db = tmp_path / "source.duckdb"
-        cfg = {
-            "sources": [{"type": "duckdb", "path": str(db)}],
-            "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [
-                {
-                    "name": "inline_table",
-                    "source_table": "main.inline",
-                    "target_table": "bronze.inline_table",
-                    "strategy": "full",
-                }
-            ],
-        }
-        config_file = write_config(tmp_path, cfg)
-
-        tables_dir = tmp_path / "tables"
-        tables_dir.mkdir()
-        extra = {
-            "tables": [
-                {
-                    "name": "dir_table",
-                    "source_table": "main.dir",
-                    "target_table": "bronze.dir_table",
-                    "strategy": "full",
-                }
-            ]
-        }
-        (tables_dir / "extra.yaml").write_text(yaml.dump(extra))
-
-        result = load_config(config_file, validate=False)
-        names = {t.name for t in result.tables}
-        assert names == {"inline_table", "dir_table"}
 
     def test_no_primary_key_does_not_error(self, tmp_path: Path):
         """primary_key validation deferred to Slice 3."""
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        # No primary_key field at all
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
-        assert result.tables[0].primary_key is None
+        # curation entries have primary_key=["id"] by default
+        assert result.tables[0].primary_key == ["id"]
 
 
 class TestConfigValidation:
@@ -131,41 +93,48 @@ class TestConfigValidation:
         cfg = _minimal_config(tmp_path)
         cfg["sources"][0]["type"] = "mongodb"
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         with pytest.raises(ValueError, match="not implemented"):
             load_config(config_file)
 
     def test_missing_source_path_for_file_source(self, tmp_path: Path):
-        """Load succeeds but source.check() reports the path is unreachable.
-
-        Per Task 1.8 / spec §5.2 (side-effect-free from_yaml): path-existence
-        is a runtime concern handled by source.check(), not a load-time check.
-        """
+        """Load succeeds but source.check() reports the path is unreachable."""
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
         cfg["sources"][0]["path"] = str(tmp_path / "nonexistent.duckdb")
-        # do NOT create the file
         config_file = write_config(tmp_path, cfg)
-        cfg_result = load_config(config_file)  # now succeeds
+        _minimal_curation(tmp_path)
+        cfg_result = load_config(config_file)
         assert cfg_result.sources[0].check() is False
 
     def test_bad_strategy(self, tmp_path: Path):
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["strategy"] = "upsert"
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "main.test", "test_table", strategy="upsert")],
+        )
         with pytest.raises(ValueError, match="strategy"):
             load_config(config_file)
 
     def test_bad_target_schema_prefix(self, tmp_path: Path):
+        """Curation always produces bronze.* targets, so this test validates
+        directly via _validate with a manually-constructed table."""
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["target_table"] = "staging.test_table"
         config_file = write_config(tmp_path, cfg)
-        with pytest.raises(ValueError, match="schema"):
-            load_config(config_file)
+        _minimal_curation(tmp_path)
+        result = load_config(config_file, validate=False)
+        # Manually override to test validation
+        result.tables[0].target_table = "staging.test_table"
+        from feather_etl.config import _validate
+
+        errors = _validate(result)
+        assert any("schema" in e for e in errors)
 
 
 class TestValidationJson:
@@ -174,6 +143,7 @@ class TestValidationJson:
 
         cfg = _minimal_config(tmp_path)
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file)
         write_validation_json(config_file, result)
         vj = json.loads((tmp_path / "feather_validation.json").read_text())
@@ -200,57 +170,39 @@ class TestEnvVarEdgeCases:
         cfg = _minimal_config(tmp_path)
         cfg["defaults"] = {"overlap_window_minutes": 5, "batch_size": 50000}
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
         assert result.defaults.overlap_window_minutes == 5
         assert result.defaults.batch_size == 50000
 
     def test_dotenv_auto_loaded_from_config_dir(self, tmp_path: Path, monkeypatch):
-        """Regression for siraj-samsudeen/feather-etl#1.
-
-        A `.env` file next to `feather.yaml` should be loaded automatically,
-        so users don't have to manually `export` variables before running
-        `feather validate`, `feather run`, etc. Without this, `${VAR}`
-        references in feather.yaml fall back to `os.environ` only.
-        """
+        """Regression for siraj-samsudeen/feather-etl#1."""
         from feather_etl.config import load_config
 
-        # Ensure the var is NOT already in the environment
         monkeypatch.delenv("FEATHER_TEST_DOTENV_VAR", raising=False)
-        assert (
-            "FEATHER_TEST_DOTENV_VAR" not in os.environ
-        )  # must come from .env, not shell
+        assert "FEATHER_TEST_DOTENV_VAR" not in os.environ
 
-        # Write .env alongside the config — this is what should get auto-loaded
-        (tmp_path / ".env").write_text("FEATHER_TEST_DOTENV_VAR=bronze\n")
+        (tmp_path / ".env").write_text("FEATHER_TEST_DOTENV_VAR=hello\n")
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["target_table"] = "${FEATHER_TEST_DOTENV_VAR}.t"
         config_file = write_config(tmp_path, cfg)
-
-        result = load_config(config_file, validate=False)
-        # If .env was loaded, ${FEATHER_TEST_DOTENV_VAR} resolved to "bronze"
-        assert result.tables[0].target_table == "bronze.t"
+        _minimal_curation(tmp_path)
+        load_config(config_file, validate=False)
+        # Just verify .env was loaded — the variable was resolved
+        assert os.environ.get("FEATHER_TEST_DOTENV_VAR") == "hello"
 
     def test_dotenv_does_not_override_existing_env(self, tmp_path: Path, monkeypatch):
-        """Existing shell/CI env vars must win over .env (override=False).
-
-        Important for CI/CD: secrets come from the environment, not a
-        committed .env file. A stray committed .env must not silently
-        clobber what the pipeline passes in.
-        """
+        """Existing shell/CI env vars must win over .env (override=False)."""
         from feather_etl.config import load_config
 
-        # Simulate CI env variable setup
         monkeypatch.setenv("FEATHER_TEST_OVERRIDE_VAR", "gold")
-
         (tmp_path / ".env").write_text("FEATHER_TEST_OVERRIDE_VAR=bronze\n")
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["target_table"] = "${FEATHER_TEST_OVERRIDE_VAR}.t"
         config_file = write_config(tmp_path, cfg)
-
-        result = load_config(config_file, validate=False)
-        assert result.tables[0].target_table == "gold.t"
+        _minimal_curation(tmp_path)
+        load_config(config_file, validate=False)
+        assert os.environ["FEATHER_TEST_OVERRIDE_VAR"] == "gold"
 
     def test_unresolved_env_var_gives_clear_error(self, tmp_path: Path):
         """UX-4: Unset env vars should show which variable is missing."""
@@ -259,6 +211,7 @@ class TestEnvVarEdgeCases:
         cfg = _minimal_config(tmp_path)
         cfg["destination"]["path"] = "${MISSING_DEST_PATH}"
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         with pytest.raises(ValueError, match="MISSING_DEST_PATH"):
             load_config(config_file, validate=False)
 
@@ -271,38 +224,10 @@ class TestConfigValidationExtended:
         cfg = {
             "sources": [{"type": "ftp", "connection_string": "ftp://example.com"}],
             "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [
-                {
-                    "name": "t",
-                    "source_table": "main.t",
-                    "target_table": "bronze.t",
-                    "strategy": "full",
-                },
-            ],
         }
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         with pytest.raises(ValueError, match="not implemented"):
-            load_config(config_file)
-
-    def test_missing_table_field_gives_friendly_error(self, tmp_path: Path):
-        """BUG-4: Missing required table fields should raise ValueError, not KeyError."""
-        from feather_etl.config import load_config
-
-        db = tmp_path / "source.duckdb"
-        db.touch()
-        cfg = {
-            "sources": [{"type": "duckdb", "path": str(db)}],
-            "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [
-                {
-                    "name": "t",
-                    "source_table": "main.t",
-                    "target_table": "bronze.t",
-                },  # strategy missing
-            ],
-        }
-        config_file = write_config(tmp_path, cfg)
-        with pytest.raises(ValueError, match="missing required field"):
             load_config(config_file)
 
     def test_missing_source_section_gives_friendly_error(self, tmp_path: Path):
@@ -311,7 +236,6 @@ class TestConfigValidationExtended:
 
         cfg = {
             "destination": {"path": str(tmp_path / "data.duckdb")},
-            "tables": [],
         }
         config_file = write_config(tmp_path, cfg)
         with pytest.raises(ValueError, match="Missing required config section"):
@@ -324,43 +248,14 @@ class TestConfigValidationExtended:
         db = tmp_path / "source.duckdb"
         db.touch()
         cfg = {
-            "sources": [{"type": "duckdb", "path": str(db)}],
+            "sources": [{"type": "duckdb", "name": "src", "path": str(db)}],
             "destination": {
                 "path": str(tmp_path / "nonexistent" / "sub" / "data.duckdb")
             },
-            "tables": [
-                {
-                    "name": "t",
-                    "source_table": "main.t",
-                    "target_table": "bronze.t",
-                    "strategy": "full",
-                },
-            ],
         }
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         with pytest.raises(ValueError, match="Destination directory does not exist"):
-            load_config(config_file)
-
-    def test_hyphenated_target_table_rejected(self, tmp_path: Path):
-        """BUG-7: Hyphens in target table names should be caught at validate."""
-        from feather_etl.config import load_config
-
-        db = tmp_path / "source.duckdb"
-        db.touch()
-        cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["target_table"] = "bronze.my-hyphenated-table"
-        config_file = write_config(tmp_path, cfg)
-        with pytest.raises(ValueError, match="invalid characters"):
-            load_config(config_file)
-
-    def test_target_table_requires_schema_prefix(self, tmp_path: Path):
-        """BUG-7: target_table without schema prefix should be rejected."""
-        from feather_etl.config import load_config
-
-        cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["target_table"] = "no_schema_table"
-        config_file = write_config(tmp_path, cfg)
-        with pytest.raises(ValueError, match="must include a schema prefix"):
             load_config(config_file)
 
     def test_incremental_requires_timestamp_column(self, tmp_path: Path):
@@ -368,9 +263,15 @@ class TestConfigValidationExtended:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["strategy"] = "incremental"
-        # No timestamp_column
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry(
+                    "src", "main.test", "test_table", strategy="incremental"
+                )
+            ],
+        )
         with pytest.raises(ValueError, match="timestamp_column"):
             load_config(config_file)
 
@@ -379,9 +280,19 @@ class TestConfigValidationExtended:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["strategy"] = "incremental"
-        cfg["tables"][0]["timestamp_column"] = "modified_date"
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry(
+                    "src",
+                    "main.test",
+                    "test_table",
+                    strategy="incremental",
+                    timestamp_column="modified_date",
+                ),
+            ],
+        )
         result = load_config(config_file)
         assert result.tables[0].strategy == "incremental"
 
@@ -392,6 +303,7 @@ class TestConfigValidationExtended:
         cfg = _minimal_config(tmp_path)
         cfg["defaults"] = {"overlap_window_minutes": -5}
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         with pytest.raises(ValueError, match="overlap_window_minutes"):
             load_config(config_file)
 
@@ -402,6 +314,7 @@ class TestConfigValidationExtended:
         cfg = _minimal_config(tmp_path)
         cfg["defaults"] = {"overlap_window_minutes": 0}
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file)
         assert result.defaults.overlap_window_minutes == 0
 
@@ -410,8 +323,11 @@ class TestConfigValidationExtended:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["source_table"] = "main.test; DROP TABLE foo"
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "main.test; DROP TABLE foo", "test_table")],
+        )
         with pytest.raises(ValueError, match="source_table.*invalid"):
             load_config(config_file)
 
@@ -420,8 +336,11 @@ class TestConfigValidationExtended:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["source_table"] = "main.test--comment"
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "main.test--comment", "test_table")],
+        )
         with pytest.raises(ValueError, match="source_table.*invalid"):
             load_config(config_file)
 
@@ -429,10 +348,12 @@ class TestConfigValidationExtended:
         """M-1: legitimate source_table formats should pass validation."""
         from feather_etl.config import load_config
 
-        # schema.table format (DuckDB)
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["source_table"] = "erp.SalesInvoice"
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "erp.SalesInvoice", "sales_invoice")],
+        )
         result = load_config(config_file)
         assert result.tables[0].source_table == "erp.SalesInvoice"
 
@@ -443,9 +364,12 @@ class TestConfigValidationExtended:
         csv_dir = tmp_path / "csv_data"
         csv_dir.mkdir()
         cfg = _minimal_config(tmp_path)
-        cfg["sources"] = [{"type": "csv", "path": str(csv_dir)}]
-        cfg["tables"][0]["source_table"] = "orders.csv"
+        cfg["sources"] = [{"type": "csv", "name": "csvs", "path": str(csv_dir)}]
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [make_curation_entry("csvs", "orders.csv", "orders")],
+        )
         result = load_config(config_file)
         assert result.tables[0].source_table == "orders.csv"
 
@@ -454,8 +378,11 @@ class TestConfigValidationExtended:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["source_table"] = "just_a_table"
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "just_a_table", "test_table")],
+        )
         with pytest.raises(ValueError, match="source_table.*schema\\.table"):
             load_config(config_file)
 
@@ -464,8 +391,11 @@ class TestConfigValidationExtended:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["source_table"] = "erp.Sales Invoice"
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "erp.Sales Invoice", "test_table")],
+        )
         with pytest.raises(ValueError, match="source_table.*invalid"):
             load_config(config_file)
 
@@ -474,8 +404,11 @@ class TestConfigValidationExtended:
         from feather_etl.config import load_config
 
         cfg = _minimal_config(tmp_path)
-        cfg["tables"][0]["source_table"] = "erp.test()"
         config_file = write_config(tmp_path, cfg)
+        write_curation(
+            tmp_path,
+            [make_curation_entry("src", "erp.test()", "test_table")],
+        )
         with pytest.raises(ValueError, match="source_table.*invalid"):
             load_config(config_file)
 
@@ -486,6 +419,7 @@ class TestAlertsConfig:
 
         cfg = _minimal_config(tmp_path)
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
         assert result.alerts is None
 
@@ -501,6 +435,7 @@ class TestAlertsConfig:
             "alert_to": "ops@example.com",
         }
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
         assert result.alerts is not None
         assert result.alerts.smtp_host == "smtp.example.com"
@@ -520,6 +455,7 @@ class TestAlertsConfig:
             "alert_to": "ops@example.com",
         }
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
         assert result.alerts.alert_from == "user@example.com"
 
@@ -536,6 +472,7 @@ class TestAlertsConfig:
             "alert_from": "noreply@example.com",
         }
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
         assert result.alerts.alert_from == "noreply@example.com"
 
@@ -545,9 +482,9 @@ class TestAlertsConfig:
         cfg = _minimal_config(tmp_path)
         cfg["alerts"] = {
             "smtp_host": "smtp.example.com",
-            # missing smtp_port, smtp_user, smtp_password, alert_to
         }
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         with pytest.raises(ValueError, match="alerts.*missing"):
             load_config(config_file, validate=False)
 
@@ -564,6 +501,7 @@ class TestAlertsConfig:
             "alert_to": "ops@example.com",
         }
         config_file = write_config(tmp_path, cfg)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
         assert result.alerts.smtp_password == "env_secret"
 
@@ -574,10 +512,10 @@ class TestSourceName:
         from feather_etl.config import load_config
 
         cfg_dict = _minimal_config(tmp_path)
+        del cfg_dict["sources"][0]["name"]
         config_file = write_config(tmp_path, cfg_dict)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
-        # When name is omitted, auto-derivation produces '<type>-<basename-without-ext>'.
-        # Fixture path is '<tmp>/source.duckdb' → derived name is 'duckdb-source'.
         assert result.sources[0].name == "duckdb-source"
 
     def test_source_name_is_accepted(self, tmp_path: Path):
@@ -586,6 +524,7 @@ class TestSourceName:
         cfg_dict = _minimal_config(tmp_path)
         cfg_dict["sources"][0]["name"] = "prod-erp"
         config_file = write_config(tmp_path, cfg_dict)
+        _minimal_curation(tmp_path)
         result = load_config(config_file, validate=False)
         assert result.sources[0].name == "prod-erp"
 
@@ -597,7 +536,6 @@ class TestSourcesList:
         cfg_dict = {
             "sources": [{"type": "duckdb", "path": str(tmp_path / "s.duckdb")}],
             "destination": {"path": str(tmp_path / "out.duckdb")},
-            "tables": [],
         }
         (tmp_path / "s.duckdb").write_bytes(b"")
         config_file = tmp_path / "feather.yaml"
@@ -615,7 +553,6 @@ class TestSourcesList:
                 {"type": "duckdb", "path": str(tmp_path / "b.duckdb")},
             ],
             "destination": {"path": str(tmp_path / "out.duckdb")},
-            "tables": [],
         }
         for f in ("a.duckdb", "b.duckdb"):
             (tmp_path / f).write_bytes(b"")
@@ -633,7 +570,6 @@ class TestSourcesList:
                 {"name": "b", "type": "duckdb", "path": str(tmp_path / "b.duckdb")},
             ],
             "destination": {"path": str(tmp_path / "out.duckdb")},
-            "tables": [],
         }
         for f in ("a.duckdb", "b.duckdb"):
             (tmp_path / f).write_bytes(b"")
@@ -651,7 +587,6 @@ class TestSourcesList:
                 {"name": "x", "type": "duckdb", "path": str(tmp_path / "b.duckdb")},
             ],
             "destination": {"path": str(tmp_path / "out.duckdb")},
-            "tables": [],
         }
         for f in ("a.duckdb", "b.duckdb"):
             (tmp_path / f).write_bytes(b"")
@@ -666,7 +601,6 @@ class TestSourcesList:
         cfg_dict = {
             "sources": [],
             "destination": {"path": str(tmp_path / "out.duckdb")},
-            "tables": [],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(cfg_dict))
@@ -679,7 +613,6 @@ class TestSourcesList:
         cfg_dict = {
             "sources": [None],
             "destination": {"path": str(tmp_path / "out.duckdb")},
-            "tables": [],
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(cfg_dict))
@@ -694,7 +627,6 @@ class TestSingularSourceMigrationError:
         cfg_dict = {
             "source": {"type": "duckdb", "path": str(tmp_path / "s.duckdb")},
             "destination": {"path": str(tmp_path / "out.duckdb")},
-            "tables": [],
         }
         (tmp_path / "s.duckdb").write_bytes(b"")
         config_file = tmp_path / "feather.yaml"

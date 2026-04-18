@@ -97,6 +97,8 @@ class TableConfig:
     schedule: str | None = None
     dedup: bool = False
     dedup_columns: list[str] | None = None
+    source_name: str | None = None  # resolved source name from curation
+    database: str | None = None  # resolved database from curation
 
 
 @dataclass
@@ -203,9 +205,8 @@ def _validate(config: FeatherConfig) -> list[str]:
             f"got {config.defaults.overlap_window_minutes}"
         )
 
-    # Use the primary (first) source for source_table validation until
-    # per-table routing lands in a later task.
-    primary = config.sources[0]
+    from feather_etl.curation import resolve_source
+
     for table in config.tables:
         if table.strategy not in VALID_STRATEGIES:
             errors.append(
@@ -245,8 +246,15 @@ def _validate(config: FeatherConfig) -> list[str]:
                 f"exclusive — use one or the other."
             )
 
-        # Source-type-aware source_table validation — delegated to the source class.
-        for err in primary.validate_source_table(table.source_table):
+        # Source-type-aware source_table validation — resolve per-table source.
+        try:
+            source = resolve_source(
+                table.database or table.source_name or "",
+                config.sources,
+            )
+        except ValueError:
+            source = config.sources[0]
+        for err in source.validate_source_table(table.source_table):
             errors.append(f"Table '{table.name}': {err}")
 
     return errors
@@ -371,9 +379,14 @@ def load_config(
             f"Invalid mode '{mode}' (from {mode_source}). Valid: {sorted(VALID_MODES)}"
         )
 
-    raw_tables = raw.get("tables", [])
-    raw_tables = _merge_tables_dir(config_dir, raw_tables)
-    tables = _parse_tables(raw_tables, raw)
+    from feather_etl.curation import load_curation_tables
+
+    try:
+        tables = load_curation_tables(config_dir)
+    except (FileNotFoundError, ValueError):
+        if validate:
+            raise
+        tables = []
 
     # Parse optional alerts section
     alerts: AlertsConfig | None = None

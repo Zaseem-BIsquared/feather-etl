@@ -1,4 +1,4 @@
-"""Multi-source guard for non-discover commands (B2 deferral)."""
+"""Multi-source commands are now supported (guard removed in #8)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 def _multi_source_yaml(tmp_path: Path) -> Path:
@@ -21,58 +22,55 @@ def _multi_source_yaml(tmp_path: Path) -> Path:
             {"name": "b", "type": "duckdb", "path": str(src2)},
         ],
         "destination": {"path": str(tmp_path / "out.duckdb")},
-        "tables": [
-            {
-                "name": "ig",
-                "source_table": "icube.InventoryGroup",
-                "target_table": "bronze.ig",
-                "strategy": "full",
-            },
-        ],
     }
     p = tmp_path / "feather.yaml"
     p.write_text(yaml.dump(cfg))
+    write_curation(
+        tmp_path,
+        [make_curation_entry("a", "icube.InventoryGroup", "ig")],
+    )
     return p
 
 
-class TestMultiSourceGuard:
-    def test_validate_exits_2_with_guidance(self, runner, tmp_path):
+class TestMultiSource:
+    """Multi-source configs are accepted by all commands — the old single-source
+    guard was removed as part of issue #8 (multi-source pipeline support)."""
+
+    def test_validate_accepts_multi_source(self, runner, tmp_path):
         from feather_etl.cli import app
 
         cfg = _multi_source_yaml(tmp_path)
         r = runner.invoke(app, ["validate", "--config", str(cfg)])
-        assert r.exit_code == 2
-        assert "single-source" in r.output
-        assert "discover" in r.output
+        # No longer rejected — both sources should be checked
+        assert "single-source" not in r.output
+        assert r.exit_code in (0, 2)  # 0=all connected, 2=connection failure
 
-    def test_run_exits_2(self, runner, tmp_path):
+    def test_run_accepts_multi_source(self, runner, tmp_path):
         from feather_etl.cli import app
 
         cfg = _multi_source_yaml(tmp_path)
         r = runner.invoke(app, ["run", "--config", str(cfg)])
-        assert r.exit_code == 2
-        assert "single-source" in r.output
+        # No longer rejected at the guard level
+        assert "single-source" not in r.output
 
-    def test_status_exits_2(self, runner, tmp_path):
-        from feather_etl.cli import app
-
-        cfg = _multi_source_yaml(tmp_path)
-        r = runner.invoke(app, ["status", "--config", str(cfg)])
-        assert r.exit_code == 2
-        assert "single-source" in r.output
-
-    def test_history_exits_2(self, runner, tmp_path):
-        from feather_etl.cli import app
-
-        cfg = _multi_source_yaml(tmp_path)
-        r = runner.invoke(app, ["history", "--config", str(cfg)])
-        assert r.exit_code == 2
-        assert "single-source" in r.output
-
-    def test_setup_exits_2(self, runner, tmp_path):
+    def test_setup_accepts_multi_source(self, runner, tmp_path):
         from feather_etl.cli import app
 
         cfg = _multi_source_yaml(tmp_path)
         r = runner.invoke(app, ["setup", "--config", str(cfg)])
-        assert r.exit_code == 2
-        assert "single-source" in r.output
+        assert "single-source" not in r.output
+        assert r.exit_code == 0
+
+    def test_status_accepts_multi_source(self, runner, tmp_path):
+        from feather_etl.cli import app
+
+        cfg = _multi_source_yaml(tmp_path)
+        r = runner.invoke(app, ["status", "--config", str(cfg)])
+        assert "single-source" not in r.output
+
+    def test_history_accepts_multi_source(self, runner, tmp_path):
+        from feather_etl.cli import app
+
+        cfg = _multi_source_yaml(tmp_path)
+        r = runner.invoke(app, ["history", "--config", str(cfg)])
+        assert "single-source" not in r.output
