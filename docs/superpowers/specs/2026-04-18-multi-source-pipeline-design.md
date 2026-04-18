@@ -140,8 +140,8 @@ No new commands. Existing commands work unchanged:
 |---|---|---|
 | 1 | Extract `_expand_db_sources` to shared utility, use `DatabaseSource` base class | Prerequisite for pipeline source scoping. Closes #27. |
 | 2 | Add `source` and `database` fields to `TableConfig` | Pipeline needs to know which source each table belongs to. Additive, backward-safe. |
-| 3 | Build curation.json loader (`curation.py`) | Core new module. Parses manifest, filters to include, resolves source_db, produces TableConfig list. |
-| 4 | Wire curation loader into `load_config()` | Config layer reads curation.json as the sole table source. Remove `tables:` parsing. |
+| 3 | Build curation.json loader (`curation.py`) | Core new module. Parses manifest, filters to include, resolves source_db, produces TableConfig list. Detects bronze name collisions after normalization (case/punctuation differences that map to the same identifier). |
+| 4 | Wire curation loader into `load_config()` | Config layer reads curation.json as the sole table source. Remove `tables:` parsing. Keep `validate_source_table()` — run per-table against resolved source to prevent malformed table names reaching query construction. |
 | 5 | Update `run_table()` to accept source as parameter | Remove `sources[0]` hardcode. |
 | 6 | Remove `_enforce_single_source` from all commands | Unlocks multi-source for run, setup, status. |
 | 7 | End-to-end tests with file-based multi-source | Prove multi-source extraction works using DuckDB + SQLite + CSV as sources. No database server dependencies (requires client VPN). |

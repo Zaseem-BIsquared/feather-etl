@@ -395,6 +395,30 @@ class TestLoadCuration:
         # Should be lowercased and sanitized
         assert result[0].name == "my_source_sales_data_"
 
+    def test_bronze_name_collision_case_difference_raises(self, tmp_path: Path):
+        """Two aliases that differ only in case must collide after normalization."""
+        from feather_etl.curation import load_curation_tables
+
+        tables = [
+            _make_include_entry(source_db="SAP", alias="Sales"),
+            _make_include_entry(source_db="SAP", alias="sales"),
+        ]
+        _write_curation(tmp_path, tables)
+        with pytest.raises(ValueError, match="duplicate bronze.*sap_sales"):
+            load_curation_tables(tmp_path)
+
+    def test_bronze_name_collision_punctuation_difference_raises(self, tmp_path: Path):
+        """Two aliases that differ only in punctuation must collide after normalization."""
+        from feather_etl.curation import load_curation_tables
+
+        tables = [
+            _make_include_entry(source_db="SAP", alias="sales_b"),
+            _make_include_entry(source_db="SAP", alias="sales-b"),
+        ]
+        _write_curation(tmp_path, tables)
+        with pytest.raises(ValueError, match="duplicate bronze.*sap_sales_b"):
+            load_curation_tables(tmp_path)
+
 
 class TestResolveSource:
     def test_resolves_source_by_databases_list(self):
@@ -554,10 +578,21 @@ def load_curation_tables(config_dir: Path) -> list[TableConfig]:
         )
 
     tables: list[TableConfig] = []
+    seen_bronze_names: dict[str, str] = {}  # bronze_name -> "source_db.alias"
     for entry in includes:
         source_db = entry["source_db"]
         alias = entry.get("alias") or entry["source_table"].split(".")[-1]
         bronze_name = _sanitize_bronze_name(source_db, alias)
+
+        # Collision check on normalized bronze name
+        origin = f"{source_db}.{alias}"
+        if bronze_name in seen_bronze_names:
+            raise ValueError(
+                f"duplicate bronze target name '{bronze_name}' — "
+                f"entries {seen_bronze_names[bronze_name]} and {origin} "
+                f"normalize to the same identifier. Use distinct aliases."
+            )
+        seen_bronze_names[bronze_name] = origin
 
         timestamp_column = None
         ts = entry.get("timestamp")
@@ -759,7 +794,7 @@ tables = load_curation_tables(config_dir)
 
 3. Remove the `if "tables" not in raw` check — tables no longer come from YAML.
 
-4. Update `_validate()` — remove the `primary.validate_source_table()` check that uses `config.sources[0]` (line 249). Source-table validation for curation entries will be handled by the curation validator (#29).
+4. Update `_validate()` — keep `validate_source_table()` checks but run them per-table against the resolved source instead of hardcoding `config.sources[0]`. For each table, resolve its source via `resolve_source(table.database, config.sources)` and call `source.validate_source_table(table.source_table)`. This preserves the existing safety fence that prevents malformed or hostile table names from reaching query construction (e.g., SQLite's `sqlite_scan(..., '{table}')`).
 
 - [ ] **Step 4: Run the integration tests**
 
