@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from feather_etl.commands.discover import _expand_db_sources
+from feather_etl.sources.expand import expand_db_sources as _expand_db_sources
 from feather_etl.sources.postgres import PostgresSource
 
 
