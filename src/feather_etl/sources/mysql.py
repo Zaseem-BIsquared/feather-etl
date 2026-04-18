@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import decimal
 from pathlib import Path
 from typing import ClassVar
 
@@ -242,7 +243,53 @@ class MySQLSource(DatabaseSource):
         watermark_column: str | None = None,
         watermark_value: str | None = None,
     ) -> pa.Table:
-        raise NotImplementedError("extract not yet implemented")
+        conn = self._connect()
+        cursor = conn.cursor()
+
+        col_clause = ", ".join(columns) if columns else "*"
+        where = self._build_where_clause(filter, watermark_column, watermark_value)
+        query = f"SELECT {col_clause} FROM {table}{where}"
+
+        cursor.execute(query)
+
+        if cursor.description is None:
+            cursor.close()
+            conn.close()
+            return pa.table({})
+
+        col_names = [desc[0] for desc in cursor.description]
+        col_types = [_mysql_field_type_to_arrow(desc[1]) for desc in cursor.description]
+        arrow_schema = pa.schema(
+            [pa.field(name, typ) for name, typ in zip(col_names, col_types)]
+        )
+
+        batches: list[pa.RecordBatch] = []
+        while True:
+            rows = cursor.fetchmany(self.batch_size)
+            if not rows:
+                break
+            col_data: dict[str, list] = {name: [] for name in col_names}
+            for row in rows:
+                for i, name in enumerate(col_names):
+                    val = row[i]
+                    if isinstance(val, decimal.Decimal):
+                        val = float(val)
+                    col_data[name].append(val)
+            batch = pa.RecordBatch.from_pydict(col_data, schema=arrow_schema)
+            batches.append(batch)
+
+        cursor.close()
+        conn.close()
+
+        if not batches:
+            return pa.table(
+                {
+                    name: pa.array([], type=typ)
+                    for name, typ in zip(col_names, col_types)
+                }
+            )
+
+        return pa.Table.from_batches(batches, schema=arrow_schema)
 
     def detect_changes(
         self, table: str, last_state: dict[str, object] | None = None

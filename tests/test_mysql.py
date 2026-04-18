@@ -282,3 +282,58 @@ class TestMySQLGetSchemaIntegration:
         assert col_types["id"] == "int"
         assert col_types["amount"] == "decimal"
         assert col_types["modified_at"] == "timestamp"
+
+
+# ---------------------------------------------------------------------------
+# MySQLSource.extract() — integration tests (real MySQL)
+# ---------------------------------------------------------------------------
+
+
+@mysql_db
+class TestMySQLExtractIntegration:
+    @pytest.fixture
+    def source(self):
+        from feather_etl.sources.mysql import MySQLSource
+
+        src = MySQLSource(connection_string="")
+        src._connect_kwargs = MYSQL_CONN_KWARGS
+        src.database = "feather_test"
+        return src
+
+    def test_extract_full(self, source):
+        import pyarrow as pa
+
+        table = source.extract("erp_sales")
+        assert isinstance(table, pa.Table)
+        assert table.num_rows == 10
+        assert "id" in table.column_names
+        assert "amount" in table.column_names
+
+    def test_extract_with_columns(self, source):
+        table = source.extract("erp_customers", columns=["id", "name"])
+        assert table.column_names == ["id", "name"]
+        assert table.num_rows == 4
+
+    def test_extract_with_filter(self, source):
+        table = source.extract("erp_sales", filter="amount > 150")
+        assert table.num_rows > 0
+        amounts = table.column("amount").to_pylist()
+        assert all(a > 150 for a in amounts)
+
+    def test_extract_incremental_with_watermark(self, source):
+        import pyarrow as pa
+
+        table = source.extract(
+            "erp_sales",
+            watermark_column="modified_at",
+            watermark_value="2026-01-03",
+        )
+        assert isinstance(table, pa.Table)
+        assert table.num_rows > 0
+
+    def test_extract_empty_result(self, source):
+        import pyarrow as pa
+
+        table = source.extract("erp_sales", filter="id = -999")
+        assert isinstance(table, pa.Table)
+        assert table.num_rows == 0
