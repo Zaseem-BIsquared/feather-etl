@@ -45,12 +45,13 @@ def _expand_db_sources(sources: list) -> list:
         produce one child per result.
       - File sources → keep as-is.
     """
+    from feather_etl.sources.mysql import MySQLSource
     from feather_etl.sources.postgres import PostgresSource
     from feather_etl.sources.sqlserver import SqlServerSource
 
     expanded: list = []
     for src in sources:
-        is_db = isinstance(src, (SqlServerSource, PostgresSource))
+        is_db = isinstance(src, (SqlServerSource, PostgresSource, MySQLSource))
         if not is_db:
             expanded.append(src)
             continue
