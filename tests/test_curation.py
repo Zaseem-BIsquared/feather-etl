@@ -108,6 +108,7 @@ class TestLoadCuration:
         _write_curation(tmp_path, [entry])
         result = load_curation_tables(tmp_path)
         assert result[0].database == "SAP"
+        assert result[0].source_name == "SAP"
 
     def test_missing_curation_raises(self, tmp_path: Path):
         from feather_etl.curation import load_curation_tables
