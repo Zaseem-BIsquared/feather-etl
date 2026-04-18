@@ -179,7 +179,43 @@ class MySQLSource(DatabaseSource):
             return False
 
     def discover(self) -> list[StreamSchema]:
-        raise NotImplementedError("discover not yet implemented")
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT TABLE_NAME "
+                "FROM INFORMATION_SCHEMA.TABLES "
+                "WHERE TABLE_SCHEMA = %s "
+                "AND TABLE_TYPE = 'BASE TABLE' "
+                "ORDER BY TABLE_NAME",
+                (self.database,),
+            )
+            tables = cursor.fetchall()
+
+            schemas: list[StreamSchema] = []
+            for (table_name,) in tables:
+                cursor.execute(
+                    "SELECT COLUMN_NAME, DATA_TYPE "
+                    "FROM INFORMATION_SCHEMA.COLUMNS "
+                    "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s "
+                    "ORDER BY ORDINAL_POSITION",
+                    (self.database, table_name),
+                )
+                cols = cursor.fetchall()
+                schemas.append(
+                    StreamSchema(
+                        name=table_name,
+                        columns=[(c[0], c[1]) for c in cols],
+                        primary_key=None,
+                        supports_incremental=True,
+                    )
+                )
+
+            cursor.close()
+            return schemas
+        finally:
+            conn.close()
 
     def get_schema(self, table: str) -> list[tuple[str, str]]:
         raise NotImplementedError("get_schema not yet implemented")

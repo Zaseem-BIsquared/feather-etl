@@ -158,6 +158,23 @@ class TestMySQLValidateSourceTable:
 # ---------------------------------------------------------------------------
 
 
+MYSQL_CONN_KWARGS = {"host": "localhost", "user": "root", "database": "feather_test"}
+
+
+def _mysql_available() -> bool:
+    try:
+        import mysql.connector
+
+        conn = mysql.connector.connect(**MYSQL_CONN_KWARGS)
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+mysql_db = pytest.mark.skipif(not _mysql_available(), reason="MySQL not available")
+
+
 class TestMySQLCheckLastError:
     def test_check_failure_populates_last_error(self, monkeypatch):
         from feather_etl.sources import mysql as mysql_mod
@@ -191,3 +208,44 @@ class TestMySQLCheckLastError:
         )
         assert src.check() is True
         assert src._last_error is None
+
+
+# ---------------------------------------------------------------------------
+# MySQLSource.discover() — integration tests (real MySQL)
+# ---------------------------------------------------------------------------
+
+
+@mysql_db
+class TestMySQLDiscoverIntegration:
+    @pytest.fixture
+    def source(self):
+        from feather_etl.sources.mysql import MySQLSource
+
+        src = MySQLSource(connection_string="")
+        src._connect_kwargs = MYSQL_CONN_KWARGS
+        src.database = "feather_test"
+        return src
+
+    def test_discover_returns_erp_tables(self, source):
+        schemas = source.discover()
+        names = {s.name for s in schemas}
+        assert "erp_customers" in names
+        assert "erp_products" in names
+        assert "erp_sales" in names
+
+    def test_discover_schema_fields(self, source):
+        schemas = source.discover()
+        sales = next(s for s in schemas if s.name == "erp_sales")
+        assert sales.supports_incremental is True
+        assert sales.primary_key is None
+        col_names = [c[0] for c in sales.columns]
+        assert "id" in col_names
+        assert "amount" in col_names
+
+    def test_discover_column_types(self, source):
+        schemas = source.discover()
+        sales = next(s for s in schemas if s.name == "erp_sales")
+        col_types = {c[0]: c[1] for c in sales.columns}
+        assert col_types["id"] == "int"
+        assert col_types["product"] == "varchar"
+        assert col_types["amount"] == "decimal"
