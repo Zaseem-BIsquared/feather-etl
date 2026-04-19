@@ -26,7 +26,7 @@ from typing import Callable
 import duckdb
 import pytest
 import yaml
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from feather_etl.cli import app
 
@@ -100,7 +100,7 @@ def project(tmp_path: Path) -> ProjectFixture:
 
 
 @pytest.fixture
-def cli(project: ProjectFixture) -> Callable[..., object]:
+def cli(project: ProjectFixture) -> Callable[..., Result]:
     """Return a callable that runs feather CLI commands against `project`.
 
     The `--config` flag is forwarded automatically after the positional args.
@@ -114,10 +114,13 @@ def cli(project: ProjectFixture) -> Callable[..., object]:
 
     `cli("--help")` (app-level help) is ambiguous with the auto-appended
     --config and should be avoided; use `cli("<cmd>", "--help")` instead.
+
+    Returns a `click.testing.Result` (re-exported as `typer.testing.Result`)
+    exposing `.exit_code`, `.output`, `.stdout`, `.stderr`, etc.
     """
     runner = CliRunner()
 
-    def _run(*args: str):
+    def _run(*args: str) -> Result:
         return runner.invoke(app, list(args) + ["--config", str(project.config_path)])
 
     return _run
