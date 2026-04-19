@@ -447,3 +447,24 @@ class TestCacheWatermarks:
         con.close()
         assert prod_count == 0
         assert cache_count == 1
+
+    def test_write_cache_watermark_normalizes_int_checksum_to_str(
+        self, tmp_path: Path
+    ):
+        """Pins the documented boundary: int checksums (SQL Server CHECKSUM_AGG)
+        are stored as str so the VARCHAR column accepts them uniformly with
+        Postgres md5() hex strings."""
+        from datetime import datetime, timezone
+        from feather_etl.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+        sm.write_cache_watermark(
+            table_name="mssql_like",
+            source_db="db",
+            last_run_at=datetime.now(timezone.utc),
+            last_checksum=12345,  # int, as SQL Server would emit
+        )
+        row = sm.read_cache_watermark("mssql_like")
+        assert row["last_checksum"] == "12345"
+        assert isinstance(row["last_checksum"], str)

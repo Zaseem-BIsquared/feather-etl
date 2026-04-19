@@ -55,10 +55,19 @@ class TestRunCacheBasic:
             ).fetchall()
         }
         con.close()
-        # Must include _etl_* metadata columns + source columns
-        assert "_etl_loaded_at" in cols
-        assert "_etl_run_id" in cols
-        assert len(cols) > 2  # more than just the metadata columns
+        # Must include _etl_* metadata columns AND specific source columns
+        # (known subset of InventoryGroup). Asserting specific source columns
+        # (not just len > 2) catches silent column dropping.
+        required = {
+            "_etl_loaded_at",
+            "_etl_run_id",
+            "GRPCODE",
+            "GRPNAME",
+            "Alias",
+        }
+        assert required.issubset(cols), (
+            f"Missing expected columns. Got: {sorted(cols)}"
+        )
 
 
 class TestRunCacheStateIsolation:

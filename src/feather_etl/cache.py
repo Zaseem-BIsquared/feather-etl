@@ -32,7 +32,12 @@ def run_cache(
     working_dir: Path,
     refresh: bool = False,
 ) -> list[CacheResult]:
-    """Pull curated tables into bronze. Dev-only. No transforms, no DQ, no drift."""
+    """Pull curated tables into bronze. Dev-only. No transforms, no DQ, no drift.
+
+    Per-table errors (including unresolvable ``source_db`` and extract/load
+    failures) are captured as ``CacheResult(status="failure")`` and never
+    raised — the caller can decide exit-code semantics from the result list.
+    """
     state = StateManager(working_dir / "feather_state.duckdb")
     state.init_state()
     dest = DuckDBDestination(path=config.destination.path)

@@ -188,6 +188,10 @@ class StateManager:
         Hardcoded to _cache_watermarks — this method cannot touch
         _watermarks under any circumstances.
         """
+        # Normalize checksum to str at the boundary — SQL Server's
+        # CHECKSUM_AGG returns int, Postgres md5() returns a hex string.
+        checksum_str = str(last_checksum) if last_checksum is not None else None
+
         con = self._connect()
         try:
             existing = con.execute(
@@ -204,7 +208,7 @@ class StateManager:
                         source_db,
                         last_file_mtime,
                         last_file_hash,
-                        str(last_checksum) if last_checksum is not None else None,
+                        checksum_str,
                         last_row_count,
                         last_run_at,
                         table_name,
@@ -221,7 +225,7 @@ class StateManager:
                         source_db,
                         last_file_mtime,
                         last_file_hash,
-                        str(last_checksum) if last_checksum is not None else None,
+                        checksum_str,
                         last_row_count,
                         last_run_at,
                     ],

@@ -6,17 +6,13 @@ import shutil
 from pathlib import Path
 
 import duckdb
-import pytest
 import yaml
-from typer.testing import CliRunner
 
 from tests.conftest import FIXTURES_DIR
 from tests.helpers import make_curation_entry, write_curation
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
+# Note: `runner` fixture is provided by tests/commands/conftest.py.
 
 
 def _project(tmp_path: Path) -> Path:
