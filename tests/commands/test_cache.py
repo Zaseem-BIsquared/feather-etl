@@ -1,0 +1,46 @@
+"""Tests for the `feather cache` command."""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+import duckdb
+import pytest
+import yaml
+from typer.testing import CliRunner
+
+from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
+
+
+@pytest.fixture
+def runner() -> CliRunner:
+    return CliRunner()
+
+
+def _project(tmp_path: Path) -> Path:
+    """Minimal project: 1 DuckDB source, 1 curated table. Returns config path."""
+    client_db = tmp_path / "client.duckdb"
+    shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
+    config = {
+        "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
+        "destination": {"path": str(tmp_path / "feather_data.duckdb")},
+    }
+    cp = tmp_path / "feather.yaml"
+    cp.write_text(yaml.dump(config))
+    write_curation(
+        tmp_path,
+        [make_curation_entry("icube", "icube.InventoryGroup", "inventory_group")],
+    )
+    return cp
+
+
+class TestCacheBasic:
+    def test_cold_run_extracts_tables(self, runner, tmp_path: Path):
+        from feather_etl.cli import app
+
+        config_path = _project(tmp_path)
+        result = runner.invoke(app, ["cache", "--config", str(config_path)])
+        assert result.exit_code == 0
+        assert "extracted" in result.output
