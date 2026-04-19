@@ -124,3 +124,62 @@ class TestDuckDBDestination:
         data = _sample_arrow_table(5)
         with pytest.raises(Exception):
             dest.load_full("nonexistent_schema.bad_table", data, "run_fail")
+
+    def test_load_append_rollback_on_error(self, tmp_path: Path):
+        """load_append must ROLLBACK and re-raise when CREATE/INSERT fails
+        (here: the target schema doesn't exist, so CREATE TABLE errors)."""
+        from feather_etl.destinations.duckdb import DuckDBDestination
+
+        db_path = tmp_path / "data.duckdb"
+        dest = DuckDBDestination(path=db_path)
+        # Skip setup_schemas → bronze/etc schemas don't exist
+        data = _sample_arrow_table(3)
+        with pytest.raises(Exception):
+            dest.load_append("nonexistent_schema.bad_table", data, "run_append_fail")
+
+        # DB file exists (from connect), but the bad table must not
+        con = duckdb.connect(str(db_path), read_only=True)
+        schemas = [
+            r[0]
+            for r in con.execute(
+                "SELECT schema_name FROM information_schema.schemata"
+            ).fetchall()
+        ]
+        con.close()
+        assert "nonexistent_schema" not in schemas
+
+    def test_load_incremental_rollback_on_error(self, tmp_path: Path):
+        """load_incremental must ROLLBACK and re-raise when the target table
+        doesn't exist (the DELETE FROM raises CatalogException)."""
+        from feather_etl.destinations.duckdb import DuckDBDestination
+
+        db_path = tmp_path / "data.duckdb"
+        dest = DuckDBDestination(path=db_path)
+        dest.setup_schemas()  # bronze exists, but bronze.never_existed does NOT
+
+        # Use a timestamp column so the min_ts computation succeeds
+        data = pa.table(
+            {
+                "id": [1, 2, 3],
+                "modified_at": pa.array(
+                    ["2026-01-01", "2026-01-02", "2026-01-03"],
+                    type=pa.string(),
+                ),
+            }
+        )
+        with pytest.raises(Exception):
+            dest.load_incremental(
+                "bronze.never_existed", data, "run_inc_fail", "modified_at"
+            )
+
+        # The table must not exist after the failed run
+        con = duckdb.connect(str(db_path), read_only=True)
+        tables = [
+            r[0]
+            for r in con.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'bronze'"
+            ).fetchall()
+        ]
+        con.close()
+        assert "never_existed" not in tables
