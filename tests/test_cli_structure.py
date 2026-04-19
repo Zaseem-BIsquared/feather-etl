@@ -27,6 +27,7 @@ def test_cli_registers_expected_commands_on_app() -> None:
         "run",
         "history",
         "status",
+        "cache",
     }
 
 
@@ -40,6 +41,7 @@ def test_command_modules_expose_register_functions() -> None:
         "run",
         "history",
         "status",
+        "cache",
     ]
 
     for module_name in module_names:
@@ -47,3 +49,32 @@ def test_command_modules_expose_register_functions() -> None:
             f"feather_etl.commands.{module_name}", fromlist=["register"]
         )
         assert callable(module.register)
+
+
+
+class TestCacheCommandRegistered:
+    def test_feather_help_lists_cache(self):
+        from typer.testing import CliRunner
+        from feather_etl.cli import app
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "cache" in result.output
+
+    def test_feather_cache_help_renders(self):
+        import re
+
+        from typer.testing import CliRunner
+        from feather_etl.cli import app
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["cache", "--help"])
+        assert result.exit_code == 0
+        # Strip ANSI escape sequences added by Rich so flag names aren't
+        # split across styling boundaries (e.g. "-\x1b[0m\x1b[36m-table").
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--table" in plain
+        assert "--source" in plain
+        assert "--refresh" in plain
+        assert "--config" in plain

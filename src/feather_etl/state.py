@@ -108,6 +108,18 @@ class StateManager:
                 )
             """)
 
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS _cache_watermarks (
+                    table_name VARCHAR PRIMARY KEY,
+                    source_db VARCHAR,
+                    last_file_mtime DOUBLE,
+                    last_file_hash VARCHAR,
+                    last_checksum VARCHAR,
+                    last_row_count INTEGER,
+                    last_run_at TIMESTAMP
+                )
+            """)
+
             # Check version and handle init vs downgrade protection
             row = con.execute(
                 "SELECT schema_version FROM _state_meta LIMIT 1"
@@ -139,6 +151,85 @@ class StateManager:
                 return None
             columns = [desc[0] for desc in con.description]
             return dict(zip(columns, row))
+        finally:
+            con.close()
+
+    def read_cache_watermark(self, table_name: str) -> dict[str, object] | None:
+        """Read a row from _cache_watermarks. Returns None if absent.
+
+        Hardcoded to _cache_watermarks — this method cannot read from
+        _watermarks under any circumstances.
+        """
+        con = self._connect()
+        try:
+            row = con.execute(
+                "SELECT * FROM _cache_watermarks WHERE table_name = ?",
+                [table_name],
+            ).fetchone()
+            if row is None:
+                return None
+            columns = [desc[0] for desc in con.description]
+            return dict(zip(columns, row))
+        finally:
+            con.close()
+
+    def write_cache_watermark(
+        self,
+        table_name: str,
+        source_db: str,
+        last_run_at: datetime,
+        last_file_mtime: float | None = None,
+        last_file_hash: str | None = None,
+        last_checksum: str | None = None,
+        last_row_count: int | None = None,
+    ) -> None:
+        """Upsert a row into _cache_watermarks.
+
+        Hardcoded to _cache_watermarks — this method cannot touch
+        _watermarks under any circumstances.
+        """
+        # Normalize checksum to str at the boundary — SQL Server's
+        # CHECKSUM_AGG returns int, Postgres md5() returns a hex string.
+        checksum_str = str(last_checksum) if last_checksum is not None else None
+
+        con = self._connect()
+        try:
+            existing = con.execute(
+                "SELECT COUNT(*) FROM _cache_watermarks WHERE table_name = ?",
+                [table_name],
+            ).fetchone()[0]
+            if existing:
+                con.execute(
+                    "UPDATE _cache_watermarks SET source_db = ?, "
+                    "last_file_mtime = ?, last_file_hash = ?, "
+                    "last_checksum = ?, last_row_count = ?, last_run_at = ? "
+                    "WHERE table_name = ?",
+                    [
+                        source_db,
+                        last_file_mtime,
+                        last_file_hash,
+                        checksum_str,
+                        last_row_count,
+                        last_run_at,
+                        table_name,
+                    ],
+                )
+            else:
+                con.execute(
+                    "INSERT INTO _cache_watermarks "
+                    "(table_name, source_db, last_file_mtime, last_file_hash, "
+                    "last_checksum, last_row_count, last_run_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        table_name,
+                        source_db,
+                        last_file_mtime,
+                        last_file_hash,
+                        checksum_str,
+                        last_row_count,
+                        last_run_at,
+                    ],
+                )
         finally:
             con.close()
 

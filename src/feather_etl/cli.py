@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import typer
 
+from feather_etl.commands.cache import register as register_cache
 from feather_etl.commands.discover import register as register_discover
 from feather_etl.commands.history import register as register_history
 from feather_etl.commands.init import register as register_init
@@ -33,3 +34,4 @@ register_setup(app)
 register_run(app)
 register_history(app)
 register_status(app)
+register_cache(app)

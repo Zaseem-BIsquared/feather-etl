@@ -155,11 +155,36 @@ feather run                            # run all tables
 feather run --table sales              # run a single table only
 feather status                         # last run status per table (all-time history)
 feather history                        # show run history (recent runs, filterable)
+
+# Dev cache
+feather cache                          # pull curated tables into bronze.* (dev-only, isolated state)
+feather cache --table sales,customer   # comma-separated table filter
+feather cache --source afans,nimbalyst # comma-separated source_db filter
+feather cache --refresh                # force re-pull, ignore change detection
 ```
 
 All commands accept `--config PATH` (default: `feather.yaml`). `run` and `setup` accept `--mode dev|prod|test` to override the config mode. `history` accepts `--table` and `--limit`.
 
 **Note:** `feather setup --mode prod` applies gold transforms as materialized tables, which requires bronze/silver data to already exist. Run `feather run` first, then `feather setup --mode prod` to materialize gold.
+
+### Dev cache — `feather cache`
+
+Pull curated source tables into local `bronze.*` for offline development. Skips unchanged sources on re-run. Isolated state — never touches `feather run`'s watermarks.
+
+```bash
+feather cache                                  # all curated tables, skip unchanged
+feather cache --table sales,customer           # comma-separated, by bronze name
+feather cache --source afans,nimbalyst         # comma-separated, by source_db
+feather cache --table sales --source afans     # intersect
+feather cache --refresh                        # force re-pull of all tables
+feather cache --refresh --table sales          # force re-pull of specific tables
+```
+
+`feather cache` requires `discovery/curation.json`. Run `feather discover` first to generate it.
+
+`feather cache` never runs silver/gold transforms. After a fresh cache, run `feather run` or `feather setup` to create silver views and materialize gold tables.
+
+`feather cache` is dev-only. It will refuse to run when the effective mode is `prod` (via `mode: prod` in `feather.yaml` or `FEATHER_MODE=prod`).
 
 ### Browsing a source schema
 

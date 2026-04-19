@@ -36,8 +36,34 @@ class TestStateInit:
             "_run_steps",
             "_dq_results",
             "_schema_snapshots",
+            "_cache_watermarks",
         }
         assert tables == expected
+
+    def test_cache_watermarks_table_schema(self, tmp_path: Path):
+        """_cache_watermarks has exactly the columns we need, no more."""
+        from feather_etl.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        con = duckdb.connect(str(sm.path), read_only=True)
+        rows = con.execute(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name = '_cache_watermarks' ORDER BY ordinal_position"
+        ).fetchall()
+        con.close()
+
+        expected = [
+            ("table_name", "VARCHAR"),
+            ("source_db", "VARCHAR"),
+            ("last_file_mtime", "DOUBLE"),
+            ("last_file_hash", "VARCHAR"),
+            ("last_checksum", "VARCHAR"),
+            ("last_row_count", "INTEGER"),
+            ("last_run_at", "TIMESTAMP"),
+        ]
+        assert rows == expected
 
     def test_state_meta_version(self, tmp_path: Path):
         from feather_etl.state import StateManager
@@ -330,3 +356,115 @@ class TestRuns:
         assert status[0]["table_name"] == "sales_invoice"
         assert status[0]["status"] == "success"
         assert status[0]["rows_loaded"] == 100
+
+
+class TestCacheWatermarks:
+    """Cache-scoped watermark methods — fully isolated from _watermarks."""
+
+    def test_read_returns_none_when_absent(self, tmp_path: Path):
+        from feather_etl.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+        assert sm.read_cache_watermark("nonexistent") is None
+
+    def test_write_then_read_roundtrip(self, tmp_path: Path):
+        from datetime import datetime, timezone
+        from feather_etl.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+        now = datetime.now(timezone.utc)
+        sm.write_cache_watermark(
+            table_name="afans_sales",
+            source_db="afans",
+            last_run_at=now,
+            last_file_mtime=1234567890.5,
+            last_file_hash="deadbeef",
+            last_checksum="abc123",
+            last_row_count=42,
+        )
+        row = sm.read_cache_watermark("afans_sales")
+        assert row is not None
+        assert row["table_name"] == "afans_sales"
+        assert row["source_db"] == "afans"
+        assert row["last_file_mtime"] == 1234567890.5
+        assert row["last_file_hash"] == "deadbeef"
+        assert row["last_checksum"] == "abc123"
+        assert row["last_row_count"] == 42
+
+    def test_write_upserts_existing_row(self, tmp_path: Path):
+        from datetime import datetime, timezone
+        from feather_etl.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+        t1 = datetime(2026, 4, 1, tzinfo=timezone.utc)
+        t2 = datetime(2026, 4, 2, tzinfo=timezone.utc)
+
+        sm.write_cache_watermark(
+            table_name="t",
+            source_db="db",
+            last_run_at=t1,
+            last_file_hash="old",
+        )
+        sm.write_cache_watermark(
+            table_name="t",
+            source_db="db",
+            last_run_at=t2,
+            last_file_hash="new",
+        )
+        row = sm.read_cache_watermark("t")
+        assert row["last_file_hash"] == "new"
+        # Only one row
+        import duckdb
+        con = duckdb.connect(str(sm.path), read_only=True)
+        count = con.execute(
+            "SELECT COUNT(*) FROM _cache_watermarks WHERE table_name = 't'"
+        ).fetchone()[0]
+        con.close()
+        assert count == 1
+
+    def test_write_cache_watermark_does_not_touch_watermarks(self, tmp_path: Path):
+        """Cache writes must never land in the prod _watermarks table."""
+        from datetime import datetime, timezone
+        import duckdb
+        from feather_etl.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+        sm.write_cache_watermark(
+            table_name="isolated",
+            source_db="db",
+            last_run_at=datetime.now(timezone.utc),
+            last_file_hash="h",
+        )
+        con = duckdb.connect(str(sm.path), read_only=True)
+        prod_count = con.execute("SELECT COUNT(*) FROM _watermarks").fetchone()[0]
+        cache_count = con.execute(
+            "SELECT COUNT(*) FROM _cache_watermarks"
+        ).fetchone()[0]
+        con.close()
+        assert prod_count == 0
+        assert cache_count == 1
+
+    def test_write_cache_watermark_normalizes_int_checksum_to_str(
+        self, tmp_path: Path
+    ):
+        """Pins the documented boundary: int checksums (SQL Server CHECKSUM_AGG)
+        are stored as str so the VARCHAR column accepts them uniformly with
+        Postgres md5() hex strings."""
+        from datetime import datetime, timezone
+        from feather_etl.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+        sm.write_cache_watermark(
+            table_name="mssql_like",
+            source_db="db",
+            last_run_at=datetime.now(timezone.utc),
+            last_checksum=12345,  # int, as SQL Server would emit
+        )
+        row = sm.read_cache_watermark("mssql_like")
+        assert row["last_checksum"] == "12345"
+        assert isinstance(row["last_checksum"], str)
