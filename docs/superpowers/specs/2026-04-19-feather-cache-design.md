@@ -33,8 +33,7 @@ sources on re-run, and never touching production state.
 - `--refresh` forces re-pull, ignoring change detection.
 - Hard error when the effective mode is `prod` (via `feather.yaml`, `FEATHER_MODE`, or `--mode`).
 - Grouped-by-source human output with failures expanded; no per-table success noise.
-- Delete `scripts/hands_on_test.sh` and remove references from `CLAUDE.md`, `.claude/rules/feather-etl-project.md`, `docs/CONTRIBUTING.md`.
-- Docs: `README.md` CLI section + `docs/prd.md` §499.
+- Docs: `README.md` CLI section + `docs/prd.md` §499. `CLAUDE.md` test-count bump after new pytest tests land.
 
 **Out**
 
@@ -44,6 +43,7 @@ sources on re-run, and never touching production state.
 - No DQ checks, no schema-drift handling, no overlap windows, no retry backoff, no boundary dedup, no column filtering — cache is full-strategy, all-columns, single path.
 - No `--yes`, `--json`, `--verbose` flags.
 - No refactor of other command modules. The thin-CLI pattern sweep (including `commands/discover.py`) is a separate follow-up issue.
+- No changes to `scripts/hands_on_test.sh`. The shell script's deletion and test-migration plan lives in [#40](https://github.com/siraj-samsudeen/feather-etl/issues/40) and is sequenced independently of this work.
 - No MotherDuck sync; no per-table cache strategy override.
 
 ## 3. Summary of decisions
@@ -61,7 +61,6 @@ sources on re-run, and never touching production state.
 | No-curation behaviour | Error with guidance | Keeps the command narrow. The "auto-run discover" idea added non-trivial coupling for a minor convenience. |
 | Human output | Grouped by `source_db`; failures expanded; no per-table success lines | Fallback pulls could be 100+ tables; per-table logging becomes a wall of text. |
 | Transforms | Never run from cache | User explicitly chose this. First-run users must run `feather run` or `feather setup` to get silver views. Documented in README. |
-| `hands_on_test.sh` | Deleted as part of this issue | Gate is being sunset; follow-up issue files the salvage of any worthwhile checks into pytest. |
 
 ## 4. User-facing contract
 
@@ -160,17 +159,9 @@ Both commands write to the same physical bronze tables. `feather run --mode dev`
 |---|---|---|
 | `src/feather_etl/state.py` | Add `_cache_watermarks` DDL to `init_state()`. Add `read_cache_watermark` + `write_cache_watermark` methods. Existing methods untouched. | Low — additive |
 | `src/feather_etl/cli.py` | Import + `register_cache(app)`. | Low |
-| `CLAUDE.md` | Remove `bash scripts/hands_on_test.sh` gate. Bump `uv run pytest -q` count to final total. | Low |
-| `.claude/rules/feather-etl-project.md` | Same removal. | Low |
-| `docs/CONTRIBUTING.md` | Remove "Run both suites before opening for re-review" section referencing the shell script. | Low |
+| `CLAUDE.md` | Bump `uv run pytest -q` count to final total after new cache tests land. | Low |
 | `README.md` | Add "Dev cache" subsection to the CLI reference with examples from § 4.1. | Low |
 | `docs/prd.md` | §499 — add a sentence: *"The canonical command for this workflow is `feather cache`."* | Low |
-
-### Files deleted
-
-| File | Rationale |
-|---|---|
-| `scripts/hands_on_test.sh` | Gate is being sunset. Follow-up issue filed to salvage any useful checks into pytest from git history. |
 
 ### Files explicitly NOT touched
 
@@ -180,6 +171,8 @@ Both commands write to the same physical bronze tables. `feather run --mode dev`
 - All source modules — reused via the `Source` protocol (`detect_changes`, `extract`).
 - `commands/discover.py`, `commands/run.py`, `commands/setup.py`, etc. — untouched. Thin-CLI refactor is a separate follow-up.
 - `commands/history.py` — no `--trigger` flag, no cache history.
+- `scripts/hands_on_test.sh` — its lifecycle is tracked in [#40](https://github.com/siraj-samsudeen/feather-etl/issues/40).
+- `.claude/rules/feather-etl-project.md`, `docs/CONTRIBUTING.md` — reference removals happen in [#40](https://github.com/siraj-samsudeen/feather-etl/issues/40) as part of the script retirement.
 
 ### StateManager API shape
 
@@ -270,19 +263,17 @@ No retry backoff, no schema drift, no DQ, no transforms, no boundary hashes, no 
 | 3 | Build `cache.run_cache()` orchestrator | Core of the command. | `writes_bronze_all_columns`; `writes_only_to_cache_state`; `skips_unchanged_on_second_run`; `refresh_forces_repull`; `partial_failure_returns_failure_result_and_continues` |
 | 4 | Build `commands/cache.py` CLI | User-facing entry point. | `rejects_prod_mode`; `errors_when_curation_missing`; `selector_table_filter`; `selector_source_filter`; `selector_intersect`; `unknown_table_errors_with_valid_list`; `unknown_source_errors_with_valid_list`; `refresh_flag_propagates`; `grouped_output_format` |
 | 5 | Register `cache` in `cli.py` | Wire the command. | `feather --help` lists `cache`; `feather cache --help` renders |
-| 6 | Delete `scripts/hands_on_test.sh` + remove references | Sunset the gate. | Repo search confirms no remaining references outside git history |
-| 7 | Docs — `README.md`, `docs/prd.md` §499 | Ship usable documentation alongside the feature. | Manual review against live CLI help |
-| 8 | (post-merge, non-code) File follow-up GH issues | Capture deferred work. | Issue A — thin-CLI refactor for all 8 command modules. Issue B — salvage `hands_on_test.sh` coverage into pytest from git history. |
+| 6 | Docs — `README.md`, `docs/prd.md` §499, `CLAUDE.md` test-count bump | Ship usable documentation alongside the feature. | Manual review against live CLI help |
+| 7 | (post-merge, non-code) File follow-up GH issue | Capture deferred thin-CLI work. | Thin-CLI refactor for all 8 command modules, matching the `commands/run.py` ↔ `pipeline.py` pattern. |
 
 ### Dependency chain
 
 ```
-Task 1 → Task 2 → Task 3 → Task 4 → Task 5 → Task 7
-Task 6 — independent, can land any time
-Task 8 — post-merge, not a code task
+Task 1 → Task 2 → Task 3 → Task 4 → Task 5 → Task 6
+Task 7 — post-merge, not a code task
 ```
 
-Recommended commit order: `1, 2, 3, 4, 5, 6, 7`, each its own atomic commit on the feature branch.
+Recommended commit order: `1, 2, 3, 4, 5, 6`, each its own atomic commit on the feature branch.
 
 ## 7. Done signal
 
@@ -329,7 +320,7 @@ uv run feather cache
 uv run pytest -q
 ```
 
-## 8. Follow-ups filed after this merges
+## 8. Related and follow-up issues
 
-1. **Thin-CLI pattern sweep** — refactor `commands/run.py`, `setup.py`, `status.py`, `validate.py`, `init.py`, `history.py`, `view.py`, and `discover.py` so each is a thin Typer wrapper over a top-level core module, matching the pattern `commands/run.py` already follows with `pipeline.py`.
-2. **`hands_on_test.sh` salvage** — from git history, identify the checks in the deleted `scripts/hands_on_test.sh` that don't have pytest equivalents and port them into `tests/`.
+- [#40 — Replace `scripts/hands_on_test.sh` with pytest E2E tests](https://github.com/siraj-samsudeen/feather-etl/issues/40) — already open. The cache work does not touch the shell script; #40 owns its retirement and the pytest E2E restructure.
+- **Thin-CLI pattern sweep** (to be filed after this merges) — refactor `commands/run.py`, `setup.py`, `status.py`, `validate.py`, `init.py`, `history.py`, `view.py`, and `discover.py` so each is a thin Typer wrapper over a top-level core module, matching the pattern `commands/run.py` already follows with `pipeline.py`.
