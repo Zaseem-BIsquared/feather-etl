@@ -244,3 +244,41 @@ class TestCacheRefresh:
         )
         assert r3.exit_code == 0
         assert "1 extracted" in r3.output
+
+
+class TestCacheOutputFormat:
+    def test_grouped_output_with_failure_expansion(
+        self, runner, tmp_path: Path
+    ):
+        from feather_etl.cli import app
+
+        client_db = tmp_path / "client.duckdb"
+        shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
+        config = {
+            "sources": [
+                {"type": "duckdb", "name": "icube", "path": str(client_db)}
+            ],
+            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
+        }
+        cp = tmp_path / "feather.yaml"
+        cp.write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry("icube", "icube.InventoryGroup", "good"),
+                make_curation_entry("icube", "icube.NOPE", "bad"),
+            ],
+        )
+
+        result = runner.invoke(app, ["cache", "--config", str(cp)])
+        # Non-zero exit because of the failed table
+        assert result.exit_code == 1
+        out = result.output
+
+        assert "Mode: dev (cache)" in out
+        # Grouped: a line starts with "icube" (source_db), has counts
+        assert "icube" in out
+        # Summary: totals across groups
+        assert "2 tables:" in out
+        # Failure details expanded
+        assert "✗ icube_bad" in out
