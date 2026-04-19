@@ -1,10 +1,28 @@
 # Test suite restructure: pytest-only, three-layer architecture
 
 Created: 2026-04-19
+Refreshed: 2026-04-19 (post-#43 merge)
 Status: DRAFT
 Approved: Pending
 Issue: https://github.com/siraj-samsudeen/feather-etl/issues/40
 Type: Refactor
+
+## Refresh note (post-#43)
+
+This spec was drafted while #43 (thin-CLI refactor) was in flight. After
+#43 merged to `main`, the following state changes were folded into Waves
+B/D below:
+
+- Six new pure-core modules exist in `src/feather_etl/`: `discover.py`,
+  `setup.py`, `validate.py`, `status.py`, `history.py`, `exceptions.py`.
+- Six new flat test files exist at `tests/` root: `test_core_module_purity.py`,
+  `test_discover_core.py`, `test_history_core.py`, `test_setup_core.py`,
+  `test_status_core.py`, `test_validate_core.py`.
+- `tests/commands/` is unchanged (11 files).
+- Baseline test count: **704 collected** (was ~656 pre-#43).
+
+The decision rule and three-layer architecture are unchanged. Only Wave D's
+file enumeration grew.
 
 ## Summary
 
@@ -30,19 +48,25 @@ The end state is a single PR that:
 - `scripts/hands_on_test.sh` — 902 lines, 61 bash `check()` calls grouped into
   ~15 numbered stages (S1–S22, S-INCR). It shells out to `feather`, asserts
   with `grep`/`run_ok`/`run_fail`, and uses inline YAML strings.
-- `tests/` — flat layout, 46 files, ~656 tests by file-level count
-  (CLAUDE.md says 653; small drift is normal). 42 of 46 files group tests
+- `tests/` — flat layout, ~40 files directly under `tests/`, 704 tests
+  collected by `uv run pytest --collect-only -q`. Most files group tests
   with `class TestFoo:` (no `unittest.TestCase` anywhere — only
-  `unittest.mock` is imported, which is pytest-compatible). 4 files use flat
-  function style.
+  `unittest.mock` is imported, which is pytest-compatible). A few files use
+  flat function style.
 - `tests/commands/` — one subfolder, 11 files, all using `CliRunner` to
   exercise individual CLI commands.
 - `tests/conftest.py` — five data fixtures (`client_db`, `config_path`,
   `csv_data_dir`, `sqlite_db`, `sample_erp_db`) that copy `tests/fixtures/*`
   into `tmp_path`.
-- `src/feather_etl/` — clean module tree (`commands/`, `sources/`,
-  `destinations/`, plus top-level modules for `config`, `state`, `pipeline`,
-  `transforms`, `cache`, `dq`, `schema_drift`, `alerts`, etc.). Easy to mirror.
+- `src/feather_etl/` — clean module tree post-#43: `commands/` (thin Typer
+  wrappers), `sources/`, `destinations/`, plus top-level pure-core modules
+  for `config`, `state`, `pipeline`, `transforms`, `cache`, `dq`,
+  `schema_drift`, `alerts`, `curation`, `output`, `discover`, `setup`,
+  `validate`, `status`, `history`, `init_wizard`, `viewer_server`,
+  `discover_state`, `exceptions`. Easy to mirror.
+- Architectural invariant enforced by `tests/test_core_module_purity.py`:
+  no module in a curated "pure-core" list may import `typer`. Any reshuffle
+  must keep this test green.
 
 ### What's broken about the current shape
 
@@ -124,10 +148,17 @@ tests/
     test_dq.py                  # unit-level dq config parsing
     test_schema_drift.py        # unit-level drift detection
     test_alerts.py              # unit-level alert config + dispatch
+    test_discover.py            # post-#43 pure core (feather_etl.discover)
+    test_setup.py               # post-#43 pure core (feather_etl.setup)
+    test_validate.py            # post-#43 pure core (feather_etl.validate)
+    test_status.py              # post-#43 pure core (feather_etl.status)
+    test_history.py             # post-#43 pure core (feather_etl.history)
     test_discover_state.py
     test_discover_io.py
     test_output.py
     test_viewer_server.py
+    test_init_wizard.py         # if any unit coverage exists; else skip
+    test_core_module_purity.py  # architectural invariant (post-#43)
     sources/
       test_registry.py
       test_protocol.py
@@ -403,12 +434,25 @@ End of Wave C: cross-cutting feature files moved or substantially drained.
 
 Move what's left into `tests/unit/`, mirroring `src/feather_etl/`.
 
+**Naming note — dropping the `_core` suffix.** Post-#43, five test files
+live at `tests/test_<name>_core.py` to distinguish them from
+`tests/commands/test_<name>.py`. Once the new three-layer structure is in
+place, location disambiguates (`tests/unit/` vs `tests/e2e/`) and the
+suffix becomes redundant. Wave D renames each `test_<name>_core.py` to
+`tests/unit/test_<name>.py`.
+
 Files migrated (or split) in Wave D:
 
 - `tests/test_config.py` → `tests/unit/test_config.py`
 - `tests/test_state.py` → `tests/unit/test_state.py`
 - `tests/test_curation.py` → `tests/unit/test_curation.py`
 - `tests/test_destinations.py` → `tests/unit/destinations/test_duckdb.py`
+- `tests/test_discover_core.py` → `tests/unit/test_discover.py` (post-#43; drop `_core` suffix)
+- `tests/test_setup_core.py` → `tests/unit/test_setup.py` (post-#43; drop `_core` suffix)
+- `tests/test_validate_core.py` → `tests/unit/test_validate.py` (post-#43; drop `_core` suffix)
+- `tests/test_status_core.py` → `tests/unit/test_status.py` (post-#43; drop `_core` suffix)
+- `tests/test_history_core.py` → `tests/unit/test_history.py` (post-#43; drop `_core` suffix)
+- `tests/test_core_module_purity.py` → `tests/unit/test_core_module_purity.py` (post-#43; architectural invariant)
 - `tests/test_discover_state.py` → `tests/unit/test_discover_state.py`
 - `tests/test_discover_io.py` → `tests/unit/test_discover_io.py`
 - `tests/test_discover_expansion.py` + `tests/test_expand_db_sources.py` → `tests/unit/sources/test_expand.py` (consolidate)
@@ -428,6 +472,12 @@ Files migrated (or split) in Wave D:
 End of Wave D: zero flat `test_*.py` files under `tests/`. Tree contains
 only `tests/e2e/`, `tests/integration/`, `tests/unit/`, `tests/fixtures/`,
 `tests/conftest.py`, `tests/helpers.py`, `tests/README.md`.
+
+**Invariant that must stay green throughout Wave D:**
+`tests/unit/test_core_module_purity.py` (post-#43) must continue to pass.
+Moving it is a simple rename; if any Wave B/C step causes a pure-core
+module to accidentally pick up a `typer` import (e.g., a misplaced import
+during a split), the invariant test catches it before commit.
 
 ### Wave E — Coverage proof, deletion, doc updates
 
@@ -488,8 +538,9 @@ A reviewer or future agent can confirm "this is done" by running these
 commands and seeing the matching outputs:
 
 ```bash
-# 1. All tests pass (existing count + 5 new gap tests, minus any consolidated
-#    duplicates revealed during migration). Run before deletion of bash script
+# 1. All tests pass. Pre-migration baseline (post-#43) is 704 collected.
+#    End state is at least 704 + 5 new gap tests, minus any consolidated
+#    duplicates revealed during migration. Run before deletion of bash script
 #    AND after, both green.
 uv run pytest -q
 
@@ -520,9 +571,13 @@ grep -c "^| S" docs/superpowers/specs/2026-04-19-test-restructure-coverage-map.m
 # expected: 61 (one row per bash check)
 grep -E "^\| S[^|]+\|[^|]+\|\s*\|" docs/superpowers/specs/2026-04-19-test-restructure-coverage-map.md
 # expected: no output (no row with empty pytest path)
+
+# 8. The architectural invariant (from #43) still holds in its new home
+uv run pytest tests/unit/test_core_module_purity.py -q
+# expected: 1 passed
 ```
 
-If all seven pass, the migration is complete and the issue can be closed.
+If all eight pass, the migration is complete and the issue can be closed.
 
 ## Open questions
 
