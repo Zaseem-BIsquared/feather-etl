@@ -657,10 +657,16 @@ from pathlib import Path
 import yaml
 
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 def _make_sqlite_project(tmp_path: Path, *, valid_path: bool = True) -> Path:
-    """Build a minimal feather project with a SQLite source. Returns config path."""
+    """Build a minimal feather project with a SQLite source. Returns config path.
+
+    Note: ``load_config`` reads tables from ``discovery/curation.json``, not from
+    the YAML, so the project layout uses ``write_curation`` (the same pattern as
+    ``tests/commands/conftest.py::cli_env``).
+    """
     if valid_path:
         shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", tmp_path / "source.sqlite")
         source_path = "./source.sqlite"
@@ -668,19 +674,15 @@ def _make_sqlite_project(tmp_path: Path, *, valid_path: bool = True) -> Path:
         source_path = "./missing.sqlite"
 
     config = {
-        "sources": [{"type": "sqlite", "path": source_path}],
+        "sources": [{"type": "sqlite", "name": "erp", "path": source_path}],
         "destination": {"path": "./feather_data.duckdb"},
-        "tables": [
-            {
-                "name": "orders",
-                "source_table": "orders",
-                "target_table": "bronze.orders",
-                "strategy": "full",
-            }
-        ],
     }
     config_path = tmp_path / "feather.yaml"
     config_path.write_text(yaml.dump(config))
+    write_curation(
+        tmp_path,
+        [make_curation_entry("erp", "orders", "orders")],
+    )
     return config_path
 
 
@@ -710,14 +712,31 @@ class TestRunValidate:
         assert report.sources[0].ok is False
 
     def test_propagates_last_error_for_failed_sources(self, tmp_path: Path):
+        """File sources (sqlite, csv, etc.) don't populate `_last_error` —
+        only DB sources do. Substitute a fake source whose `check()` returns
+        False with a deterministic `_last_error`, mirroring the pattern in
+        `tests/commands/test_validate.py::test_validate_prints_details_on_source_failure`.
+        """
         from feather_etl.config import load_config
         from feather_etl.validate import run_validate
 
-        cfg = load_config(_make_sqlite_project(tmp_path, valid_path=False))
+        cfg = load_config(_make_sqlite_project(tmp_path))
+
+        class FakeFailingSource:
+            type = "duckdb"
+            path = "/nope.duckdb"
+
+            def __init__(self) -> None:
+                self._last_error = "TLS Provider: certificate verify failed"
+
+            def check(self) -> bool:
+                return False
+
+        cfg.sources[0] = FakeFailingSource()
         report = run_validate(cfg)
 
-        assert report.sources[0].error is not None
-        assert report.sources[0].error != ""
+        assert report.sources[0].ok is False
+        assert report.sources[0].error == "TLS Provider: certificate verify failed"
 
     def test_label_uses_path_for_file_sources(self, tmp_path: Path):
         from feather_etl.config import load_config
@@ -927,27 +946,29 @@ from pathlib import Path
 import yaml
 
 from tests.conftest import FIXTURES_DIR
+from tests.helpers import make_curation_entry, write_curation
 
 
 def _make_project(tmp_path: Path, *, mode: str | None = None) -> Path:
-    """Build a minimal feather project. Returns config path."""
+    """Build a minimal feather project. Returns config path.
+
+    Note: ``load_config`` reads tables from ``discovery/curation.json``, not from
+    the YAML, so the project layout uses ``write_curation`` (the same pattern as
+    ``tests/commands/conftest.py::cli_env``).
+    """
     shutil.copy2(FIXTURES_DIR / "sample_erp.sqlite", tmp_path / "source.sqlite")
     config: dict = {
-        "sources": [{"type": "sqlite", "path": "./source.sqlite"}],
+        "sources": [{"type": "sqlite", "name": "erp", "path": "./source.sqlite"}],
         "destination": {"path": "./feather_data.duckdb"},
-        "tables": [
-            {
-                "name": "orders",
-                "source_table": "orders",
-                "target_table": "bronze.orders",
-                "strategy": "full",
-            }
-        ],
     }
     if mode is not None:
         config["mode"] = mode
     config_path = tmp_path / "feather.yaml"
     config_path.write_text(yaml.dump(config))
+    write_curation(
+        tmp_path,
+        [make_curation_entry("erp", "orders", "orders")],
+    )
     return config_path
 
 
