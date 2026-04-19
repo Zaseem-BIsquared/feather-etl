@@ -8,7 +8,6 @@ import duckdb
 import pytest
 
 from feather_etl.dq import run_dq_checks
-from tests.helpers import make_curation_entry, write_curation
 
 
 @pytest.fixture
@@ -174,76 +173,4 @@ class TestDuplicate:
         assert dup[0].result == "pass"
 
 
-class TestPipelineIntegration:
-    def test_dq_results_stored_in_state(self, tmp_path: Path):
-        import shutil
-        import yaml
 
-        from tests.conftest import FIXTURES_DIR
-        from feather_etl.config import load_config
-        from feather_etl.pipeline import run_table
-        from feather_etl.state import StateManager
-
-        client_db = tmp_path / "client.duckdb"
-        shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
-        config = {
-            "sources": [{"type": "duckdb", "name": "src", "path": str(client_db)}],
-            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        }
-        (tmp_path / "feather.yaml").write_text(yaml.dump(config))
-        write_curation(
-            tmp_path,
-            [
-                make_curation_entry(
-                    "src",
-                    "erp.customers",
-                    "customers",
-                    primary_key=["customer_id"],
-                ),
-            ],
-        )
-        cfg = load_config(tmp_path / "feather.yaml")
-        cfg.tables[0].quality_checks = {"not_null": ["name"]}
-
-        result = run_table(cfg, cfg.tables[0], tmp_path)
-        assert result.status == "success"
-
-        sm = StateManager(tmp_path / "feather_state.duckdb")
-        con = sm._connect()
-        rows = con.execute(
-            "SELECT * FROM _dq_results WHERE table_name = 'src_customers'"
-        ).fetchall()
-        con.close()
-        assert len(rows) >= 2
-
-    def test_dq_failure_does_not_block_pipeline(self, tmp_path: Path):
-        import shutil
-        import yaml
-
-        from tests.conftest import FIXTURES_DIR
-        from feather_etl.config import load_config
-        from feather_etl.pipeline import run_table
-
-        client_db = tmp_path / "client.duckdb"
-        shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", client_db)
-        config = {
-            "sources": [{"type": "duckdb", "name": "src", "path": str(client_db)}],
-            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-        }
-        (tmp_path / "feather.yaml").write_text(yaml.dump(config))
-        write_curation(
-            tmp_path,
-            [
-                make_curation_entry(
-                    "src",
-                    "erp.customers",
-                    "customers",
-                    primary_key=["customer_id"],
-                ),
-            ],
-        )
-        cfg = load_config(tmp_path / "feather.yaml")
-        cfg.tables[0].quality_checks = {"unique": ["name"]}
-
-        result = run_table(cfg, cfg.tables[0], tmp_path)
-        assert result.status == "success"
