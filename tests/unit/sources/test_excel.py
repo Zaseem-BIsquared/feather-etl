@@ -144,6 +144,27 @@ class TestExcelSourceExtract:
         assert len(result.column_names) > 0
 
 
+class TestExcelSourceFromYaml:
+    def test_from_yaml_rejects_non_directory(self, tmp_path: Path):
+        """excel source path must be a directory; passing a file raises."""
+        from feather_etl.sources.excel import ExcelSource
+
+        f = tmp_path / "file.xlsx"
+        f.write_bytes(b"x")
+        with pytest.raises(ValueError, match="must be a directory"):
+            ExcelSource.from_yaml({"type": "excel", "path": str(f)}, tmp_path)
+
+
+class TestExcelValidateSourceTable:
+    def test_validate_source_table_always_ok(self, tmp_path: Path):
+        """Excel uses filenames, not SQL identifiers — so validate_source_table
+        returns an empty list for any input."""
+        from feather_etl.sources.excel import ExcelSource
+
+        src = ExcelSource(path=tmp_path)
+        assert src.validate_source_table("literally anything (with) parens.xlsx") == []
+
+
 class TestExcelSourceDetectChanges:
     def test_detect_changes_first_run(self, excel_dir: Path):
         from feather_etl.sources.excel import ExcelSource

@@ -105,6 +105,46 @@ def test_db_source_with_single_database_passes_through() -> None:
     assert result == [mock_src]
 
 
+def test_db_source_list_databases_raises_records_last_error_and_passes_through() -> None:
+    """When ``list_databases()`` raises, the source is kept in the list with
+    an informative ``_last_error`` so downstream discover can report it."""
+    from feather_etl.sources.database_source import DatabaseSource
+
+    mock_src = MagicMock(spec=DatabaseSource)
+    mock_src.database = None
+    mock_src.databases = None
+    mock_src.host = "db.example.com"
+    mock_src.list_databases = MagicMock(
+        side_effect=RuntimeError("permission denied for user")
+    )
+
+    result = _expand_db_sources([mock_src])
+
+    assert result == [mock_src]
+    assert "db.example.com" in mock_src._last_error
+    assert "permission denied" in mock_src._last_error
+
+
+def test_db_source_list_databases_returns_empty_records_last_error_and_passes_through() -> (
+    None
+):
+    """When ``list_databases()`` returns an empty list, the source is kept
+    with a friendly _last_error pointing at the likely permission issue."""
+    from feather_etl.sources.database_source import DatabaseSource
+
+    mock_src = MagicMock(spec=DatabaseSource)
+    mock_src.database = None
+    mock_src.databases = None
+    mock_src.host = "db.example.com"
+    mock_src.list_databases = MagicMock(return_value=[])
+
+    result = _expand_db_sources([mock_src])
+
+    assert result == [mock_src]
+    assert "Found 0 databases" in mock_src._last_error
+    assert "db.example.com" in mock_src._last_error
+
+
 def test_db_source_with_databases_list_expands() -> None:
     """DB source with databases: [a, b] produces one child per db."""
     from feather_etl.sources.database_source import DatabaseSource

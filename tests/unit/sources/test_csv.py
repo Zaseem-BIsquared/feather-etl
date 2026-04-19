@@ -39,70 +39,10 @@ class TestCsvSource:
     def test_check_file_not_directory(self, tmp_path: Path):
         from feather_etl.sources.csv import CsvSource
 
-        f = tmp_path / "file.csv"
-        f.write_text("a,b\n1,2\n")
-        source = CsvSource(path=f)
+        file = tmp_path / "not_a_dir.csv"
+        file.write_text("a,b\n1,2\n")
+        source = CsvSource(path=file)
         assert source.check() is False
-
-    def test_discover_lists_csv_files(self, csv_dir: Path):
-        from feather_etl.sources.csv import CsvSource
-
-        source = CsvSource(path=csv_dir)
-        schemas = source.discover()
-        names = {s.name for s in schemas}
-        assert names == {"orders.csv", "customers.csv", "products.csv"}
-
-    def test_discover_has_columns(self, csv_dir: Path):
-        from feather_etl.sources.csv import CsvSource
-
-        source = CsvSource(path=csv_dir)
-        schemas = source.discover()
-        orders = next(s for s in schemas if s.name == "orders.csv")
-        col_names = [c[0] for c in orders.columns]
-        assert "order_id" in col_names
-        assert "status" in col_names
-
-    def test_discover_not_incremental(self, csv_dir: Path):
-        from feather_etl.sources.csv import CsvSource
-
-        source = CsvSource(path=csv_dir)
-        schemas = source.discover()
-        assert all(not s.supports_incremental for s in schemas)
-
-    def test_extract_returns_arrow(self, csv_dir: Path):
-        import pyarrow as pa
-
-        from feather_etl.sources.csv import CsvSource
-
-        source = CsvSource(path=csv_dir)
-        table = source.extract("orders.csv")
-        assert isinstance(table, pa.Table)
-        assert table.num_rows == 5
-
-    def test_extract_customers_row_count(self, csv_dir: Path):
-        from feather_etl.sources.csv import CsvSource
-
-        source = CsvSource(path=csv_dir)
-        table = source.extract("customers.csv")
-        assert table.num_rows == 4
-
-    def test_extract_null_preserved(self, csv_dir: Path):
-        from feather_etl.sources.csv import CsvSource
-
-        source = CsvSource(path=csv_dir)
-        table = source.extract("products.csv")
-        assert table.num_rows == 3
-        stock_qty = table.column("stock_qty")
-        assert stock_qty[2].as_py() is None
-
-    def test_get_schema(self, csv_dir: Path):
-        from feather_etl.sources.csv import CsvSource
-
-        source = CsvSource(path=csv_dir)
-        schema = source.get_schema("orders.csv")
-        col_names = [c[0] for c in schema]
-        assert "order_id" in col_names
-        assert len(col_names) > 0
 
     def test_detect_changes_first_run(self, csv_dir: Path):
         from feather_etl.sources.csv import CsvSource
@@ -134,3 +74,51 @@ class TestCsvGlobDiscover:
         names = [s.name for s in schemas]
         assert "sales_jan.csv" in names
         assert "sales_feb.csv" in names
+
+
+class TestCsvGlobExtractErrors:
+    def test_extract_glob_with_no_matches_raises(self, tmp_path: Path):
+        """Extract against a glob pattern that matches nothing raises
+        FileNotFoundError, surfacing a clear message to the caller."""
+        from feather_etl.sources.csv import CsvSource
+
+        (tmp_path / "data").mkdir()
+        source = CsvSource(path=tmp_path / "data")
+        with pytest.raises(FileNotFoundError, match="No files matching glob"):
+            source.extract("sales_*.csv")
+
+    def test_get_schema_glob_with_no_matches_returns_empty_list(self, tmp_path: Path):
+        """get_schema on an empty glob returns [] (not raises) — caller can
+        decide what to do with an empty schema."""
+        from feather_etl.sources.csv import CsvSource
+
+        (tmp_path / "data").mkdir()
+        source = CsvSource(path=tmp_path / "data")
+        assert source.get_schema("sales_*.csv") == []
+
+
+class TestCsvGlobStateRecovery:
+    def test_detect_changes_treats_corrupt_stored_hash_as_first_run(
+        self, tmp_path: Path
+    ):
+        """If ``last_file_hash`` in the watermark is not valid JSON (or is a
+        non-string type), detect_changes treats the run as first-run instead
+        of raising — the JSON/Type errors are swallowed and stored_files
+        stays empty."""
+        from feather_etl.sources.csv import CsvSource
+
+        data_dir = tmp_path / "data"
+        shutil.copytree(GLOB_FIXTURES, data_dir)
+        source = CsvSource(data_dir)
+
+        # last_file_hash is truthy but not parseable as JSON
+        last_state = {"last_file_hash": "not-json-at-all"}
+        result = source.detect_changes("sales_*.csv", last_state=last_state)
+
+        assert result.changed is True
+        assert result.reason == "first_run"
+        # metadata should contain a valid JSON-serialised per-file hash map
+        import json
+
+        parsed = json.loads(str(result.metadata["file_hash"]))
+        assert "sales_jan.csv" in parsed

@@ -637,3 +637,150 @@ class TestSqlServerListDatabases:
         src = ss.SqlServerSource(connection_string="dummy", name="x")
         with pytest.raises(ss.pyodbc.Error):
             src.list_databases()
+
+
+# ---------------------------------------------------------------------------
+# _is_missing_odbc_driver_18_error — branch coverage
+# ---------------------------------------------------------------------------
+
+
+class TestIsMissingOdbcDriver18Error:
+    def test_file_not_found_with_explicit_driver18(self):
+        """The ``file not found`` branch returns True when the error + conn
+        string both mention Driver 18."""
+        from feather_etl.sources.sqlserver import _is_missing_odbc_driver_18_error
+
+        assert (
+            _is_missing_odbc_driver_18_error(
+                "Driver Manager: file not found ODBC Driver 18",
+                "DRIVER={ODBC Driver 18};SERVER=x",
+            )
+            is True
+        )
+
+    def test_unrelated_error_returns_false(self):
+        """A generic network error that doesn't mention any Driver-18 hints
+        should NOT be mis-attributed to a missing driver."""
+        from feather_etl.sources.sqlserver import _is_missing_odbc_driver_18_error
+
+        assert (
+            _is_missing_odbc_driver_18_error(
+                "TCP connection timed out",
+                "DRIVER={ODBC Driver 17};SERVER=x",
+            )
+            is False
+        )
+
+
+# ---------------------------------------------------------------------------
+# check() hint — Linux branch (else clause after Darwin / Windows)
+# ---------------------------------------------------------------------------
+
+
+@patch("feather_etl.sources.sqlserver.platform.system", return_value="Linux")
+@patch("feather_etl.sources.sqlserver.pyodbc")
+def test_sqlserver_missing_driver18_on_linux_adds_linux_hint(
+    mock_pyodbc: MagicMock, _mock_platform: MagicMock, source: SqlServerSource
+) -> None:
+    """On Linux, the install-hint points at the Microsoft Linux/Mac docs."""
+    mock_pyodbc.Error = Exception
+    mock_pyodbc.connect.side_effect = Exception(
+        "[01000] [unixODBC][Driver Manager]Can't open lib 'ODBC Driver 18 for SQL Server' : file not found"
+    )
+
+    assert source.check() is False
+    assert source._last_error is not None
+    assert "Hint: ODBC Driver 18 for SQL Server is not installed." in source._last_error
+    assert "linux-mac/installing-the-microsoft-odbc-driver" in source._last_error
+
+
+# ---------------------------------------------------------------------------
+# extract() — description None + type coercion (Decimal/UUID)
+# ---------------------------------------------------------------------------
+
+
+@patch("feather_etl.sources.sqlserver.pyodbc")
+def test_sqlserver_extract_description_none_returns_empty_table(
+    mock_pyodbc: MagicMock, source: SqlServerSource
+) -> None:
+    """If ``cursor.description`` is None after executing, extract closes
+    both cursor and connection and returns an empty PyArrow table."""
+    mock_cursor = MagicMock()
+    mock_cursor.description = None
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+    mock_pyodbc.connect.return_value = mock_conn
+
+    result = source.extract("dbo.void_proc")
+
+    assert isinstance(result, pa.Table)
+    assert result.num_rows == 0
+    assert result.num_columns == 0
+    mock_cursor.close.assert_called_once()
+    mock_conn.close.assert_called_once()
+
+
+@patch("feather_etl.sources.sqlserver.pyodbc")
+def test_sqlserver_extract_coerces_decimal_and_uuid(
+    mock_pyodbc: MagicMock, source: SqlServerSource
+) -> None:
+    """Decimal values → float, UUID values → str; otherwise pyarrow can't
+    build a typed column from mixed-Python-type cells."""
+    import decimal
+    import uuid
+
+    test_uuid = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    mock_cursor = MagicMock()
+    mock_cursor.description = [
+        ("amount", float, None, None, None, None, None),
+        ("external_id", str, None, None, None, None, None),
+    ]
+    mock_cursor.fetchmany.side_effect = [
+        [(decimal.Decimal("19.95"), test_uuid)],
+        [],
+    ]
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+    mock_pyodbc.connect.return_value = mock_conn
+
+    result = source.extract("dbo.t")
+
+    assert result.num_rows == 1
+    assert result.column("amount").to_pylist() == [19.95]
+    assert result.column("external_id").to_pylist() == [str(test_uuid)]
+
+
+# ---------------------------------------------------------------------------
+# detect_changes — error & defensive branches
+# ---------------------------------------------------------------------------
+
+
+@patch("feather_etl.sources.sqlserver.pyodbc")
+def test_sqlserver_detect_changes_checksum_error_on_pyodbc_error(
+    mock_pyodbc: MagicMock, source: SqlServerSource
+) -> None:
+    """When pyodbc raises while computing CHECKSUM_AGG, detect_changes
+    reports ``checksum_error`` so the caller can decide to extract anyway."""
+    mock_pyodbc.Error = Exception
+    mock_pyodbc.connect.side_effect = Exception("login failed")
+
+    result = source.detect_changes("dbo.t", last_state=None)
+    assert result.changed is True
+    assert result.reason == "checksum_error"
+
+
+@patch("feather_etl.sources.sqlserver.pyodbc")
+def test_sqlserver_detect_changes_first_run_when_row_is_none(
+    mock_pyodbc: MagicMock, source: SqlServerSource
+) -> None:
+    """Defensive branch: if the CHECKSUM SELECT yields no row, fall back
+    to treating the call as first_run."""
+    mock_cursor = MagicMock()
+    mock_cursor.fetchone.return_value = None
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+    mock_pyodbc.connect.return_value = mock_conn
+
+    result = source.detect_changes("dbo.t", last_state=None)
+    assert result.changed is True
+    assert result.reason == "first_run"

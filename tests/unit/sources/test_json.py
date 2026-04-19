@@ -180,3 +180,14 @@ class TestJsonSourceDetectChanges:
         second = src.detect_changes("orders.json", last_state=last_state)
         assert second.changed is False
         assert second.reason == "unchanged"
+
+
+class TestJsonSourceFromYaml:
+    def test_from_yaml_rejects_non_directory(self, tmp_path: Path):
+        """JSON source path must be a directory; a file raises."""
+        from feather_etl.sources.json_source import JsonSource
+
+        f = tmp_path / "file.json"
+        f.write_text("[]")
+        with pytest.raises(ValueError, match="must be a directory"):
+            JsonSource.from_yaml({"type": "json", "path": str(f)}, tmp_path)

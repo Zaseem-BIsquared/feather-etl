@@ -459,3 +459,230 @@ class TestPostgresListDatabases:
         src = pg.PostgresSource(connection_string="dummy", name="x")
         with pytest.raises(pg.psycopg2.Error):
             src.list_databases()
+
+
+# ---------------------------------------------------------------------------
+# PostgresSource.from_yaml — validation errors (no DB needed)
+# ---------------------------------------------------------------------------
+
+
+class TestPostgresFromYamlErrors:
+    def test_missing_host_and_connection_string_raises(self):
+        from pathlib import Path
+
+        from feather_etl.sources.postgres import PostgresSource
+
+        entry = {"type": "postgres", "name": "x"}
+        with pytest.raises(
+            ValueError, match="requires either 'connection_string' or 'host'"
+        ):
+            PostgresSource.from_yaml(entry, Path("."))
+
+
+# ---------------------------------------------------------------------------
+# PostgresSource.extract — mocked edge cases
+# ---------------------------------------------------------------------------
+
+
+def _make_pg_source():
+    from feather_etl.sources.postgres import PostgresSource
+
+    return PostgresSource(connection_string="dummy", name="x")
+
+
+class TestPostgresExtractMocked:
+    """All tests monkeypatch psycopg2.connect — no live DB required."""
+
+    def _install_cursor(self, monkeypatch, cursor):
+        from feather_etl.sources import postgres as pg
+
+        class FakeConn:
+            def cursor(self):
+                return cursor
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(pg.psycopg2, "connect", lambda *a, **k: FakeConn())
+
+    def test_extract_returns_empty_table_when_description_is_none(self, monkeypatch):
+        """A query that returns no result description (e.g. void function)
+        results in an empty arrow table with no columns."""
+        import pyarrow as pa
+
+        cursor_closed: list[bool] = []
+
+        class FakeCursor:
+            description = None
+
+            def execute(self, *_):
+                pass
+
+            def close(self):
+                cursor_closed.append(True)
+
+        self._install_cursor(monkeypatch, FakeCursor())
+
+        result = _make_pg_source().extract("something")
+        assert isinstance(result, pa.Table)
+        assert result.num_rows == 0
+        assert result.num_columns == 0
+        assert cursor_closed == [True]
+
+    def test_extract_zero_rows_returns_typed_empty_arrow_table(self, monkeypatch):
+        """When the query returns no rows, extract returns an empty arrow
+        table that nevertheless preserves the declared column names/types."""
+        import pyarrow as pa
+
+        class FakeCursor:
+            description = [
+                ("id", 23),  # int4
+                ("name", 1043),  # varchar
+            ]
+
+            def execute(self, *_):
+                pass
+
+            def fetchmany(self, _n):
+                return []  # exhaust immediately → no batches
+
+            def close(self):
+                pass
+
+        self._install_cursor(monkeypatch, FakeCursor())
+
+        result = _make_pg_source().extract("t")
+        assert isinstance(result, pa.Table)
+        assert result.num_rows == 0
+        # Column names preserved even though result is empty
+        assert result.column_names == ["id", "name"]
+
+    def test_extract_converts_decimal_to_float(self, monkeypatch):
+        """``Decimal`` values coming out of psycopg2 are cast to float so they
+        fit the float64 arrow column (non-Decimal values are passed through)."""
+        import decimal
+
+        class FakeCursor:
+            description = [("amount", 1700)]  # NUMERIC → float64
+            _returned = False
+
+            def execute(self, *_):
+                pass
+
+            def fetchmany(self, _n):
+                if type(self)._returned:
+                    return []
+                type(self)._returned = True
+                return [(decimal.Decimal("42.5"),), (decimal.Decimal("7.25"),)]
+
+            def close(self):
+                pass
+
+        self._install_cursor(monkeypatch, FakeCursor())
+
+        result = _make_pg_source().extract("t")
+        assert result.num_rows == 2
+        amounts = result.column("amount").to_pylist()
+        assert amounts == [42.5, 7.25]
+        assert all(isinstance(a, float) for a in amounts)
+
+
+# ---------------------------------------------------------------------------
+# PostgresSource._discover_pk_columns / detect_changes — error paths (mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestPostgresChangeDetectionMocked:
+    def _install_conn(self, monkeypatch, cursor_factory):
+        from feather_etl.sources import postgres as pg
+
+        class FakeConn:
+            def cursor(self):
+                return cursor_factory()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(pg.psycopg2, "connect", lambda *a, **k: FakeConn())
+
+    def test_discover_pk_columns_returns_empty_list_on_error(self, monkeypatch):
+        """If querying pg_index fails, _discover_pk_columns swallows the
+        psycopg2.Error and returns [] — callers fall back to ORDER BY 1."""
+        from feather_etl.sources import postgres as pg
+
+        class FakeCursor:
+            def execute(self, *_):
+                raise pg.psycopg2.Error("relation does not exist")
+
+            def close(self):
+                pass
+
+        self._install_conn(monkeypatch, FakeCursor)
+
+        # Access the private method directly — test behaviour, not interface
+        result = _make_pg_source()._discover_pk_columns("schema.nonexistent")
+        assert result == []
+
+    def test_detect_changes_returns_checksum_error_when_psycopg2_raises(
+        self, monkeypatch
+    ):
+        from feather_etl.sources import postgres as pg
+
+        def raise_(*a, **k):
+            raise pg.psycopg2.Error("connection dropped")
+
+        monkeypatch.setattr(pg.psycopg2, "connect", raise_)
+
+        result = _make_pg_source().detect_changes("t", last_state=None)
+        assert result.changed is True
+        assert result.reason == "checksum_error"
+
+    def test_detect_changes_returns_first_run_when_row_is_none(self, monkeypatch):
+        """Defensive path: if the checksum SELECT yields no row at all,
+        detect_changes conservatively reports first_run."""
+
+        class FakeCursor:
+            def execute(self, *_):
+                pass
+
+            def fetchone(self):
+                return None  # no row
+
+            def close(self):
+                pass
+
+        self._install_conn(monkeypatch, FakeCursor)
+
+        # Patch _discover_pk_columns so we don't also need to mock pg_index
+        src = _make_pg_source()
+        src._discover_pk_columns = lambda _t: []  # type: ignore[method-assign]
+
+        result = src.detect_changes("t", last_state=None)
+        assert result.changed is True
+        assert result.reason == "first_run"
+
+    def test_detect_changes_checksum_changed_populates_metadata(self, monkeypatch):
+        """When the new checksum or row_count differs from the stored
+        value, detect_changes reports ``checksum_changed`` with the fresh
+        metadata."""
+
+        class FakeCursor:
+            def execute(self, *_):
+                pass
+
+            def fetchone(self):
+                return (100, "md5-NEW")
+
+            def close(self):
+                pass
+
+        self._install_conn(monkeypatch, FakeCursor)
+
+        src = _make_pg_source()
+        src._discover_pk_columns = lambda _t: []  # type: ignore[method-assign]
+        last_state = {"last_checksum": "md5-OLD", "last_row_count": 100}
+
+        result = src.detect_changes("t", last_state=last_state)
+        assert result.changed is True
+        assert result.reason == "checksum_changed"
+        assert result.metadata == {"checksum": "md5-NEW", "row_count": 100}

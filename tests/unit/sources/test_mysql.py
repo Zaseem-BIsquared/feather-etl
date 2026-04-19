@@ -463,3 +463,185 @@ class TestMySQLDiscoverGuard:
         src = MySQLSource(connection_string="dummy")
         with pytest.raises(ValueError, match="requires database"):
             src.discover()
+
+
+# ---------------------------------------------------------------------------
+# MySQLSource._connect fallback — connection_string branch (mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestMySQLConnectFallback:
+    def test_connect_uses_connection_string_when_kwargs_empty(self, monkeypatch):
+        """When ``_connect_kwargs`` is empty, _connect falls back to passing
+        ``connection_string=...`` to ``mysql.connector.connect``."""
+        from feather_etl.sources import mysql as mysql_mod
+        from feather_etl.sources.mysql import MySQLSource
+
+        captured: dict = {}
+
+        class FakeConn:
+            def close(self):
+                pass
+
+        def fake_connect(**kwargs):
+            captured.update(kwargs)
+            return FakeConn()
+
+        monkeypatch.setattr(mysql_mod.mysql.connector, "connect", fake_connect)
+
+        src = MySQLSource(connection_string="host=x;user=y;password=z;db=w")
+        # Deliberately leave _connect_kwargs empty → falls through the if
+        assert src._connect_kwargs == {}
+        conn = src._connect()
+        assert conn is not None
+        assert captured == {"connection_string": "host=x;user=y;password=z;db=w"}
+
+
+# ---------------------------------------------------------------------------
+# MySQLSource.extract — edge cases (mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestMySQLExtractEdgeCases:
+    def test_extract_returns_empty_when_description_is_none(self, monkeypatch):
+        """If ``cursor.description`` is None (e.g. a statement that returns
+        no result set), extract closes the cursor cleanly and returns an
+        empty arrow table."""
+        import pyarrow as pa
+
+        from feather_etl.sources import mysql as mysql_mod
+        from feather_etl.sources.mysql import MySQLSource
+
+        cursor_closed: list[bool] = []
+
+        class FakeCursor:
+            description = None
+
+            def execute(self, *_):
+                pass
+
+            def close(self):
+                cursor_closed.append(True)
+
+        class FakeConn:
+            def cursor(self):
+                return FakeCursor()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(
+            mysql_mod.mysql.connector, "connect", lambda **k: FakeConn()
+        )
+
+        src = MySQLSource(connection_string="dummy")
+        src._connect_kwargs = {"host": "localhost"}
+        out = src.extract("somewhere")
+
+        assert isinstance(out, pa.Table)
+        assert out.num_rows == 0
+        assert out.num_columns == 0
+        assert cursor_closed == [True]
+
+
+# ---------------------------------------------------------------------------
+# MySQLSource.detect_changes — error & edge paths (mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestMySQLDetectChangesMocked:
+    def _install_conn(self, monkeypatch, cursor_factory):
+        from feather_etl.sources import mysql as mysql_mod
+
+        class FakeConn:
+            def cursor(self):
+                return cursor_factory()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(
+            mysql_mod.mysql.connector, "connect", lambda **k: FakeConn()
+        )
+
+    def test_checksum_error_when_connector_raises(self, monkeypatch):
+        """A mysql.connector.Error while running CHECKSUM TABLE is swallowed
+        and surfaces as ``ChangeResult(changed=True, reason='checksum_error')``."""
+        from feather_etl.sources import mysql as mysql_mod
+        from feather_etl.sources.mysql import MySQLSource
+
+        def raise_(**k):
+            raise mysql_mod.mysql.connector.Error("server gone")
+
+        monkeypatch.setattr(mysql_mod.mysql.connector, "connect", raise_)
+
+        src = MySQLSource(connection_string="dummy")
+        src._connect_kwargs = {"host": "nope"}
+        src.database = "test"
+        result = src.detect_changes("t")
+
+        assert result.changed is True
+        assert result.reason == "checksum_error"
+
+    def test_first_run_when_checksum_row_is_none(self, monkeypatch):
+        """If CHECKSUM TABLE yields no row (fetchone() is None), detect_changes
+        treats it as first_run to be safe."""
+        from feather_etl.sources.mysql import MySQLSource
+
+        class FakeCursor:
+            _calls = 0
+
+            def execute(self, *_):
+                pass
+
+            def fetchone(self):
+                type(self)._calls += 1
+                # First call = CHECKSUM returns None; second = COUNT
+                return None if type(self)._calls == 1 else (0,)
+
+            def close(self):
+                pass
+
+        self._install_conn(monkeypatch, FakeCursor)
+
+        src = MySQLSource(connection_string="dummy")
+        src._connect_kwargs = {"host": "localhost"}
+        src.database = "test"
+        result = src.detect_changes("t")
+
+        assert result.changed is True
+        assert result.reason == "first_run"
+
+    def test_checksum_changed_metadata_populated(self, monkeypatch):
+        """When last_checksum differs, detect_changes reports
+        ``checksum_changed`` with the fresh checksum + row count."""
+        from feather_etl.sources.mysql import MySQLSource
+
+        class FakeCursor:
+            _calls = 0
+
+            def execute(self, *_):
+                pass
+
+            def fetchone(self):
+                type(self)._calls += 1
+                # CHECKSUM row is (table_name, checksum); COUNT is (N,)
+                if type(self)._calls == 1:
+                    return ("test.t", 424242)
+                return (100,)
+
+            def close(self):
+                pass
+
+        self._install_conn(monkeypatch, FakeCursor)
+
+        src = MySQLSource(connection_string="dummy")
+        src._connect_kwargs = {"host": "localhost"}
+        src.database = "test"
+
+        last_state = {"last_checksum": 111111, "last_row_count": 50}
+        result = src.detect_changes("t", last_state=last_state)
+
+        assert result.changed is True
+        assert result.reason == "checksum_changed"
+        assert result.metadata == {"checksum": 424242, "row_count": 100}
