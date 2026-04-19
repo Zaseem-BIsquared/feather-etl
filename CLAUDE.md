@@ -9,11 +9,10 @@ Config-driven Python ETL for heterogeneous ERP sources → local DuckDB.
 
 ## Before you write a single line of code
 
-Run both suites and confirm green:
+Run the test suite and confirm green:
 
 ```bash
-uv run pytest -q               # currently: 653 tests
-bash scripts/hands_on_test.sh  # currently: 61 checks
+uv run pytest -q               # currently: 720 tests
 ```
 
 If anything is red before you touch anything, report immediately.
