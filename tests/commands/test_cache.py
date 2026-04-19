@@ -76,3 +76,27 @@ class TestCacheProdModeGuard:
         result = runner.invoke(app, ["cache", "--config", str(config_path)])
         assert result.exit_code == 2
         assert "dev-only" in result.output
+
+
+class TestCacheMissingCuration:
+    def test_errors_with_curation_path_when_missing(
+        self, runner, tmp_path: Path
+    ):
+        from feather_etl.cli import app
+
+        client_db = tmp_path / "client.duckdb"
+        shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
+        config = {
+            "sources": [
+                {"type": "duckdb", "name": "icube", "path": str(client_db)}
+            ],
+            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
+        }
+        cp = tmp_path / "feather.yaml"
+        cp.write_text(yaml.dump(config))
+        # Intentionally no write_curation() call — curation.json does not exist.
+
+        result = runner.invoke(app, ["cache", "--config", str(cp)])
+        assert result.exit_code == 2
+        assert "curation.json" in result.output
+        assert "feather discover" in result.output

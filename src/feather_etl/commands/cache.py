@@ -32,6 +32,15 @@ def cache(
     """Pull curated source tables into bronze (dev-only)."""
     from feather_etl.cache import run_cache
 
+    curation_path = Path(config).resolve().parent / "discovery" / "curation.json"
+    if not curation_path.exists():
+        typer.echo(
+            f"discovery/curation.json not found in {curation_path.parent.parent}. "
+            f"Run 'feather discover' and curate tables first.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     cfg = _load_and_validate(config)
 
     if cfg.mode == "prod":
