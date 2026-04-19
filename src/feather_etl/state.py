@@ -108,6 +108,18 @@ class StateManager:
                 )
             """)
 
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS _cache_watermarks (
+                    table_name VARCHAR PRIMARY KEY,
+                    source_db VARCHAR,
+                    last_file_mtime DOUBLE,
+                    last_file_hash VARCHAR,
+                    last_checksum VARCHAR,
+                    last_row_count INTEGER,
+                    last_run_at TIMESTAMP
+                )
+            """)
+
             # Check version and handle init vs downgrade protection
             row = con.execute(
                 "SELECT schema_version FROM _state_meta LIMIT 1"

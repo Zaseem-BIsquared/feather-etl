@@ -36,8 +36,34 @@ class TestStateInit:
             "_run_steps",
             "_dq_results",
             "_schema_snapshots",
+            "_cache_watermarks",
         }
         assert tables == expected
+
+    def test_cache_watermarks_table_schema(self, tmp_path: Path):
+        """_cache_watermarks has exactly the columns we need, no more."""
+        from feather_etl.state import StateManager
+
+        sm = StateManager(tmp_path / "state.duckdb")
+        sm.init_state()
+
+        con = duckdb.connect(str(sm.path), read_only=True)
+        rows = con.execute(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name = '_cache_watermarks' ORDER BY ordinal_position"
+        ).fetchall()
+        con.close()
+
+        expected = [
+            ("table_name", "VARCHAR"),
+            ("source_db", "VARCHAR"),
+            ("last_file_mtime", "DOUBLE"),
+            ("last_file_hash", "VARCHAR"),
+            ("last_checksum", "VARCHAR"),
+            ("last_row_count", "INTEGER"),
+            ("last_run_at", "TIMESTAMP"),
+        ]
+        assert rows == expected
 
     def test_state_meta_version(self, tmp_path: Path):
         from feather_etl.state import StateManager
