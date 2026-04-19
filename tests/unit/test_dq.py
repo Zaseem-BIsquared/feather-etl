@@ -172,5 +172,25 @@ class TestDuplicate:
         assert len(dup) == 1
         assert dup[0].result == "pass"
 
+    def test_config_driven_duplicate_passes_on_unique_rows(self, tmp_path: Path):
+        """duplicate: true check reports 'pass' when every row is unique."""
+        db_path = tmp_path / "unique_exact.duckdb"
+        con = duckdb.connect(str(db_path))
+        con.execute("CREATE SCHEMA IF NOT EXISTS bronze")
+        con.execute("CREATE TABLE bronze.clean (id INTEGER, name VARCHAR)")
+        con.execute("INSERT INTO bronze.clean VALUES (1, 'A'), (2, 'B'), (3, 'C')")
+        results = run_dq_checks(
+            con,
+            "clean",
+            "bronze.clean",
+            {"duplicate": True},
+            "run_1",
+        )
+        con.close()
+        dup = [r for r in results if r.check_type == "duplicate"]
+        assert len(dup) == 1
+        assert dup[0].result == "pass"
+        assert "no exact duplicates" in dup[0].details
+
 
 

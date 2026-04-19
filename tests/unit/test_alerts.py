@@ -98,6 +98,20 @@ class TestSendAlert:
         assert "Failed to send alert" in caplog.text
 
     @patch("feather_etl.alerts.smtplib.SMTP")
+    def test_non_smtp_exception_caught_and_logged(self, mock_smtp_cls, caplog):
+        """Non-SMTPException raised inside the SMTP block is caught by the
+        generic ``except Exception`` guard so send_alert never raises."""
+        from feather_etl.alerts import send_alert
+
+        mock_smtp_cls.side_effect = RuntimeError("socket exploded")
+
+        cfg = FakeAlertsConfig()
+        # Should not raise — generic exception handler catches it
+        send_alert("CRITICAL", "orders", "Pipeline failed", config=cfg)
+
+        assert "Unexpected error sending alert" in caplog.text
+
+    @patch("feather_etl.alerts.smtplib.SMTP")
     def test_starttls_called(self, mock_smtp_cls):
         from feather_etl.alerts import send_alert
 

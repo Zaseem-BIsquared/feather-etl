@@ -61,6 +61,43 @@ class TestDetectDrift:
         assert drift.severity == "CRITICAL"
 
 
+class TestToJsonDict:
+    def test_added_only(self):
+        current = [("id", "INTEGER"), ("phone", "VARCHAR")]
+        stored = [("id", "INTEGER")]
+        d = detect_drift(current, stored).to_json_dict()
+        assert d == {"added": ["phone"]}
+
+    def test_removed_only(self):
+        current = [("id", "INTEGER")]
+        stored = [("id", "INTEGER"), ("legacy", "VARCHAR")]
+        d = detect_drift(current, stored).to_json_dict()
+        assert d == {"removed": ["legacy"]}
+
+    def test_type_changed_only(self):
+        current = [("id", "BIGINT")]
+        stored = [("id", "INTEGER")]
+        d = detect_drift(current, stored).to_json_dict()
+        assert d == {"type_changed": [{"column": "id", "from": "INTEGER", "to": "BIGINT"}]}
+
+    def test_all_three_kinds(self):
+        current = [("id", "BIGINT"), ("email", "VARCHAR")]
+        stored = [("id", "INTEGER"), ("legacy", "VARCHAR")]
+        d = detect_drift(current, stored).to_json_dict()
+        assert set(d.keys()) == {"added", "removed", "type_changed"}
+        assert d["added"] == ["email"]
+        assert d["removed"] == ["legacy"]
+        assert d["type_changed"] == [
+            {"column": "id", "from": "INTEGER", "to": "BIGINT"}
+        ]
+
+    def test_no_drift_returns_empty_dict(self):
+        current = [("id", "INTEGER")]
+        stored = [("id", "INTEGER")]
+        d = detect_drift(current, stored).to_json_dict()
+        assert d == {}
+
+
 class TestStateSnapshot:
     def test_save_and_read_snapshot(self, tmp_path: Path):
         from feather_etl.state import StateManager

@@ -619,6 +619,55 @@ class TestSourcesList:
         with pytest.raises(ValueError, match=r"sources\[0\].*must be a mapping"):
             load_config(config_file, validate=False)
 
+    def test_sources_entry_missing_type_raises(self, tmp_path: Path):
+        """Each sources[N] entry must declare 'type' — we fail fast with the
+        index in the error."""
+        from feather_etl.config import load_config
+
+        cfg_dict = {
+            "sources": [{"name": "orphan", "path": str(tmp_path / "x.duckdb")}],
+            "destination": {"path": str(tmp_path / "out.duckdb")},
+        }
+        config_file = tmp_path / "feather.yaml"
+        config_file.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ValueError, match=r"sources\[0\] missing required field 'type'"):
+            load_config(config_file, validate=False)
+
+
+class TestValidateUnknownDatabase:
+    def test_unknown_source_db_falls_back_to_first_source(self, tmp_path: Path):
+        """When a curation entry's source_db doesn't match any configured
+        source, validation falls back to sources[0] for source_table checks
+        (the mismatch itself is reported elsewhere). The fallback must still
+        surface any source_table validation errors."""
+        from feather_etl.config import _validate, load_config
+
+        # Single DuckDB source + a curation entry whose source_db names a
+        # non-existent source. The source_table is an invalid identifier
+        # (contains parens) so the fallback validator flags it.
+        src_db = tmp_path / "src.duckdb"
+        src_db.write_bytes(b"")
+        cfg_dict = {
+            "sources": [{"type": "duckdb", "name": "src", "path": str(src_db)}],
+            "destination": {"path": str(tmp_path / "out.duckdb")},
+        }
+        config_file = write_config(tmp_path, cfg_dict)
+        write_curation(
+            tmp_path,
+            [
+                make_curation_entry(
+                    "doesnt_exist",  # unknown source_db → triggers the fallback
+                    "bad(name)",  # invalid identifier → surfaces via fallback
+                    "t",
+                ),
+            ],
+        )
+
+        cfg = load_config(config_file, validate=False)
+        errors = _validate(cfg)
+        # The validator yields an error message from source[0].validate_source_table
+        assert any("bad(name)" in err for err in errors)
+
 
 class TestSingularSourceMigrationError:
     def test_singular_source_raises_with_guidance(self, tmp_path: Path):

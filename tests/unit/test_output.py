@@ -33,6 +33,13 @@ class TestOutputHelper:
         assert json.loads(lines[0])["table"] == "orders"
         assert json.loads(lines[1])["table"] == "items"
 
+    def test_emit_list_noop_in_normal_mode(self, capsys):
+        """emit(..., json_mode=False) is a no-op — nothing goes to stdout."""
+        from feather_etl.output import emit
+
+        emit([{"table": "orders"}, {"table": "items"}], json_mode=False)
+        assert capsys.readouterr().out == ""
+
     def test_emit_datetime_serialized(self, capsys):
         from datetime import datetime, timezone
 

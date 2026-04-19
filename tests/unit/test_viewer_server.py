@@ -80,6 +80,51 @@ class TestSyncStatusMessage:
             assert message == expected
 
 
+class TestCanBind:
+    def test_free_port_is_bindable(self):
+        """Binding to an ephemeral port succeeds."""
+        from feather_etl import viewer_server
+
+        # Port 0 → kernel assigns a free port for the probe.
+        free_port = viewer_server._free_port(viewer_server.DEFAULT_HOST)
+        assert viewer_server._can_bind(viewer_server.DEFAULT_HOST, free_port) is True
+
+    def test_busy_port_is_not_bindable(self):
+        """When another process holds the port, _can_bind returns False."""
+        import socket
+
+        from feather_etl import viewer_server
+
+        # Hold a port open for the duration of the probe.
+        holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            holder.bind((viewer_server.DEFAULT_HOST, 0))
+            holder.listen(1)
+            busy_port = holder.getsockname()[1]
+            assert viewer_server._can_bind(viewer_server.DEFAULT_HOST, busy_port) is False
+        finally:
+            holder.close()
+
+
+class TestFreePort:
+    def test_returns_nonzero_port(self):
+        from feather_etl import viewer_server
+
+        port = viewer_server._free_port(viewer_server.DEFAULT_HOST)
+        assert isinstance(port, int)
+        assert port > 0
+
+
+class TestSyncStatusMessageFallback:
+    def test_unknown_status_returns_none(self):
+        """Defensive branch: an unexpected status string falls through all
+        the explicit ``if`` branches and returns None."""
+        from feather_etl.viewer_server import sync_status_message
+
+        # Intentionally outside the Literal type — exercises the final return
+        assert sync_status_message("weird") is None  # type: ignore[arg-type]
+
+
 class TestChoosePort:
     def test_returns_preferred_when_available(self, monkeypatch: pytest.MonkeyPatch):
         from feather_etl import viewer_server
@@ -192,6 +237,46 @@ class TestServeAndOpen:
         ]
         assert server.serve_forever.call_count == 1
         assert server.server_close.call_count == 1
+
+    def test_prints_sync_status_message_when_viewer_is_created(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ):
+        """If sync_viewer_html returns a non-'unchanged' status,
+        serve_and_open prints the friendly message before serving."""
+        from feather_etl import viewer_server
+
+        server = SimpleNamespace(
+            server_address=(viewer_server.DEFAULT_HOST, 8123),
+            serve_forever=Mock(side_effect=KeyboardInterrupt),
+            server_close=Mock(),
+        )
+
+        monkeypatch.setattr(
+            viewer_server,
+            "sync_viewer_html",
+            lambda target_dir: viewer_server.ViewerSyncResult(
+                path=target_dir / viewer_server.VIEWER_FILENAME,
+                status="created",
+            ),
+        )
+        monkeypatch.setattr(
+            viewer_server,
+            "choose_port",
+            lambda preferred_port=viewer_server.DEFAULT_PORT: 8123,
+        )
+        monkeypatch.setattr(viewer_server.webbrowser, "open", lambda url: True)
+        monkeypatch.setattr(
+            viewer_server, "HTTPServer", lambda address, handler: server
+        )
+
+        viewer_server.serve_and_open(tmp_path)
+
+        output = capsys.readouterr().out.strip().splitlines()
+        assert output[0] == "Schema viewer created."
+        assert any(line.startswith("Serving schema viewer at") for line in output)
 
     def test_falls_back_to_ephemeral_port_when_bind_fails(
         self,

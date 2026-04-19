@@ -360,3 +360,129 @@ class TestRenameInference:
 
         assert (tmp_path / "schema_sqlite_erp_main.json").is_file()
         assert (tmp_path / "schema_erp2.json").is_file()
+
+    def test_apply_renames_ignores_renames_missing_from_state(self, tmp_path: Path):
+        """If an ``old`` name isn't in state.sources, the rename is silently skipped."""
+        from feather_etl.discover_state import DiscoverState, apply_renames
+
+        state = DiscoverState.load(tmp_path)
+        # state is empty — no "erp" entry
+
+        apply_renames(
+            state=state,
+            renames=[("erp", "erp_main")],
+            config_dir=tmp_path,
+            sources=[
+                SimpleNamespace(name="erp_main", type="sqlite", _explicit_name=True),
+            ],
+        )
+
+        assert "erp" not in state.sources
+        assert "erp_main" not in state.sources
+
+    def test_apply_renames_skips_when_output_path_is_none(self, tmp_path: Path):
+        """Parent/child without an output_path is renamed in state but no file move."""
+        from feather_etl.discover_state import DiscoverState, apply_renames
+
+        state = DiscoverState.load(tmp_path)
+        state.sources["erp"] = {
+            "status": "ok",
+            "fingerprint": "fp-parent",
+            "output_path": None,
+        }
+
+        apply_renames(
+            state=state,
+            renames=[("erp", "erp_main")],
+            config_dir=tmp_path,
+            sources=[
+                SimpleNamespace(name="erp_main", type="sqlite", _explicit_name=True),
+            ],
+        )
+
+        assert "erp_main" in state.sources
+        assert state.sources["erp_main"]["output_path"] is None
+
+    def test_apply_renames_preserves_output_when_new_source_missing(
+        self, tmp_path: Path
+    ):
+        """If the rename target isn't in ``sources`` the output_path is preserved
+        unchanged (``new_source is None`` branch in _rename_schema_file)."""
+        from feather_etl.discover_state import DiscoverState, apply_renames
+
+        state = DiscoverState.load(tmp_path)
+        state.sources["erp"] = {
+            "status": "ok",
+            "fingerprint": "fp-parent",
+            "output_path": "schema_erp.json",
+        }
+        (tmp_path / "schema_erp.json").write_text("parent")
+
+        apply_renames(
+            state=state,
+            renames=[("erp", "erp_main")],
+            config_dir=tmp_path,
+            sources=[],  # erp_main not listed
+        )
+
+        # Entry renamed in state, but output_path untouched because we
+        # couldn't look up the new source to compute its schema filename.
+        assert "erp_main" in state.sources
+        assert state.sources["erp_main"]["output_path"] == "schema_erp.json"
+        assert (tmp_path / "schema_erp.json").is_file()
+
+
+class TestRenameSchemaFileNoop:
+    def test_new_path_equal_to_current_returns_as_is(self, tmp_path: Path):
+        """When the new source's schema filename matches the existing path,
+        ``_rename_schema_file`` short-circuits and returns the original path."""
+        from feather_etl.discover_state import _rename_schema_file
+        from feather_etl.config import schema_output_path
+
+        class _Src:
+            type = "sqlite"
+            name = "alpha"
+            path = "/tmp/alpha.sqlite"
+
+        # Compute what the canonical name would be and seed output_path with it
+        expected = schema_output_path(_Src()).name
+        result = _rename_schema_file(
+            config_dir=tmp_path,
+            output_path=expected,
+            new_source=_Src(),
+        )
+        assert result == expected
+
+
+class TestClassifyOrphanedComesBack:
+    def test_orphaned_source_back_in_current_classified_rerun(self, tmp_path: Path):
+        """An orphaned source reappearing in current is classified as 'rerun'."""
+        from feather_etl.discover_state import DiscoverState, classify
+
+        s = DiscoverState.load(tmp_path)
+        s.sources["a"] = {
+            "status": "orphaned",
+            "fingerprint": "fp-a",
+        }
+
+        decisions = classify(state=s, current_names=["a"], flag=None)
+        assert decisions["a"] == "rerun"
+
+
+class TestRecordAutoEnum:
+    def test_record_auto_enum_stores_parent_entry(self, tmp_path: Path):
+        from feather_etl.discover_state import DiscoverState
+
+        s = DiscoverState.load(tmp_path)
+        s.record_auto_enum(
+            parent_name="erp",
+            type_="postgres",
+            host="db.example.com",
+            databases_seen=["sales", "erp"],
+        )
+        assert "erp" in s.auto_enumeration
+        entry = s.auto_enumeration["erp"]
+        assert entry["type"] == "postgres"
+        assert entry["host"] == "db.example.com"
+        assert entry["databases_seen"] == ["sales", "erp"]
+        assert "last_enumerated_at" in entry
