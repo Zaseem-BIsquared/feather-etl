@@ -67,13 +67,16 @@ Prior review: <path, if this is review-2+>
    - Remove the `BUG-N` prefix from the test name.
    - Move the test to the appropriate positive-behaviour test class.
 
-4. **Update `scripts/hands_on_test.sh`** BUG-labelled checks to assert the
-   corrected behaviour and update the label.
+4. **Update BUG-labelled tests** in the relevant layer (`tests/e2e/`,
+   `tests/integration/`, or `tests/unit/`) to assert the corrected
+   behaviour. Per `tests/README.md`, regression guards use `BUG-N` in the
+   test docstring — invert the assertion, rename the function if it
+   dropped the prefix, and move it out of any `TestKnownBugs` grouping
+   if one existed.
 
-5. **Run both suites before opening for re-review:**
+5. **Run the test suite before opening for re-review:**
    ```bash
-   pytest tests/            # must be all green
-   bash scripts/hands_on_test.sh   # must be all green
+   uv run pytest -q   # must be all green
    ```
 
 6. **Update the review doc Status line** (and only that line) to:
@@ -100,36 +103,31 @@ Prior review: <path, if this is review-2+>
    - Which were fixed incorrectly or partially.
    - Which are still open.
    - Any new issues introduced by the fixes.
-   - New hands-on scenarios to add to `scripts/hands_on_test.sh`.
+   - New regression scenarios to add under the appropriate layer in
+     `tests/` (e2e / integration / unit per `tests/README.md`).
 
 5. Update artefacts:
-   - Add new `TestKnownBugs` tests for any new bugs found.
-   - Add new scenarios to `scripts/hands_on_test.sh`.
+   - Add new `BUG-N`-labelled regression tests for any new bugs found,
+     in the appropriate `tests/` layer.
    - If new fixtures are needed, add a script in `scripts/` to regenerate them.
 
 ---
 
 ## Test suite conventions
 
-### `tests/test_integration.py`
+See [`tests/README.md`](../tests/README.md) for the canonical contract:
 
-- `TestKnownBugs` — one test per open bug from the most recent review.
-  Docstring format:
-  ```
-  BUG-N: <one sentence of current wrong behaviour>.
-  After fix: <one sentence of correct behaviour>.
-  ```
-  When fixed: invert assertion, remove `BUG-N` prefix, move to positive class.
+- **Three-way decision rule** — where a given test belongs
+  (`tests/e2e/` for CLI journeys; `tests/integration/` for multi-module
+  Python-API slices; `tests/unit/` mirroring `src/feather_etl/` for
+  single-module tests).
+- **`ProjectFixture` / `cli` harness** — the fixtures every e2e test uses.
+- **Workflow-stage file layout** for `tests/e2e/` (numbered 00–18).
+- **Regression guard (`BUG-N`) pattern** — how to record an open bug as
+  a failing test, and how to graduate it after the fix lands.
 
-- All other test classes cover positive behaviour and edge cases.
-  No mocking — use real DuckDB fixtures.
-
-### `scripts/hands_on_test.sh`
-
-- BUG-labelled `check()` calls assert **current wrong behaviour** (they PASS
-  while the bug is open, FAIL when fixed — acting as a regression guard).
-- When a bug is fixed: invert the condition, change the label from `BUG-N: ...`
-  to the correct expected behaviour description.
+All tests use real DuckDB fixtures where possible; `unittest.mock` is
+used only for module-isolation unit tests (e.g., SMTP, pyodbc).
 
 ### Fixtures
 

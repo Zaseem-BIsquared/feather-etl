@@ -294,7 +294,10 @@ def run_table(
                                         f"ALTER TABLE {effective_target} "
                                         f'ADD COLUMN "{col_name}" {col_type}'
                                     )
-                                except duckdb.CatalogException:
+                                except duckdb.CatalogException:  # pragma: no cover
+                                    # Defensive: reachable only if the bronze
+                                    # target table was deleted between runs
+                                    # after a drift snapshot was persisted.
                                     pass  # Table/column may not exist yet
                         finally:
                             dest_con.close()
@@ -432,7 +435,11 @@ def run_table(
         if is_incremental and data.num_rows > 0:
             max_ts = pc.max(data.column(table.timestamp_column)).as_py()
             new_last_value = max_ts.isoformat() if max_ts else None
-        elif is_incremental and wm_last_value is not None:
+        elif is_incremental and wm_last_value is not None:  # pragma: no cover
+            # Defensive: the subsequent-incremental path already returns
+            # early when data.num_rows == 0 (see the zero-rows branch
+            # above), so this elif is unreachable in practice. Kept for
+            # safety in case future edits change the early-return.
             new_last_value = str(wm_last_value)
 
         watermark_after = new_last_value
