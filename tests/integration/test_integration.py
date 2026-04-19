@@ -1,11 +1,12 @@
-"""
-Integration tests derived from the hands-on review of Slice 1.
+"""Integration: end-to-end pipeline scenarios against client and sample_erp
+DuckDB fixtures.
 
-These tests use real DuckDB fixtures (no mocking) and cover:
-  - sample_erp fixture (custom synthetic data: erp.orders / customers / products)
-  - Icube client fixture edge cases (BLOB cols, spaces in column names, full table set)
-  - Known bugs (documented with BUG-N labels matching the review report)
-  - UX scenarios (error isolation, idempotency, path resolution, tables/ merge)
+Covers full-pipeline runs, error isolation, validation guards, CSV sources,
+SQLite sources, and the open-bug regression suite. This is the largest
+integration file — classes are preserved for semantic grouping across
+the ~9 concerns covered (Rule M2 exception: multiple classes share a
+per-class ``config`` fixture that would be awkward to inline across 33
+methods; classes double as a TOC).
 
 Fixture layout
 --------------
@@ -15,7 +16,6 @@ tests/fixtures/client.duckdb      -- real Icube ERP data (icube schema, 6 tables
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import duckdb
@@ -23,48 +23,55 @@ import pytest
 import yaml
 
 from tests.helpers import make_curation_entry, write_curation
-
-FIXTURES_DIR = Path(__file__).parent / "fixtures"
+from tests.integration.conftest import ProjectFixture
 
 
 # ---------------------------------------------------------------------------
-# Shared fixtures
+# Local helpers
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def sample_erp_db(tmp_path) -> Path:
-    """Copy sample_erp.duckdb to tmp_path."""
-    src = FIXTURES_DIR / "sample_erp.duckdb"
-    dst = tmp_path / "source.duckdb"
-    shutil.copy2(src, dst)
-    return dst
-
-
-@pytest.fixture
-def client_db_copy(tmp_path) -> Path:
-    """Copy client.duckdb to tmp_path."""
-    src = FIXTURES_DIR / "client.duckdb"
-    dst = tmp_path / "source.duckdb"
-    shutil.copy2(src, dst)
-    return dst
-
-
-def _write_config(
-    tmp_path: Path,
+def _write_duckdb_config(
+    project: ProjectFixture,
     source_db: Path,
     curation_tables: list[dict],
     source_name: str = "src",
-    source_type: str = "duckdb",
 ) -> Path:
-    cfg = {
-        "sources": [{"type": source_type, "name": source_name, "path": str(source_db)}],
-        "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-    }
-    p = tmp_path / "feather.yaml"
-    p.write_text(yaml.dump(cfg, default_flow_style=False))
-    write_curation(tmp_path, curation_tables)
-    return p
+    """Write a DuckDB-source feather.yaml + curation.json into ``project``."""
+    project.write_config(
+        sources=[{"type": "duckdb", "name": source_name, "path": str(source_db)}],
+        destination={"path": str(project.data_db_path)},
+    )
+    write_curation(project.root, curation_tables)
+    return project.config_path
+
+
+def _write_csv_config(
+    project: ProjectFixture,
+    csv_dir: Path,
+    curation_tables: list[dict],
+    source_name: str = "csvs",
+) -> Path:
+    project.write_config(
+        sources=[{"type": "csv", "name": source_name, "path": str(csv_dir)}],
+        destination={"path": str(project.data_db_path)},
+    )
+    write_curation(project.root, curation_tables)
+    return project.config_path
+
+
+def _write_sqlite_config(
+    project: ProjectFixture,
+    sqlite_path: Path,
+    curation_tables: list[dict],
+    source_name: str = "sqlitedb",
+) -> Path:
+    project.write_config(
+        sources=[{"type": "sqlite", "name": source_name, "path": str(sqlite_path)}],
+        destination={"path": str(project.data_db_path)},
+    )
+    write_curation(project.root, curation_tables)
+    return project.config_path
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +80,18 @@ def _write_config(
 
 
 class TestSampleErpFixture:
-    """Tests using the synthetic sample_erp fixture."""
+    """Tests using the synthetic sample_erp fixture.
 
-    def test_fixture_has_expected_tables(self, sample_erp_db):
-        con = duckdb.connect(str(sample_erp_db), read_only=True)
+    These are meta-assertions about fixture data integrity — they don't
+    import feather_etl but they guard every other test in this file.
+    """
+
+    @pytest.fixture
+    def sample_erp(self, project: ProjectFixture) -> Path:
+        return project.copy_fixture("sample_erp.duckdb")
+
+    def test_fixture_has_expected_tables(self, sample_erp):
+        con = duckdb.connect(str(sample_erp), read_only=True)
         tables = {
             (r[0], r[1])
             for r in con.execute(
@@ -89,16 +104,16 @@ class TestSampleErpFixture:
         assert ("erp", "customers") in tables
         assert ("erp", "products") in tables
 
-    def test_fixture_row_counts(self, sample_erp_db):
-        con = duckdb.connect(str(sample_erp_db), read_only=True)
+    def test_fixture_row_counts(self, sample_erp):
+        con = duckdb.connect(str(sample_erp), read_only=True)
         assert con.execute("SELECT COUNT(*) FROM erp.orders").fetchone()[0] == 5
         assert con.execute("SELECT COUNT(*) FROM erp.customers").fetchone()[0] == 4
         assert con.execute("SELECT COUNT(*) FROM erp.products").fetchone()[0] == 3
         con.close()
 
-    def test_fixture_null_in_products(self, sample_erp_db):
+    def test_fixture_null_in_products(self, sample_erp):
         """stock_qty is NULL for the 'Service Pack' row -- tests NULL pass-through."""
-        con = duckdb.connect(str(sample_erp_db), read_only=True)
+        con = duckdb.connect(str(sample_erp), read_only=True)
         row = con.execute(
             "SELECT stock_qty FROM erp.products WHERE product_name = 'Service Pack'"
         ).fetchone()
@@ -111,10 +126,11 @@ class TestSampleErpFullPipeline:
     """Full pipeline run against the synthetic sample_erp fixture."""
 
     @pytest.fixture
-    def config(self, sample_erp_db, tmp_path) -> Path:
-        return _write_config(
-            tmp_path,
-            sample_erp_db,
+    def config(self, project: ProjectFixture) -> Path:
+        source_db = project.copy_fixture("sample_erp.duckdb")
+        return _write_duckdb_config(
+            project,
+            source_db,
             [
                 make_curation_entry("src", "erp.orders", "orders"),
                 make_curation_entry("src", "erp.customers", "customers"),
@@ -253,13 +269,19 @@ class TestSampleErpFullPipeline:
 
 
 class TestClientFixtureEdgeCases:
-    def test_salesinvoicemaster_column_with_space(self, client_db_copy, tmp_path):
+    @pytest.fixture
+    def client_db_copy(self, project: ProjectFixture) -> Path:
+        return project.copy_fixture("client.duckdb")
+
+    def test_salesinvoicemaster_column_with_space(
+        self, project: ProjectFixture, client_db_copy: Path
+    ):
         """SALESINVOICEMASTER has a column called 'Round Off' (space in name)."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        config = _write_config(
-            tmp_path,
+        config = _write_duckdb_config(
+            project,
             client_db_copy,
             [make_curation_entry("src", "icube.SALESINVOICEMASTER", "sim")],
         )
@@ -278,13 +300,15 @@ class TestClientFixtureEdgeCases:
         con.close()
         assert "Round Off" in cols, "'Round Off' column (space) should be preserved"
 
-    def test_invitem_blob_columns(self, client_db_copy, tmp_path):
+    def test_invitem_blob_columns(
+        self, project: ProjectFixture, client_db_copy: Path
+    ):
         """INVITEM has BLOB columns (IMAGE, DivImage).  Should load without error."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        config = _write_config(
-            tmp_path,
+        config = _write_duckdb_config(
+            project,
             client_db_copy,
             [make_curation_entry("src", "icube.INVITEM", "invitem")],
         )
@@ -293,13 +317,15 @@ class TestClientFixtureEdgeCases:
         assert results[0].status == "success"
         assert results[0].rows_loaded == 1058
 
-    def test_all_six_icube_tables(self, client_db_copy, tmp_path):
+    def test_all_six_icube_tables(
+        self, project: ProjectFixture, client_db_copy: Path
+    ):
         """All six Icube tables load in a single run."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        config = _write_config(
-            tmp_path,
+        config = _write_duckdb_config(
+            project,
             client_db_copy,
             [
                 make_curation_entry("src", "icube.SALESINVOICE", "sales_invoice"),
@@ -326,7 +352,7 @@ class TestClientFixtureEdgeCases:
         assert row_map["src_sales_invoice_master"] == 335
         assert row_map["src_employee"] == 55
 
-    def test_discover_icube_source(self, client_db_copy):
+    def test_discover_icube_source(self, client_db_copy: Path):
         """discover() returns all 6 Icube tables with column metadata."""
         from feather_etl.sources.duckdb_file import DuckDBFileSource
 
@@ -346,13 +372,19 @@ class TestClientFixtureEdgeCases:
 
 
 class TestErrorIsolation:
-    def test_good_table_succeeds_despite_bad_table(self, sample_erp_db, tmp_path):
+    @pytest.fixture
+    def sample_erp(self, project: ProjectFixture) -> Path:
+        return project.copy_fixture("sample_erp.duckdb")
+
+    def test_good_table_succeeds_despite_bad_table(
+        self, project: ProjectFixture, sample_erp: Path
+    ):
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
+        config = _write_duckdb_config(
+            project,
+            sample_erp,
             [
                 make_curation_entry("src", "erp.orders", "good"),
                 make_curation_entry("src", "erp.NOSUCH", "bad"),
@@ -367,19 +399,21 @@ class TestErrorIsolation:
         assert bad.status == "failure", "bad table should fail"
         assert good.rows_loaded == 5
 
-    def test_failure_error_message_stored_in_state(self, sample_erp_db, tmp_path):
+    def test_failure_error_message_stored_in_state(
+        self, project: ProjectFixture, sample_erp: Path
+    ):
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
+        config = _write_duckdb_config(
+            project,
+            sample_erp,
             [make_curation_entry("src", "erp.NOSUCH", "bad")],
         )
         cfg = load_config(config)
         run_all(cfg, config)
 
-        state_path = tmp_path / "feather_state.duckdb"
+        state_path = project.state_db_path
         con = duckdb.connect(str(state_path), read_only=True)
         row = con.execute(
             "SELECT status, error_message FROM _runs WHERE table_name = 'src_bad'"
@@ -392,14 +426,14 @@ class TestErrorIsolation:
         )
 
     def test_partial_failure_still_writes_good_table_to_bronze(
-        self, sample_erp_db, tmp_path
+        self, project: ProjectFixture, sample_erp: Path
     ):
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
+        config = _write_duckdb_config(
+            project,
+            sample_erp,
             [
                 make_curation_entry("src", "erp.orders", "good"),
                 make_curation_entry("src", "erp.NOSUCH", "bad"),
@@ -429,98 +463,85 @@ class TestErrorIsolation:
 class TestValidationGuards:
     """Tests that validate catches invalid config before runtime."""
 
-    def test_csv_source_validates_with_valid_directory(self, tmp_path):
+    def test_csv_source_validates_with_valid_directory(
+        self, project: ProjectFixture
+    ):
         """CSV source type with a valid directory passes validation."""
         from feather_etl.config import load_config
 
-        csv_dir = tmp_path / "csv_data"
+        csv_dir = project.root / "csv_data"
         csv_dir.mkdir()
         (csv_dir / "orders.csv").write_text("id,name\n1,foo\n")
-        config_path = tmp_path / "feather.yaml"
-        config_path.write_text(
-            yaml.dump(
-                {
-                    "sources": [{"type": "csv", "name": "csvs", "path": str(csv_dir)}],
-                    "destination": {"path": str(tmp_path / "data.duckdb")},
-                }
-            )
+        project.write_config(
+            sources=[{"type": "csv", "name": "csvs", "path": str(csv_dir)}],
+            destination={"path": str(project.data_db_path)},
         )
         write_curation(
-            tmp_path,
+            project.root,
             [make_curation_entry("csvs", "orders.csv", "orders")],
         )
-        cfg = load_config(config_path)
+        cfg = load_config(project.config_path)
         assert cfg.sources[0].type == "csv"
 
-    def test_csv_source_rejects_file_path(self, tmp_path):
+    def test_csv_source_rejects_file_path(self, project: ProjectFixture):
         """CSV source path must be a directory, not a file."""
         from feather_etl.config import load_config
 
-        csv_file = tmp_path / "source.csv"
+        csv_file = project.root / "source.csv"
         csv_file.write_text("id,name\n1,foo\n")
-        config_path = tmp_path / "feather.yaml"
-        config_path.write_text(
-            yaml.dump(
-                {
-                    "sources": [{"type": "csv", "name": "csvs", "path": str(csv_file)}],
-                    "destination": {"path": str(tmp_path / "data.duckdb")},
-                }
-            )
+        project.write_config(
+            sources=[{"type": "csv", "name": "csvs", "path": str(csv_file)}],
+            destination={"path": str(project.data_db_path)},
         )
         write_curation(
-            tmp_path,
+            project.root,
             [make_curation_entry("csvs", "orders.csv", "orders")],
         )
         with pytest.raises(ValueError, match="CSV source path must be a directory"):
-            load_config(config_path)
+            load_config(project.config_path)
 
-    def test_csv_source_rejects_nonexistent_path(self, tmp_path):
+    def test_csv_source_rejects_nonexistent_path(self, project: ProjectFixture):
         """CSV source path that doesn't exist at all fails validation."""
         from feather_etl.config import load_config
 
-        config_path = tmp_path / "feather.yaml"
-        config_path.write_text(
-            yaml.dump(
+        project.write_config(
+            sources=[
                 {
-                    "sources": [
-                        {
-                            "type": "csv",
-                            "name": "csvs",
-                            "path": str(tmp_path / "no_such_dir"),
-                        }
-                    ],
-                    "destination": {"path": str(tmp_path / "data.duckdb")},
+                    "type": "csv",
+                    "name": "csvs",
+                    "path": str(project.root / "no_such_dir"),
                 }
-            )
+            ],
+            destination={"path": str(project.data_db_path)},
         )
         write_curation(
-            tmp_path,
+            project.root,
             [make_curation_entry("csvs", "orders.csv", "orders")],
         )
         with pytest.raises(ValueError, match="CSV source path must be a directory"):
-            load_config(config_path)
+            load_config(project.config_path)
 
-    def test_missing_source_section_raises_valueerror(self, tmp_path):
+    def test_missing_source_section_raises_valueerror(
+        self, project: ProjectFixture
+    ):
         from feather_etl.config import load_config
 
-        config_path = tmp_path / "feather.yaml"
-        config_path.write_text(
-            yaml.dump(
-                {
-                    "destination": {"path": str(tmp_path / "data.duckdb")},
-                }
-            )
+        # Bypass ``write_config``'s tolerant behaviour and write raw YAML with
+        # no sources section so load_config can raise.
+        project.config_path.write_text(
+            yaml.dump({"destination": {"path": str(project.data_db_path)}})
         )
         with pytest.raises(ValueError, match="Missing required config section"):
-            load_config(config_path)
+            load_config(project.config_path)
 
-    def test_target_table_requires_schema_prefix(self, sample_erp_db, tmp_path):
+    def test_target_table_requires_schema_prefix(self, project: ProjectFixture):
         """target_table without schema prefix is rejected (tested via _validate)."""
-        from feather_etl.config import load_config, _validate
+        from feather_etl.config import _validate, load_config
 
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
+        sample_erp = project.copy_fixture("sample_erp.duckdb")
+        config = _write_duckdb_config(
+            project,
+            sample_erp,
             [make_curation_entry("src", "erp.orders", "orders")],
         )
         cfg = load_config(config, validate=False)
@@ -528,13 +549,14 @@ class TestValidationGuards:
         errors = _validate(cfg)
         assert any("must include a schema prefix" in e for e in errors)
 
-    def test_hyphenated_target_table_rejected(self, sample_erp_db, tmp_path):
+    def test_hyphenated_target_table_rejected(self, project: ProjectFixture):
         """Hyphens in target_table are caught at validate time (tested via _validate)."""
-        from feather_etl.config import load_config, _validate
+        from feather_etl.config import _validate, load_config
 
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
+        sample_erp = project.copy_fixture("sample_erp.duckdb")
+        config = _write_duckdb_config(
+            project,
+            sample_erp,
             [make_curation_entry("src", "erp.orders", "orders")],
         )
         cfg = load_config(config, validate=False)
@@ -549,13 +571,16 @@ class TestValidationGuards:
 
 
 class TestPipelineReturnsOnFailure:
-    def test_run_all_returns_results_on_total_failure(self, sample_erp_db, tmp_path):
+    def test_run_all_returns_results_on_total_failure(
+        self, project: ProjectFixture
+    ):
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
+        sample_erp = project.copy_fixture("sample_erp.duckdb")
+        config = _write_duckdb_config(
+            project,
+            sample_erp,
             [make_curation_entry("src", "erp.NOSUCH", "bad")],
         )
         cfg = load_config(config)
@@ -571,15 +596,16 @@ class TestPipelineReturnsOnFailure:
 
 class TestKnownBugs:
     def test_M6_incremental_strategy_silently_does_full_load(
-        self, sample_erp_db, tmp_path
+        self, project: ProjectFixture
     ):
         """M-6: strategy='incremental' silently does a full load."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 
-        config = _write_config(
-            tmp_path,
-            sample_erp_db,
+        sample_erp = project.copy_fixture("sample_erp.duckdb")
+        config = _write_duckdb_config(
+            project,
+            sample_erp,
             [
                 make_curation_entry(
                     "src",
@@ -605,32 +631,6 @@ class TestKnownBugs:
 # ---------------------------------------------------------------------------
 
 
-def _write_csv_config(
-    tmp_path: Path, csv_dir: Path, curation_tables: list[dict]
-) -> Path:
-    cfg = {
-        "sources": [{"type": "csv", "name": "csvs", "path": str(csv_dir)}],
-        "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-    }
-    p = tmp_path / "feather.yaml"
-    p.write_text(yaml.dump(cfg, default_flow_style=False))
-    write_curation(tmp_path, curation_tables)
-    return p
-
-
-def _write_sqlite_config(
-    tmp_path: Path, sqlite_path: Path, curation_tables: list[dict]
-) -> Path:
-    cfg = {
-        "sources": [{"type": "sqlite", "name": "sqlitedb", "path": str(sqlite_path)}],
-        "destination": {"path": str(tmp_path / "feather_data.duckdb")},
-    }
-    p = tmp_path / "feather.yaml"
-    p.write_text(yaml.dump(cfg, default_flow_style=False))
-    write_curation(tmp_path, curation_tables)
-    return p
-
-
 class TestCsvFullPipeline:
     """Full pipeline run using CSV source."""
 
@@ -641,15 +641,9 @@ class TestCsvFullPipeline:
     ]
 
     @pytest.fixture
-    def csv_data_dir(self, tmp_path) -> Path:
-        src = Path(__file__).parent / "fixtures" / "csv_data"
-        dst = tmp_path / "csv_data"
-        shutil.copytree(src, dst)
-        return dst
-
-    @pytest.fixture
-    def config(self, csv_data_dir, tmp_path) -> Path:
-        return _write_csv_config(tmp_path, csv_data_dir, self.CSV_CURATION)
+    def config(self, project: ProjectFixture) -> Path:
+        csv_dir = project.copy_fixture("csv_data")
+        return _write_csv_config(project, csv_dir, self.CSV_CURATION)
 
     def test_run_all_succeeds(self, config):
         from feather_etl.config import load_config
@@ -731,15 +725,9 @@ class TestSqliteFullPipeline:
     ]
 
     @pytest.fixture
-    def sqlite_db(self, tmp_path) -> Path:
-        src = Path(__file__).parent / "fixtures" / "sample_erp.sqlite"
-        dst = tmp_path / "sample_erp.sqlite"
-        shutil.copy2(src, dst)
-        return dst
-
-    @pytest.fixture
-    def config(self, sqlite_db, tmp_path) -> Path:
-        return _write_sqlite_config(tmp_path, sqlite_db, self.SQLITE_CURATION)
+    def config(self, project: ProjectFixture) -> Path:
+        sqlite_db = project.copy_fixture("sample_erp.sqlite")
+        return _write_sqlite_config(project, sqlite_db, self.SQLITE_CURATION)
 
     def test_run_all_succeeds(self, config):
         from feather_etl.config import load_config
