@@ -145,51 +145,6 @@ def _resolve_path(config_dir: Path, raw: str) -> Path:
     return (config_dir / p).resolve()
 
 
-def _parse_tables(raw_tables: list[dict], config: dict) -> list[TableConfig]:
-    tables = []
-    for i, t in enumerate(raw_tables):
-        try:
-            target = t.get("target_table", "")
-            tables.append(
-                TableConfig(
-                    name=t["name"],
-                    source_table=t["source_table"],
-                    strategy=t["strategy"],
-                    target_table=target,
-                    primary_key=t.get("primary_key"),
-                    timestamp_column=t.get("timestamp_column"),
-                    checksum_columns=t.get("checksum_columns"),
-                    filter=t.get("filter"),
-                    quality_checks=t.get("quality_checks"),
-                    column_map=t.get("column_map"),
-                    schedule=t.get("schedule"),
-                    dedup=bool(t.get("dedup", False)),
-                    dedup_columns=t.get("dedup_columns"),
-                )
-            )
-        except KeyError as e:
-            raise ValueError(
-                f"Table entry {i + 1} missing required field: {e}"
-            ) from None
-    return tables
-
-
-def _merge_tables_dir(config_dir: Path, tables: list[dict]) -> list[dict]:
-    """Merge table definitions from tables/ directory alongside feather.yaml."""
-    tables_dir = config_dir / "tables"
-    if not tables_dir.is_dir():
-        return tables
-
-    inline_names = {t["name"] for t in tables}
-    for yaml_file in sorted(tables_dir.glob("*.yaml")):
-        data = yaml.safe_load(yaml_file.read_text())
-        if data and "tables" in data:
-            for t in data["tables"]:
-                if t["name"] not in inline_names:
-                    tables.append(t)
-    return tables
-
-
 def _validate(config: FeatherConfig) -> list[str]:
     """Validate config, return list of error messages."""
     errors: list[str] = []
