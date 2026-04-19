@@ -283,6 +283,49 @@ class TestDiscover:
 
 
 @pytest.mark.usefixtures("stub_viewer_serve")
+class TestDiscoverPruneOutput:
+    """Regression: --prune must NOT emit the 'Discovering from ...' header.
+
+    The pre-refactor wrapper short-circuited prune mode before the header
+    block. The Task 7 extraction accidentally moved the header above the
+    short-circuit. Lock the contract here.
+    """
+
+    def test_prune_does_not_emit_discovering_header(
+        self, runner, tmp_path, monkeypatch
+    ):
+        from feather_etl.cli import app
+        from feather_etl.discover_state import DiscoverState
+
+        config_path = _write_sqlite_config(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        # Seed a state entry for a now-removed source with a file on disk,
+        # so prune actually has work to do.
+        state = DiscoverState.load(tmp_path)
+        old_path = tmp_path / "schemas-sqlite-stale.json"
+        old_path.write_text("[]")
+        state.record_ok(
+            name="stale",
+            type_="sqlite",
+            fingerprint="sqlite:/non/existent",
+            table_count=1,
+            output_path=old_path,
+        )
+        state.save()
+
+        result = runner.invoke(app, ["discover", "--config", str(config_path), "--prune"])
+
+        assert result.exit_code == 0
+        assert "Discovering from" not in result.output, (
+            f"--prune must not emit the 'Discovering from' header.\n"
+            f"Got output:\n{result.output}"
+        )
+        assert "Pruned: schemas-sqlite-stale.json" in result.output
+        assert "Pruned 1 removed/orphaned entries." in result.output
+
+
+@pytest.mark.usefixtures("stub_viewer_serve")
 class TestDiscoverAutoEnumPermissionError:
     def test_empty_enumeration_records_failed_with_hint(
         self, runner, tmp_path, monkeypatch

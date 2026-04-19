@@ -85,9 +85,14 @@ def discover(
     cfg = _load_and_validate(config, discover_mode=True)
     target_dir = Path(".")
 
+    # Capture the prior `last_run_at` for the header BEFORE any state mutation.
+    # The rename phase below may call `state.save()`, which updates the
+    # timestamp; we want the truly-prior discover run, not the rename save.
+    state = DiscoverState.load(target_dir)
+    prior_last_run_at = state.last_run_at
+
     # Rename phase (only when not in refresh/prune mode — preserves prior behavior).
     if not (refresh or prune):
-        state = DiscoverState.load(target_dir)
         sources = expand_db_sources(cfg.sources)
         detection = detect_renames_for_sources(state, sources)
 
@@ -113,16 +118,6 @@ def discover(
             )
             state.save()
 
-    # Header line — match prior CLI exactly.
-    state = DiscoverState.load(target_dir)
-    if state.last_run_at:
-        typer.echo(
-            f"Discovering from {config.name} (state file found, "
-            f"last run {state.last_run_at})..."
-        )
-    else:
-        typer.echo(f"Discovering from {config.name}...")
-
     report = run_discover(
         cfg,
         target_dir,
@@ -131,13 +126,24 @@ def discover(
         prune=prune,
     )
 
-    # Per-source line output (match prior format).
+    # Prune mode short-circuits BEFORE the "Discovering from" header — matches
+    # prior CLI behavior (the pre-refactor wrapper returned from the prune
+    # branch before reaching the header block).
     if prune:
         for r in report.results:
             if r.status == "pruned" and r.output_path is not None:
                 typer.echo(f"  Pruned: {r.output_path.name}")
         typer.echo(f"\nPruned {report.pruned_count} removed/orphaned entries.")
         return
+
+    # Header line — uses the pre-rename-mutation timestamp captured above.
+    if prior_last_run_at:
+        typer.echo(
+            f"Discovering from {config.name} (state file found, "
+            f"last run {prior_last_run_at})..."
+        )
+    else:
+        typer.echo(f"Discovering from {config.name}...")
 
     total = len(report.results)
     for idx, r in enumerate(report.results, start=1):
