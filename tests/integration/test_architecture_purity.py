@@ -1,10 +1,8 @@
-"""Purity test: pure-core modules must not import Typer.
+"""Integration: architectural invariants.
 
-The split between `commands/<name>.py` (Typer-aware CLI wrapper) and
-`<name>.py` (pure orchestration) is a load-bearing architectural
-constraint enforced here. If you find yourself wanting to add `typer`
-to a module in this list, the split is wrong — push the Typer concern
-back into the corresponding `commands/<name>.py` wrapper instead.
+Tests that load-bearing structural constraints hold across the codebase —
+currently the #43 no-typer-in-pure-cores rule (see
+docs/superpowers/specs/2026-04-19-thin-cli-refactor-design.md).
 """
 
 from __future__ import annotations
