@@ -229,6 +229,46 @@ def test_run_discover_records_failed_sources_with_error_message(project):
     assert report.results[0].error is not None
 
 
+def test_run_discover_records_failed_when_write_schema_raises(project, monkeypatch):
+    """If ``_write_schema`` raises (e.g. source.discover() blows up after
+    check() already succeeded), run_discover must:
+      - record the source as failed in DiscoverState with the error string,
+      - append a matching SourceDiscoveryResult(status='failed'),
+      - continue processing subsequent sources.
+    (discover.py:251-269)"""
+    from feather_etl import discover as discover_mod
+    from feather_etl.discover_state import DiscoverState
+
+    cfg = load_config(_setup_sqlite_project(project), validate=False)
+
+    def _boom(source, target_dir):
+        raise RuntimeError("schema serialization blew up")
+
+    monkeypatch.setattr(discover_mod, "_write_schema", _boom)
+
+    report = run_discover(
+        cfg,
+        project.root,
+        refresh=False,
+        retry_failed=False,
+        prune=False,
+    )
+
+    assert report.succeeded_count == 0
+    assert report.failed_count == 1
+    assert len(report.results) == 1
+    result = report.results[0]
+    assert result.status == "failed"
+    assert "schema serialization blew up" in (result.error or "")
+
+    # State is also updated so retry-failed picks it up next run.
+    state = DiscoverState.load(project.root)
+    # There's exactly one source in this project.
+    name, entry = next(iter(state.sources.items()))
+    assert entry["status"] == "failed"
+    assert "schema serialization blew up" in entry.get("error", "")
+
+
 def test_run_discover_with_refresh_ignores_cached_state(project):
     """A second run with refresh=True re-discovers a previously-discovered source."""
     cfg = load_config(_setup_sqlite_project(project), validate=False)

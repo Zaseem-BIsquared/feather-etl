@@ -135,3 +135,40 @@ def test_one_failure_does_not_block_others(project):
     statuses = {r.table_name: r.status for r in results}
     assert statuses["icube_good_table"] == "success"
     assert statuses["icube_bad_table"] == "failure"
+
+
+def test_unresolvable_source_db_records_failure_without_raising(project):
+    """A curation entry whose ``database`` doesn't match any configured
+    source produces a ``CacheResult(status='failure')`` with the
+    resolve_source error message — no exception propagates.
+    (cache.py:51-60)"""
+    project.copy_fixture("client.duckdb")
+    project.write_config(
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
+        destination={"path": str(project.root / "feather_data.duckdb")},
+    )
+    entry = make_curation_entry(
+        "icube", "icube.InventoryGroup", "orphan_table"
+    )
+    # Override database to a name that doesn't exist anywhere in cfg.sources
+    entry["source_db"] = "nonexistent_system"
+    write_curation(project.root, [entry])
+
+    cfg = load_config(project.config_path)
+    # load_config's validator tolerates this (config-level check is
+    # informational); run_cache must not raise either.
+    results = run_cache(cfg, cfg.tables, project.root)
+
+    assert len(results) == 1
+    assert results[0].status == "failure"
+    assert results[0].source_db == "nonexistent_system"
+    assert results[0].error_message is not None
+    assert "nonexistent_system" in results[0].error_message
+    # Cache shouldn't mutate bronze for a source-resolution failure.
+    assert results[0].rows_loaded == 0
