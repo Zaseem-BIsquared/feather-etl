@@ -90,10 +90,22 @@ def _make_state_with_runs(state_path: Path) -> None:
     sm = StateManager(state_path)
     sm.init_state()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    sm.record_run_start("run-1", "orders", now)
-    sm.record_run_complete("run-1", "success", rows_loaded=10)
-    sm.record_run_start("run-2", "customers", now)
-    sm.record_run_complete("run-2", "success", rows_loaded=5)
+    sm.record_run(
+        run_id="run-1",
+        table_name="orders",
+        started_at=now,
+        ended_at=now,
+        status="success",
+        rows_loaded=10,
+    )
+    sm.record_run(
+        run_id="run-2",
+        table_name="customers",
+        started_at=now,
+        ended_at=now,
+        status="success",
+        rows_loaded=5,
+    )
 
 
 class TestLoadHistory:
@@ -333,10 +345,22 @@ def _make_state_with_runs(state_path: Path) -> None:
     sm = StateManager(state_path)
     sm.init_state()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    sm.record_run_start("run-1", "orders", now)
-    sm.record_run_complete("run-1", "success", rows_loaded=10)
-    sm.record_run_start("run-2", "customers", now)
-    sm.record_run_complete("run-2", "success", rows_loaded=5)
+    sm.record_run(
+        run_id="run-1",
+        table_name="orders",
+        started_at=now,
+        ended_at=now,
+        status="success",
+        rows_loaded=10,
+    )
+    sm.record_run(
+        run_id="run-2",
+        table_name="customers",
+        started_at=now,
+        ended_at=now,
+        status="success",
+        rows_loaded=5,
+    )
 
 
 class TestLoadStatus:
