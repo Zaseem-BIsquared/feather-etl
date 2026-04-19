@@ -252,6 +252,256 @@ def test_filter_with_fixture(sample_erp_db, project):
     assert cancelled == 0
 
 
+def test_incremental_second_run_zero_new_rows_success_path(project):
+    """Subsequent incremental run where change-detection flags the source
+    but the watermark-filtered extract yields zero new rows.
+
+    Scenario: run once → watermark = 2025-01-05. Then edit an existing row
+    so that (a) the file hash changes (change-detection fires) and (b) no
+    row with ts >= stored watermark remains. Second run:
+      - incremental extract returns num_rows == 0
+      - pipeline hits the ``if data.num_rows == 0`` short-circuit and
+        returns status='success', rows_loaded=0, watermark unchanged.
+    This exercises pipeline.py:338-360.
+    """
+    src_path = _make_source_db(project.root)
+
+    # overlap = 0 so only the exact-boundary row comes back next time
+    project.write_config(
+        sources=[{"type": "duckdb", "name": "src", "path": str(src_path)}],
+        destination={"path": str(project.data_db_path)},
+        defaults={"overlap_window_minutes": 0},
+    )
+    write_curation(
+        project.root,
+        [
+            make_curation_entry(
+                "src",
+                "erp.orders",
+                "orders",
+                strategy="incremental",
+                timestamp_column="modified_at",
+                primary_key=["order_id"],
+            ),
+        ],
+    )
+    cfg = load_config(project.config_path)
+
+    # First run: loads all 5 rows, watermark=2025-01-05.
+    first = run_table(cfg, cfg.tables[0], project.root)
+    assert first.status == "success"
+    assert first.rows_loaded == 5
+
+    sm = StateManager(project.state_db_path)
+    wm_before = sm.read_watermark("src_orders")
+    first_last_value = wm_before["last_value"]
+
+    # Shift the max-ts row *earlier* (still touching the file hash) so that
+    # no rows with modified_at >= stored watermark (2025-01-05) remain. With
+    # overlap=0, the incremental extract then returns zero rows directly.
+    con = duckdb.connect(str(src_path))
+    con.execute(
+        "UPDATE erp.orders SET modified_at = '2025-01-04 12:00:00' "
+        "WHERE order_id = 5"
+    )
+    con.close()
+
+    # Second run: change-detection says changed, but the watermark-filtered
+    # extract returns num_rows == 0 directly.
+    second = run_table(cfg, cfg.tables[0], project.root)
+
+    assert second.status == "success"
+    assert second.rows_loaded == 0
+
+    wm_after = sm.read_watermark("src_orders")
+    # Watermark last_value is preserved across the no-new-rows run.
+    assert str(wm_after["last_value"]) == str(first_last_value)
+
+    # Retry state is cleared as part of the success path (see reset_retry).
+    # The bronze data shouldn't have grown.
+    total = project.query("SELECT COUNT(*) FROM bronze.src_orders")[0][0]
+    assert total == 5
+
+
+def test_incremental_test_mode_applies_row_limit(project):
+    """On the subsequent-incremental path, test mode + defaults.row_limit
+    slices the extracted data. (pipeline.py:322)"""
+    src_path = _make_source_db(project.root)
+
+    project.write_config(
+        sources=[{"type": "duckdb", "name": "src", "path": str(src_path)}],
+        destination={"path": str(project.data_db_path)},
+        mode="test",
+        defaults={"overlap_window_minutes": 0, "row_limit": 1},
+    )
+    write_curation(
+        project.root,
+        [
+            make_curation_entry(
+                "src",
+                "erp.orders",
+                "orders",
+                strategy="incremental",
+                timestamp_column="modified_at",
+                primary_key=["order_id"],
+            ),
+        ],
+    )
+    cfg = load_config(project.config_path)
+
+    # First run primes the watermark (test mode also slices here, but via
+    # the else branch — not what we're testing).
+    run_table(cfg, cfg.tables[0], project.root)
+
+    # Add 3 new rows above the current watermark
+    con = duckdb.connect(str(src_path))
+    con.execute("""
+        INSERT INTO erp.orders VALUES
+        (6, 600.00, '2025-01-06 00:00:00'),
+        (7, 700.00, '2025-01-07 00:00:00'),
+        (8, 800.00, '2025-01-08 00:00:00')
+    """)
+    con.close()
+
+    # Subsequent incremental run with row_limit=1 → slice to 1 row
+    result = run_table(cfg, cfg.tables[0], project.root)
+    assert result.status == "success"
+    assert result.rows_loaded == 1
+
+
+def test_incremental_prod_mode_applies_column_map(project):
+    """On the subsequent-incremental path, prod mode + column_map renames
+    the extracted columns. (pipeline.py:324)"""
+    src_path = _make_source_db(project.root)
+
+    project.write_config(
+        sources=[{"type": "duckdb", "name": "src", "path": str(src_path)}],
+        destination={"path": str(project.data_db_path)},
+        mode="prod",
+        defaults={"overlap_window_minutes": 0},
+    )
+    write_curation(
+        project.root,
+        [
+            make_curation_entry(
+                "src",
+                "erp.orders",
+                "orders",
+                strategy="incremental",
+                timestamp_column="modified_at",
+                primary_key=["order_id"],
+            ),
+        ],
+    )
+    cfg = load_config(project.config_path)
+    # column_map isn't serialized by make_curation_entry — attach it here
+    cfg.tables[0].column_map = {
+        "order_id": "order_id",
+        "amount": "order_amount",
+        "modified_at": "modified_at",
+    }
+
+    run_table(cfg, cfg.tables[0], project.root)
+
+    # Second run with a new row → hits the is_incremental+wm branch
+    con = duckdb.connect(str(src_path))
+    con.execute(
+        "INSERT INTO erp.orders VALUES "
+        "(6, 600.00, '2025-01-06 00:00:00')"
+    )
+    con.close()
+
+    result = run_table(cfg, cfg.tables[0], project.root)
+    assert result.status == "success"
+    assert result.rows_loaded >= 1
+
+    # Prod mode lands in silver with renamed columns per column_map
+    cols = [
+        r[0]
+        for r in project.query(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'silver' AND table_name = 'src_orders' "
+            "ORDER BY ordinal_position"
+        )
+    ]
+    assert "order_amount" in cols
+    assert "amount" not in cols  # renamed
+
+
+def test_append_test_mode_applies_row_limit(project):
+    """Append strategy + test mode + row_limit slices the loaded batch.
+    (pipeline.py:376)"""
+    src_path = _make_source_db(project.root)
+
+    project.write_config(
+        sources=[{"type": "duckdb", "name": "src", "path": str(src_path)}],
+        destination={"path": str(project.data_db_path)},
+        mode="test",
+        defaults={"row_limit": 2},
+    )
+    write_curation(
+        project.root,
+        [
+            make_curation_entry(
+                "src",
+                "erp.orders",
+                "orders",
+                strategy="append",
+                primary_key=["order_id"],
+            ),
+        ],
+    )
+    cfg = load_config(project.config_path)
+
+    result = run_table(cfg, cfg.tables[0], project.root)
+    assert result.status == "success"
+    assert result.rows_loaded == 2  # row_limit applied
+
+
+def test_append_prod_mode_applies_column_map(project):
+    """Append strategy + prod mode + column_map renames columns.
+    (pipeline.py:378)"""
+    src_path = _make_source_db(project.root)
+
+    project.write_config(
+        sources=[{"type": "duckdb", "name": "src", "path": str(src_path)}],
+        destination={"path": str(project.data_db_path)},
+        mode="prod",
+    )
+    write_curation(
+        project.root,
+        [
+            make_curation_entry(
+                "src",
+                "erp.orders",
+                "orders",
+                strategy="append",
+                primary_key=["order_id"],
+            ),
+        ],
+    )
+    cfg = load_config(project.config_path)
+    cfg.tables[0].column_map = {
+        "order_id": "order_id",
+        "amount": "order_amount",
+    }
+
+    result = run_table(cfg, cfg.tables[0], project.root)
+    assert result.status == "success"
+    assert result.rows_loaded == 5
+
+    cols = [
+        r[0]
+        for r in project.query(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'silver' AND table_name = 'src_orders' "
+            "ORDER BY ordinal_position"
+        )
+    ]
+    assert "order_amount" in cols
+    assert "amount" not in cols
+
+
 def test_overlap_window_arithmetic(sample_erp_db, project):
     cfg = _write_incremental_config(
         project, sample_erp_db, source_table="erp.sales", alias="sales",

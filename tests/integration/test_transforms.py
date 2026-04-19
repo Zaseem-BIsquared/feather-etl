@@ -172,3 +172,56 @@ def test_run_no_rebuild_when_all_skipped(tmp_path: Path):
     row = con.execute("SELECT * FROM gold.emp_snap").fetchone()
     assert row is not None
     con.close()
+
+
+def test_run_all_transform_rebuild_failure_is_caught_and_logged(
+    tmp_path: Path, monkeypatch, caplog
+):
+    """Any exception raised inside the post-extraction transform rebuild
+    block is swallowed and logged at error level — extraction results are
+    still returned to the caller. (pipeline.py:589-590)"""
+    import logging
+
+    source_db = tmp_path / "source.duckdb"
+    con = duckdb.connect(str(source_db))
+    con.execute("CREATE SCHEMA IF NOT EXISTS erp")
+    con.execute("CREATE TABLE erp.employees (id INT, name VARCHAR)")
+    con.execute("INSERT INTO erp.employees VALUES (1, 'Alice'), (2, 'Bob')")
+    con.close()
+
+    dest_db = tmp_path / "feather_data.duckdb"
+    config = {
+        "sources": [{"type": "duckdb", "name": "src", "path": str(source_db)}],
+        "destination": {"path": str(dest_db)},
+    }
+    config_file = tmp_path / "feather.yaml"
+    config_file.write_text(yaml.dump(config))
+    write_curation(
+        tmp_path,
+        [make_curation_entry("src", "erp.employees", "employees")],
+    )
+
+    _write_sql(
+        tmp_path, "silver", "emp_clean",
+        "SELECT * FROM bronze.src_employees",
+    )
+
+    cfg = load_config(config_file)
+
+    # Force discover_transforms to raise inside the post-extraction rebuild
+    # block. pipeline.run_all imports it locally, so patch at its origin.
+    from feather_etl import transforms as transforms_mod
+
+    def _boom(_config_dir):
+        raise RuntimeError("synthetic transform-discover failure")
+
+    monkeypatch.setattr(transforms_mod, "discover_transforms", _boom)
+
+    with caplog.at_level(logging.ERROR, logger="feather_etl.pipeline"):
+        results = run_all(cfg, config_file)
+
+    # Extract results are returned despite the failed transforms block.
+    assert len(results) == 1
+    assert results[0].status == "success"
+    assert "Transform rebuild failed" in caplog.text
+    assert "synthetic transform-discover failure" in caplog.text
