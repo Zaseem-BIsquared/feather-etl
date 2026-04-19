@@ -27,6 +27,7 @@ def test_cli_registers_expected_commands_on_app() -> None:
         "run",
         "history",
         "status",
+        "cache",
     }
 
 
@@ -40,6 +41,7 @@ def test_command_modules_expose_register_functions() -> None:
         "run",
         "history",
         "status",
+        "cache",
     ]
 
     for module_name in module_names:
