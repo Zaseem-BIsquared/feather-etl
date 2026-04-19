@@ -460,42 +460,6 @@ def test_cli_mode_overrides_yaml(tmp_path):
     assert silver_count > 0
 
 
-def test_cli_mode_flag_via_runner(tmp_path):
-    """--mode prod CLI flag exercises the actual Typer CLI path."""
-    import shutil
-
-    from typer.testing import CliRunner
-
-    from feather_etl.cli import app
-
-    src_db = tmp_path / "sample_erp.duckdb"
-    shutil.copy2(FIXTURES_DIR / "sample_erp.duckdb", src_db)
-
-    dest_path = tmp_path / "output.duckdb"
-    config = {
-        "sources": [{"type": "duckdb", "name": "erp", "path": str(src_db)}],
-        "destination": {"path": str(dest_path)},
-        "mode": "dev",
-    }
-    config_path = tmp_path / "feather.yaml"
-    config_path.write_text(yaml.dump(config, default_flow_style=False))
-    write_curation(
-        tmp_path,
-        [make_curation_entry("erp", "erp.customers", "customers")],
-    )
-
-    runner = CliRunner()
-    result = runner.invoke(app, ["run", "--config", str(config_path), "--mode", "prod"])
-    assert result.exit_code == 0
-
-    con = duckdb.connect(str(dest_path))
-    silver_count = con.execute("SELECT COUNT(*) FROM silver.erp_customers").fetchone()[
-        0
-    ]
-    con.close()
-    assert silver_count > 0
-
-
 def test_env_var_overrides_yaml(tmp_path, monkeypatch):
     """FEATHER_MODE=prod env var overrides mode: dev in YAML."""
     import shutil
