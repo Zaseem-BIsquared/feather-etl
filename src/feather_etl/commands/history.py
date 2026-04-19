@@ -1,4 +1,4 @@
-"""`feather history` command."""
+"""`feather history` command — thin Typer wrapper over feather_etl.history."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from feather_etl.commands._common import (
     _is_json,
     _load_and_validate,
 )
+from feather_etl.exceptions import StateDBMissingError
+from feather_etl.history import load_history
 from feather_etl.output import emit
 
 
@@ -20,17 +22,14 @@ def history(
     limit: int = typer.Option(20, "--limit", help="Maximum number of runs to show."),
 ) -> None:
     """Show recent run history."""
-    from feather_etl.state import StateManager
-
     cfg = _load_and_validate(config)
     state_path = cfg.config_dir / "feather_state.duckdb"
 
-    if not state_path.exists():
+    try:
+        rows = load_history(state_path, table=table, limit=limit)
+    except StateDBMissingError:
         typer.echo("No state DB found. Run 'feather run' first.", err=True)
         raise typer.Exit(code=1)
-
-    sm = StateManager(state_path)
-    rows = sm.get_history(table_name=table, limit=limit)
 
     if not rows:
         if not _is_json(ctx):
