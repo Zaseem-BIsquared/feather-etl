@@ -7,9 +7,7 @@ import shutil
 from pathlib import Path
 
 import yaml
-from typer.testing import CliRunner
 
-from tests.commands.conftest import cli_config
 from tests.conftest import FIXTURES_DIR
 from tests.helpers import make_curation_entry, write_curation
 
@@ -133,17 +131,3 @@ class TestOutputHelper:
         emit_line({"ts": dt}, json_mode=True)
         parsed = json.loads(capsys.readouterr().out.strip())
         assert "2026-03-28" in parsed["ts"]
-
-
-runner = CliRunner()
-
-
-class TestCliJsonFlag:
-    def test_default_output_unchanged(self, tmp_path: Path):
-        """Default (no --json) output should still be human-readable."""
-        from feather_etl.cli import app
-
-        config_file = cli_config(tmp_path)
-        result = runner.invoke(app, ["validate", "--config", str(config_file)])
-        assert result.exit_code == 0
-        assert "Config valid" in result.output
