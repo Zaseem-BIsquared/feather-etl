@@ -44,3 +44,35 @@ class TestCacheBasic:
         result = runner.invoke(app, ["cache", "--config", str(config_path)])
         assert result.exit_code == 0
         assert "extracted" in result.output
+
+
+class TestCacheProdModeGuard:
+    def test_rejects_yaml_mode_prod(self, runner, tmp_path: Path):
+        from feather_etl.cli import app
+
+        client_db = tmp_path / "client.duckdb"
+        shutil.copy2(FIXTURES_DIR / "client.duckdb", client_db)
+        config = {
+            "mode": "prod",
+            "sources": [{"type": "duckdb", "name": "icube", "path": str(client_db)}],
+            "destination": {"path": str(tmp_path / "feather_data.duckdb")},
+        }
+        cp = tmp_path / "feather.yaml"
+        cp.write_text(yaml.dump(config))
+        write_curation(
+            tmp_path,
+            [make_curation_entry("icube", "icube.InventoryGroup", "inv")],
+        )
+
+        result = runner.invoke(app, ["cache", "--config", str(cp)])
+        assert result.exit_code == 2
+        assert "dev-only" in result.output
+
+    def test_rejects_feather_mode_env_prod(self, runner, tmp_path: Path, monkeypatch):
+        from feather_etl.cli import app
+
+        monkeypatch.setenv("FEATHER_MODE", "prod")
+        config_path = _project(tmp_path)
+        result = runner.invoke(app, ["cache", "--config", str(config_path)])
+        assert result.exit_code == 2
+        assert "dev-only" in result.output
