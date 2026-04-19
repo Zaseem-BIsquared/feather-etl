@@ -103,24 +103,46 @@ def project(tmp_path: Path) -> ProjectFixture:
 def cli(project: ProjectFixture) -> Callable[..., Result]:
     """Return a callable that runs feather CLI commands against `project`.
 
-    The `--config` flag is forwarded automatically after the positional args.
-    Because `--config` is a per-subcommand option, invocations should start
-    with a subcommand:
+    By default the `--config project.config_path` pair is forwarded
+    automatically after the positional args:
 
-        cli("validate")
-        cli("run")
-        cli("setup")
-        cli("validate", "--help")    # subcommand help is fine
+        cli("validate")                             # → feather validate --config <project>/feather.yaml
+        cli("run")                                  # → feather run       --config <project>/feather.yaml
 
-    `cli("--help")` (app-level help) is ambiguous with the auto-appended
-    --config and should be avoided; use `cli("<cmd>", "--help")` instead.
+    The `config=` keyword controls this:
+
+        cli("init", "./myproj", config=False)       # no --config appended; for commands that don't take it
+        cli("--help", config=False)                 # app-level --help
+        cli("validate", config=other_path)          # --config <other_path>; for tests with renamed configs
+
+    `config=True` (default) is identical to omitting it.
 
     Returns a `click.testing.Result` (re-exported as `typer.testing.Result`)
     exposing `.exit_code`, `.output`, `.stdout`, `.stderr`, etc.
     """
     runner = CliRunner()
 
-    def _run(*args: str) -> Result:
-        return runner.invoke(app, list(args) + ["--config", str(project.config_path)])
+    def _run(*args: str, config: bool | Path = True) -> Result:
+        argv = list(args)
+        if config is True:
+            argv += ["--config", str(project.config_path)]
+        elif config is False:
+            pass  # no --config flag at all
+        else:
+            argv += ["--config", str(config)]
+        return runner.invoke(app, argv)
 
     return _run
+
+
+@pytest.fixture
+def stub_viewer_serve(monkeypatch):
+    """Prevent the discover/view commands from launching a real browser.
+
+    Discover tests spawn a local HTTP server + open the user's browser via
+    `serve_and_open`. In tests that's undesirable. Apply this fixture
+    (directly or via `@pytest.mark.usefixtures("stub_viewer_serve")`) and
+    the function becomes a no-op.
+    """
+    import feather_etl.commands.discover as discover_cmd
+    monkeypatch.setattr(discover_cmd, "serve_and_open", lambda *a, **kw: None)
