@@ -1,4 +1,10 @@
-"""Structural guard tests for the modular CLI layout."""
+"""Workflow stage 00: CLI surface — commands registered, --help renders.
+
+Structural guards that pin the Typer app's registered commands and the
+minimum viable `feather <cmd> --help` behaviour. These are e2e by the
+"exercises the CLI" criterion even when they don't use CliRunner — a
+broken CLI surface breaks every subsequent e2e test.
+"""
 
 from __future__ import annotations
 
@@ -51,30 +57,21 @@ def test_command_modules_expose_register_functions() -> None:
         assert callable(module.register)
 
 
+def test_feather_help_lists_cache(project, cli):
+    result = cli("--help", config=False)
+    assert result.exit_code == 0
+    assert "cache" in result.output
 
-class TestCacheCommandRegistered:
-    def test_feather_help_lists_cache(self):
-        from typer.testing import CliRunner
-        from feather_etl.cli import app
 
-        runner = CliRunner()
-        result = runner.invoke(app, ["--help"])
-        assert result.exit_code == 0
-        assert "cache" in result.output
+def test_feather_cache_help_renders(project, cli):
+    import re
 
-    def test_feather_cache_help_renders(self):
-        import re
-
-        from typer.testing import CliRunner
-        from feather_etl.cli import app
-
-        runner = CliRunner()
-        result = runner.invoke(app, ["cache", "--help"])
-        assert result.exit_code == 0
-        # Strip ANSI escape sequences added by Rich so flag names aren't
-        # split across styling boundaries (e.g. "-\x1b[0m\x1b[36m-table").
-        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-        assert "--table" in plain
-        assert "--source" in plain
-        assert "--refresh" in plain
-        assert "--config" in plain
+    result = cli("cache", "--help")
+    assert result.exit_code == 0
+    # Strip ANSI escape sequences added by Rich so flag names aren't
+    # split across styling boundaries (e.g. "-\x1b[0m\x1b[36m-table").
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--table" in plain
+    assert "--source" in plain
+    assert "--refresh" in plain
+    assert "--config" in plain
