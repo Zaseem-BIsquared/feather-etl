@@ -1,4 +1,4 @@
-"""`feather validate` command."""
+"""`feather validate` command — thin Typer wrapper over feather_etl.validate."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from feather_etl.commands._common import (
     _load_and_validate,
 )
 from feather_etl.output import emit_line
+from feather_etl.validate import run_validate
 
 
 def validate(
@@ -19,45 +20,35 @@ def validate(
     """Validate config, test source connection, and write feather_validation.json."""
     cfg = _load_and_validate(config)
 
-    # Test source connections
-    all_ok = True
-    for source in cfg.sources:
-        source_ok = source.check()
-        if not source_ok:
-            all_ok = False
-        if not _is_json(ctx):
-            source_label = (
-                getattr(source, "path", None)
-                or getattr(source, "host", None)
-                or "configured"
-            )
-            conn_status = "connected" if source_ok else "FAILED"
-            typer.echo(f"  Source: {source.type} ({source_label}) — {conn_status}")
-            if not source_ok:
-                err = getattr(source, "_last_error", None)
-                if err:
-                    typer.echo(f"    Details: {err}", err=True)
+    report = run_validate(cfg)
+
+    if not _is_json(ctx):
+        for r in report.sources:
+            conn_status = "connected" if r.ok else "FAILED"
+            typer.echo(f"  Source: {r.type} ({r.label}) — {conn_status}")
+            if not r.ok and r.error:
+                typer.echo(f"    Details: {r.error}", err=True)
 
     if _is_json(ctx):
         emit_line(
             {
                 "valid": True,
-                "tables_count": len(cfg.tables),
+                "tables_count": report.tables_count,
                 "source_type": cfg.sources[0].type,
                 "destination": str(cfg.destination.path),
                 "mode": cfg.mode,
-                "source_connected": all_ok,
+                "source_connected": report.all_ok,
             },
             json_mode=True,
         )
     else:
-        typer.echo(f"Config valid: {len(cfg.tables)} table(s)")
+        typer.echo(f"Config valid: {report.tables_count} table(s)")
         typer.echo(f"  Destination: {cfg.destination.path}")
         typer.echo(f"  State: {cfg.config_dir / 'feather_state.duckdb'}")
         for t in cfg.tables:
             typer.echo(f"  Table: {t.name} → {t.target_table} ({t.strategy})")
 
-    if not all_ok:
+    if not report.all_ok:
         typer.echo("Source connection failed.", err=True)
         raise typer.Exit(code=2)
 
