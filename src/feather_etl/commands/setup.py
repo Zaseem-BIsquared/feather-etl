@@ -1,4 +1,4 @@
-"""`feather setup` command."""
+"""`feather setup` command — thin Typer wrapper over feather_etl.setup."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from feather_etl.commands._common import (
     _load_and_validate,
 )
 from feather_etl.output import emit_line
+from feather_etl.setup import run_setup
 
 
 def setup(
@@ -19,45 +20,19 @@ def setup(
     mode: str | None = typer.Option(None, "--mode"),
 ) -> None:
     """Preview and initialize state DB and schemas. Optional — feather run creates them automatically."""
-    from feather_etl.destinations.duckdb import DuckDBDestination
-    from feather_etl.state import StateManager
-
     cfg = _load_and_validate(config, mode_override=mode)
     if not _is_json(ctx):
         typer.echo(f"Mode: {cfg.mode}")
 
-    state_path = cfg.config_dir / "feather_state.duckdb"
-    sm = StateManager(state_path)
-    sm.init_state()
-    if not _is_json(ctx):
-        typer.echo(f"State DB initialized: {state_path}")
+    result = run_setup(cfg)
 
-    dest = DuckDBDestination(path=cfg.destination.path)
-    dest.setup_schemas()
     if not _is_json(ctx):
-        typer.echo(f"Schemas created in: {cfg.destination.path}")
-
-    # Execute transforms (silver views, gold views/tables) if any exist
-    from feather_etl.transforms import (
-        build_execution_order,
-        discover_transforms,
-        execute_transforms,
-    )
+        typer.echo(f"State DB initialized: {result.state_db_path}")
+        typer.echo(f"Schemas created in: {result.destination_path}")
 
     transforms_applied = 0
-    transforms = discover_transforms(cfg.config_dir)
-    if transforms:
-        ordered = build_execution_order(transforms)
-        con = dest._connect()
-        try:
-            if cfg.mode == "prod":
-                gold_only = [t for t in ordered if t.schema == "gold"]
-                results = execute_transforms(con, gold_only)
-            else:
-                results = execute_transforms(con, ordered, force_views=True)
-        finally:
-            con.close()
-
+    if result.transform_results is not None:
+        results = result.transform_results
         transforms_applied = sum(1 for r in results if r.status == "success")
 
         if not _is_json(ctx):
@@ -92,8 +67,8 @@ def setup(
     if _is_json(ctx):
         emit_line(
             {
-                "state_db": str(state_path),
-                "destination": str(cfg.destination.path),
+                "state_db": str(result.state_db_path),
+                "destination": str(result.destination_path),
                 "schemas_created": True,
                 "transforms_applied": transforms_applied,
             },

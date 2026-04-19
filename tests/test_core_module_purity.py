@@ -23,6 +23,7 @@ CORE_MODULES = [
     "feather_etl.history",
     "feather_etl.status",
     "feather_etl.validate",
+    "feather_etl.setup",
 ]
 
 
