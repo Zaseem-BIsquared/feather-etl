@@ -51,7 +51,44 @@ def cache(
         )
         raise typer.Exit(code=2)
 
-    tables = cfg.tables
+    # Parse selectors
+    requested_tables = (
+        [t.strip() for t in table.split(",") if t.strip()] if table else None
+    )
+    requested_sources = (
+        [s.strip() for s in source.split(",") if s.strip()] if source else None
+    )
+
+    all_tables = cfg.tables
+    all_table_names = [t.name for t in all_tables]
+    all_source_dbs = sorted({t.database for t in all_tables if t.database})
+
+    if requested_tables:
+        unknown = [t for t in requested_tables if t not in all_table_names]
+        if unknown:
+            typer.echo(
+                f"Unknown --table value(s): {', '.join(unknown)}. "
+                f"Valid: {', '.join(all_table_names)}",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+
+    if requested_sources:
+        unknown = [s for s in requested_sources if s not in all_source_dbs]
+        if unknown:
+            typer.echo(
+                f"Unknown --source value(s): {', '.join(unknown)}. "
+                f"Valid: {', '.join(all_source_dbs)}",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+
+    tables = all_tables
+    if requested_tables:
+        tables = [t for t in tables if t.name in requested_tables]
+    if requested_sources:
+        tables = [t for t in tables if t.database in requested_sources]
+
     results = run_cache(cfg, tables, cfg.config_dir, refresh=refresh)
 
     # Grouped-by-source_db output
