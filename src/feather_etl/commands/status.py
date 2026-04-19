@@ -1,4 +1,4 @@
-"""`feather status` command."""
+"""`feather status` command — thin Typer wrapper over feather_etl.status."""
 
 from __future__ import annotations
 
@@ -10,24 +10,23 @@ from feather_etl.commands._common import (
     _is_json,
     _load_and_validate,
 )
+from feather_etl.exceptions import StateDBMissingError
 from feather_etl.output import emit
+from feather_etl.status import load_status
 
 
 def status(
     ctx: typer.Context, config: Path = typer.Option("feather.yaml", "--config")
 ) -> None:
     """Show last run status for all tables."""
-    from feather_etl.state import StateManager
-
     cfg = _load_and_validate(config)
     state_path = cfg.config_dir / "feather_state.duckdb"
 
-    if not state_path.exists():
+    try:
+        rows = load_status(state_path)
+    except StateDBMissingError:
         typer.echo("No state DB found. Run 'feather setup' first.", err=True)
         raise typer.Exit(code=1)
-
-    sm = StateManager(state_path)
-    rows = sm.get_status()
 
     if not rows:
         if _is_json(ctx):
