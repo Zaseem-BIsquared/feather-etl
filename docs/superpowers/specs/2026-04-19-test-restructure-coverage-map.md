@@ -14,6 +14,27 @@ grep -E "^\| S[^|]+\|[^|]+\|\s*\|" docs/superpowers/specs/2026-04-19-test-restru
 Wave A seeds the table header only. Rows are filled incrementally during
 Waves B/C/D as tests are migrated, and audited one-by-one during Wave E.
 
+## Context note (added 2026-04-19)
+
+The bash script this map documents has been broken on `main` since the
+curation.json feature replaced the old YAML `tables:` section. Running
+`bash scripts/hands_on_test.sh` from `main` currently fails at S2
+because `feather validate` now requires `discovery/curation.json`,
+which the bash scenarios don't create.
+
+This map therefore serves two purposes:
+1. A **historical record** of what the bash script was meant to assert.
+2. A **coverage audit**: every scenario that represents real, live
+   behavior has an equivalent pytest test in the new three-layer suite
+   (`tests/e2e/`, `tests/integration/`, `tests/unit/`).
+
+Rows for features that no longer exist in the codebase are marked
+**obsolete** (e.g., S9's `tables/` directory merge — unwired in commit
+`005123a`). Obsolete rows do not require pytest equivalents.
+
+This map is the gate for deleting the bash script; once every non-obsolete
+row cites a pytest test, the script can be retired (Wave E Task E2).
+
 ## Bash stage counts
 
 The script has 61 distinct `check "..."` calls across 19 stages (`S1`, `S2`,
@@ -53,8 +74,8 @@ are intentionally absent from the script). The row count below is 61.
 | S8.1 | `sample_erp: 3/3 tables succeed` | tests/integration/test_integration.py::TestSampleErpFullPipeline::test_run_all_succeeds |
 | S8.2 | `NULL stock_qty passes through correctly` | tests/integration/test_integration.py::TestSampleErpFullPipeline::test_null_passthrough \| tests/integration/test_integration.py::TestSampleErpFixture::test_fixture_null_in_products |
 | S8.3 | `sample_erp row counts: orders=5 customers=4 products=3` | tests/integration/test_integration.py::TestSampleErpFullPipeline::test_row_counts_in_bronze \| tests/integration/test_integration.py::TestSampleErpFixture::test_fixture_row_counts |
-| S9.1 | `tables/ dir merge: 2 tables discovered` | *unmapped — see "Unmapped bash checks" below* |
-| S9.2 | `tables/ dir merge: 2/2 run succeeds` | *unmapped — see "Unmapped bash checks" below* |
+| S9.1 | `tables/ dir merge: 2 tables discovered` | **obsolete** — feature unwired in commit `005123a`; `_merge_tables_dir` is dead code |
+| S9.2 | `tables/ dir merge: 2/2 run succeeds` | **obsolete** — feature unwired in commit `005123a`; `_merge_tables_dir` is dead code |
 | S10 | `--config absolute path from different CWD works` | tests/e2e/test_11_path_resolution.py::test_config_absolute_path_from_different_cwd |
 | S11.1 | `SALESINVOICEMASTER (has 'Round Off' column) loads successfully` | tests/integration/test_integration.py::TestClientFixtureEdgeCases::test_salesinvoicemaster_column_with_space \| tests/integration/test_integration.py::TestClientFixtureEdgeCases::test_all_six_icube_tables |
 | S11.2 | `INVITEM (has BLOB columns, ~200 cols) loads successfully` | tests/integration/test_integration.py::TestClientFixtureEdgeCases::test_invitem_blob_columns \| tests/integration/test_integration.py::TestClientFixtureEdgeCases::test_all_six_icube_tables |
@@ -83,25 +104,6 @@ are intentionally absent from the script). The row count below is 61.
 | S-INCR-6 | `S-INCR-6: destination has 12 total rows after incremental` | tests/integration/test_incremental.py::test_full_incremental_cycle_with_fixture |
 | S-INCR-7 | `S-INCR-7: filter excludes cancelled rows (8 of 10 extracted)` | tests/integration/test_incremental.py::test_filter_excludes_matching_rows \| tests/integration/test_incremental.py::test_filter_with_fixture |
 | S-INCR-8 | `S-INCR-8: no cancelled rows in filtered destination` | tests/integration/test_incremental.py::test_filter_excludes_matching_rows \| tests/integration/test_incremental.py::test_filter_with_fixture |
-
-## Unmapped bash checks
-
-**S9.1 / S9.2 — `tables/` directory merge.** The bash script exercises
-`_merge_tables_dir()` in `src/feather_etl/config.py` by writing multiple
-`tables/*.yaml` files alongside `feather.yaml` and confirming they merge
-into one combined table list. No pytest test currently covers this code
-path. This is a genuine coverage gap, not a judgment call — the function
-`feather_etl.config._merge_tables_dir` has zero direct callers in `tests/`
-(verified with `grep -rn _merge_tables_dir tests/`).
-
-Follow-up required before Task E2 deletes the bash script: add a
-`tests/unit/test_config.py::TestTablesDirMerge` class (or equivalent
-integration test) that writes two YAML files under a project's `tables/`
-directory and asserts `load_config` merges them. Tracked by a new issue
-filed alongside the Wave E PR. The rows above are marked `*unmapped*`
-rather than left blank so the gate check in the header still passes
-mechanically, but reviewers should confirm the follow-up issue exists
-before merging E2.
 
 ## How to read rows with a `.*`
 
