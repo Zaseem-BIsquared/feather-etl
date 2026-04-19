@@ -16,11 +16,15 @@ Waves B/C/D as tests are migrated, and audited one-by-one during Wave E.
 
 ## Context note (added 2026-04-19)
 
-The bash script this map documents has been broken on `main` since the
-curation.json feature replaced the old YAML `tables:` section. Running
-`bash scripts/hands_on_test.sh` from `main` currently fails at S2
-because `feather validate` now requires `discovery/curation.json`,
-which the bash scenarios don't create.
+The bash script this map documents was stale well before Wave E retired
+it. When `discovery/curation.json` became the canonical table manifest
+(explicit wiring only for `feather discover` and `feather cache`), the
+remaining commands (`run`, `validate`, `setup`, `status`, `history`,
+`view`) inherited the requirement indirectly via `load_config`: that
+function stopped reading the inline YAML `tables:` section and began
+reading curation.json instead. The bash script's scenarios still used
+the old inline-tables format, so every non-init scenario from S2 onward
+fails on `main`.
 
 This map therefore serves two purposes:
 1. A **historical record** of what the bash script was meant to assert.
@@ -28,12 +32,13 @@ This map therefore serves two purposes:
    behavior has an equivalent pytest test in the new three-layer suite
    (`tests/e2e/`, `tests/integration/`, `tests/unit/`).
 
-Rows for features that no longer exist in the codebase are marked
-**obsolete** (e.g., S9's `tables/` directory merge — unwired in commit
-`005123a`). Obsolete rows do not require pytest equivalents.
+**Two rows** (S9.1, S9.2) cover a feature that was physically deleted
+in commit `efcd829` (`_parse_tables` + `_merge_tables_dir` removed as
+orphaned dead code). Those rows are marked **obsolete — feature
+removed**; no pytest equivalent is required or possible.
 
-This map is the gate for deleting the bash script; once every non-obsolete
-row cites a pytest test, the script can be retired (Wave E Task E2).
+This map was the gate for deleting the bash script; every non-obsolete
+row cites a pytest test, and the script was retired in commit `5ef8739`.
 
 ## Bash stage counts
 
@@ -74,8 +79,8 @@ are intentionally absent from the script). The row count below is 61.
 | S8.1 | `sample_erp: 3/3 tables succeed` | tests/integration/test_integration.py::TestSampleErpFullPipeline::test_run_all_succeeds |
 | S8.2 | `NULL stock_qty passes through correctly` | tests/integration/test_integration.py::TestSampleErpFullPipeline::test_null_passthrough \| tests/integration/test_integration.py::TestSampleErpFixture::test_fixture_null_in_products |
 | S8.3 | `sample_erp row counts: orders=5 customers=4 products=3` | tests/integration/test_integration.py::TestSampleErpFullPipeline::test_row_counts_in_bronze \| tests/integration/test_integration.py::TestSampleErpFixture::test_fixture_row_counts |
-| S9.1 | `tables/ dir merge: 2 tables discovered` | **obsolete** — feature unwired in commit `005123a`; `_merge_tables_dir` is dead code |
-| S9.2 | `tables/ dir merge: 2/2 run succeeds` | **obsolete** — feature unwired in commit `005123a`; `_merge_tables_dir` is dead code |
+| S9.1 | `tables/ dir merge: 2 tables discovered` | **obsolete** — feature removed in commit `efcd829` (inline YAML `tables:` section no longer supported; use `discovery/curation.json`) |
+| S9.2 | `tables/ dir merge: 2/2 run succeeds` | **obsolete** — feature removed in commit `efcd829` (inline YAML `tables:` section no longer supported; use `discovery/curation.json`) |
 | S10 | `--config absolute path from different CWD works` | tests/e2e/test_11_path_resolution.py::test_config_absolute_path_from_different_cwd |
 | S11.1 | `SALESINVOICEMASTER (has 'Round Off' column) loads successfully` | tests/integration/test_integration.py::TestClientFixtureEdgeCases::test_salesinvoicemaster_column_with_space \| tests/integration/test_integration.py::TestClientFixtureEdgeCases::test_all_six_icube_tables |
 | S11.2 | `INVITEM (has BLOB columns, ~200 cols) loads successfully` | tests/integration/test_integration.py::TestClientFixtureEdgeCases::test_invitem_blob_columns \| tests/integration/test_integration.py::TestClientFixtureEdgeCases::test_all_six_icube_tables |
