@@ -32,3 +32,26 @@ def test_validate_missing_config_shows_friendly_error(tmp_path, monkeypatch):
     assert result.exit_code != 0, result.output
     assert "Config file not found" in result.output
     assert "Traceback" not in result.output
+
+
+def test_csv_source_rejects_file_path(project, cli):
+    """S16a: CSV source.path must be a directory, not a file.
+
+    The CSV source type globs `path/*.csv`, so passing a file is a
+    configuration error. validate must catch it (non-zero exit).
+    """
+    # Arrange: a file at the path (not a directory).
+    csv_file = project.root / "source.csv"
+    csv_file.write_text("a,b\n1,2\n")
+    assert csv_file.is_file()
+
+    project.write_config(
+        sources=[{"type": "csv", "name": "csvs", "path": "./source.csv"}],
+        destination={"path": "./feather_data.duckdb"},
+    )
+
+    # Act + assert: validate rejects the config.
+    result = cli("validate")
+    assert result.exit_code != 0, (
+        f"validate unexpectedly succeeded; output was:\n{result.output}"
+    )
