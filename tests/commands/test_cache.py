@@ -221,3 +221,26 @@ class TestCacheSelectors:
         assert result.exit_code == 2
         assert "nope" in result.output
         assert "icube" in result.output
+
+
+class TestCacheRefresh:
+    def test_refresh_forces_re_extraction(self, runner, tmp_path: Path):
+        from feather_etl.cli import app
+
+        config_path = _project(tmp_path)
+        # Cold run
+        r1 = runner.invoke(app, ["cache", "--config", str(config_path)])
+        assert r1.exit_code == 0
+        assert "1 extracted" in r1.output
+
+        # Warm run — should be cached
+        r2 = runner.invoke(app, ["cache", "--config", str(config_path)])
+        assert r2.exit_code == 0
+        assert "1 cached" in r2.output
+
+        # Refresh — should re-extract
+        r3 = runner.invoke(
+            app, ["cache", "--config", str(config_path), "--refresh"]
+        )
+        assert r3.exit_code == 0
+        assert "1 extracted" in r3.output
