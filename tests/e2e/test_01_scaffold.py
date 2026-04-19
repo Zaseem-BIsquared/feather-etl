@@ -53,6 +53,39 @@ def test_init_dot_uses_cwd_name(cli, project, monkeypatch):
     assert "my-client" in toml
 
 
+def test_init_prompts_for_project_name_when_omitted(project, monkeypatch):
+    """When the user omits the positional project_name, feather init prompts
+    for it via typer.prompt (which reads stdin)."""
+    from typer.testing import CliRunner
+
+    from feather_etl.cli import app
+
+    monkeypatch.chdir(project.root)
+    runner = CliRunner()
+    result = runner.invoke(app, ["init"], input="prompted-proj\n")
+    assert result.exit_code == 0
+    assert (project.root / "prompted-proj" / "feather.yaml").exists()
+
+
+def test_init_json_emits_project_and_files_created(cli, project):
+    """`feather --json init <path>` writes an NDJSON line with the
+    scaffolded project path + files_created count."""
+    import json
+
+    target = project.root / "json-project"
+    result = cli("--json", "init", str(target), config=False)
+    assert result.exit_code == 0
+    # Everything on stdout is one JSON line (emit_line uses NDJSON).
+    line = next(
+        line for line in result.output.strip().splitlines() if line.startswith("{")
+    )
+    parsed = json.loads(line)
+    assert parsed["project"].endswith("json-project")
+    # files_created is a list of filenames created by scaffold_project
+    assert isinstance(parsed["files_created"], list)
+    assert "feather.yaml" in parsed["files_created"]
+
+
 def test_scaffolded_yaml_uses_sources_list(tmp_path: Path):
     from feather_etl.init_wizard import scaffold_project
 

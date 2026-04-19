@@ -68,6 +68,52 @@ def test_history_empty_state_shows_message(cli, project):
     assert "No runs recorded" in result.output
 
 
+def test_history_shows_error_row_and_truncates_long_messages(cli, project):
+    """A run with an ``error_message`` longer than 80 chars is displayed
+    under its row with a ``Error: ...`` line truncated to 77 chars + ``...``."""
+    from datetime import datetime, timezone
+
+    from feather_etl.state import StateManager
+
+    # Minimal project config + state DB; no need to actually extract.
+    project.copy_fixture("client.duckdb")
+    project.write_config(
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
+        destination={"path": str(project.root / "feather_data.duckdb")},
+    )
+    project.write_curation([("icube", "icube.InventoryGroup", "inventory_group")])
+
+    # Seed a run with a long error message directly in the state DB.
+    sm = StateManager(project.state_db_path)
+    sm.init_state()
+    long_err = "A" * 150  # > 80 chars triggers the truncation branch
+    now = datetime.now(timezone.utc)
+    sm.record_run(
+        run_id="run_with_err",
+        table_name="icube_inventory_group",
+        started_at=now,
+        ended_at=now,
+        status="failed",
+        error_message=long_err,
+    )
+
+    result = cli("history")
+    assert result.exit_code == 0
+    # The error row is surfaced beneath the table row
+    assert "Error:" in result.output
+    # The long message is truncated to 77 chars + '...'
+    truncated = "A" * 77 + "..."
+    assert truncated in result.output
+    # And the full 150-char message is not printed
+    assert "A" * 150 not in result.output
+
+
 def test_history_json_outputs_ndjson(cli, project):
     project.copy_fixture("client.duckdb")
     project.write_config(
