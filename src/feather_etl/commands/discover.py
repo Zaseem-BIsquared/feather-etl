@@ -1,50 +1,62 @@
-"""`feather discover` command — iterates every source in feather.yaml."""
+"""`feather discover` command — thin Typer wrapper over feather_etl.discover."""
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 import typer
 
 from feather_etl.commands._common import _load_and_validate
-from feather_etl.config import schema_output_path
-from feather_etl.discover_state import (
-    DiscoverState,
-    apply_renames,
-    classify,
-    detect_renames,
+from feather_etl.discover import (
+    apply_rename_decision,
+    detect_renames_for_sources,
+    run_discover,
 )
+from feather_etl.discover_state import DiscoverState
 from feather_etl.sources.expand import expand_db_sources
 from feather_etl.viewer_server import serve_and_open
 
 
-def _write_schema(source, target_dir: Path) -> tuple[Path, int]:
-    """Discover `source` and write JSON. Returns (path, table_count)."""
-    schemas = source.discover()
-    payload = [
-        {
-            "table_name": s.name,
-            "columns": [{"name": c[0], "type": c[1]} for c in s.columns],
-        }
-        for s in schemas
-    ]
-    out = target_dir / schema_output_path(source)
-    out.write_text(json.dumps(payload, indent=2))
-    return out, len(schemas)
+def _resolve_rename_decision(
+    proposals: list[tuple[str, str]],
+    *,
+    yes: bool,
+    no_renames: bool,
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Echo proposals and resolve --yes / --no-renames / TTY confirm.
 
-
-def _fingerprint_for(source) -> str:
-    """Composition per spec §6.7.
-
-    DB sources: '<type>:<host>:<port>:<database>'. File sources: '<type>:<absolute_path>'.
+    Returns ``(accepted, rejected)``. May raise ``typer.Exit(3)`` if the
+    decision is required but stdin is not a TTY.
     """
-    if hasattr(source, "host") and source.host is not None:
-        return (
-            f"{source.type}:{source.host}:{source.port or ''}:{source.database or ''}"
+    proposal_err = not sys.stdin.isatty()
+    for old_name, new_name in proposals:
+        typer.echo(
+            f"  Rename inferred: {old_name} -> {new_name}",
+            err=proposal_err,
         )
-    return f"{source.type}:{Path(source.path).resolve()}"
+
+    if no_renames:
+        for old_name, new_name in proposals:
+            typer.echo(f"  Kept {old_name} orphaned; treating {new_name} as new")
+        return [], list(proposals)
+
+    if yes:
+        return list(proposals), []
+
+    if sys.stdin.isatty():
+        if typer.confirm("Accept all?", default=True):
+            return list(proposals), []
+        for old_name, new_name in proposals:
+            typer.echo(f"  Kept {old_name} orphaned; treating {new_name} as new")
+        return [], list(proposals)
+
+    typer.echo(
+        "Rename confirmation required in non-interactive mode. "
+        "Re-run with --yes to accept or --no-renames to reject.",
+        err=True,
+    )
+    raise typer.Exit(code=3)
 
 
 def discover(
@@ -72,23 +84,20 @@ def discover(
     """Save each source's schema to an auto-named schema JSON file, then serve/open the schema viewer."""
     cfg = _load_and_validate(config, discover_mode=True)
     target_dir = Path(".")
+
+    # Capture the prior `last_run_at` for the header BEFORE any state mutation.
+    # The rename phase below may call `state.save()`, which updates the
+    # timestamp; we want the truly-prior discover run, not the rename save.
     state = DiscoverState.load(target_dir)
+    prior_last_run_at = state.last_run_at
 
-    sources = expand_db_sources(cfg.sources)
-    flag: str | None = None
-    if refresh:
-        flag = "refresh"
-    elif retry_failed:
-        flag = "retry-failed"
-    elif prune:
-        flag = "prune"
+    # Rename phase (only when not in refresh/prune mode — preserves prior behavior).
+    if not (refresh or prune):
+        sources = expand_db_sources(cfg.sources)
+        detection = detect_renames_for_sources(state, sources)
 
-    if flag not in {"refresh", "prune"}:
-        current_pairs = [(source.name, _fingerprint_for(source)) for source in sources]
-        proposals, ambiguous = detect_renames(state=state, current=current_pairs)
-
-        if ambiguous:
-            for new_name, candidates in ambiguous:
+        if detection.ambiguous:
+            for new_name, candidates in detection.ambiguous:
                 typer.echo(
                     f"Ambiguous rename for {new_name}: candidates "
                     f"{', '.join(candidates)}",
@@ -96,177 +105,72 @@ def discover(
                 )
             raise typer.Exit(code=2)
 
-        if proposals:
-            proposal_err = not sys.stdin.isatty()
-            for old_name, new_name in proposals:
-                typer.echo(
-                    f"  Rename inferred: {old_name} -> {new_name}",
-                    err=proposal_err,
-                )
+        if detection.proposals:
+            accepted, rejected = _resolve_rename_decision(
+                detection.proposals, yes=yes, no_renames=no_renames
+            )
+            apply_rename_decision(
+                state,
+                accepted=accepted,
+                rejected=rejected,
+                sources=sources,
+                config_dir=target_dir,
+            )
+            state.save()
 
-            if no_renames:
-                for old_name, new_name in proposals:
-                    state.record_orphaned(
-                        old_name,
-                        note=f"rename rejected; new source discovered as {new_name}",
-                    )
-                    typer.echo(
-                        f"  Kept {old_name} orphaned; treating {new_name} as new"
-                    )
-            elif yes:
-                apply_renames(
-                    state=state,
-                    renames=proposals,
-                    config_dir=target_dir,
-                    sources=sources,
-                )
-            elif sys.stdin.isatty():
-                if typer.confirm("Accept all?", default=True):
-                    apply_renames(
-                        state=state,
-                        renames=proposals,
-                        config_dir=target_dir,
-                        sources=sources,
-                    )
-                else:
-                    for old_name, new_name in proposals:
-                        state.record_orphaned(
-                            old_name,
-                            note=f"rename rejected; new source discovered as {new_name}",
-                        )
-                        typer.echo(
-                            f"  Kept {old_name} orphaned; treating {new_name} as new"
-                        )
-            else:
-                typer.echo(
-                    "Rename confirmation required in non-interactive mode. "
-                    "Re-run with --yes to accept or --no-renames to reject.",
-                    err=True,
-                )
-                raise typer.Exit(code=3)
+    report = run_discover(
+        cfg,
+        target_dir,
+        refresh=refresh,
+        retry_failed=retry_failed,
+        prune=prune,
+    )
 
-    names = [s.name for s in sources]
-
-    decisions = classify(state=state, current_names=names, flag=flag)
-
-    if flag == "prune":
-        pruned = 0
-        for name, dec in list(decisions.items()):
-            entry = state.sources.get(name)
-            if dec == "removed" or (
-                entry and entry.get("status") in ("orphaned", "removed")
-            ):
-                if entry and entry.get("output_path"):
-                    target = target_dir / Path(entry["output_path"]).name
-                    if target.is_file():
-                        target.unlink()
-                        typer.echo(f"  Pruned: {target.name}")
-                state.sources.pop(name, None)
-                pruned += 1
-        state.save()
-        typer.echo(f"\nPruned {pruned} removed/orphaned entries.")
+    # Prune mode short-circuits BEFORE the "Discovering from" header — matches
+    # prior CLI behavior (the pre-refactor wrapper returned from the prune
+    # branch before reaching the header block).
+    if prune:
+        for r in report.results:
+            if r.status == "pruned" and r.output_path is not None:
+                typer.echo(f"  Pruned: {r.output_path.name}")
+        typer.echo(f"\nPruned {report.pruned_count} removed/orphaned entries.")
         return
 
-    succeeded = 0
-    failed_count = 0
-    cached_count = 0
-    total = len(sources)
-
-    if state.last_run_at:
+    # Header line — uses the pre-rename-mutation timestamp captured above.
+    if prior_last_run_at:
         typer.echo(
             f"Discovering from {config.name} (state file found, "
-            f"last run {state.last_run_at})..."
+            f"last run {prior_last_run_at})..."
         )
     else:
         typer.echo(f"Discovering from {config.name}...")
 
-    for idx, source in enumerate(sources, start=1):
-        prefix = f"  [{idx}/{total}] {source.name}"
-        decision = decisions.get(source.name, "new")
-        fingerprint = _fingerprint_for(source)
-
-        if decision == "cached":
-            entry = state.sources[source.name]
-            cached_count += 1
-            typer.echo(f"{prefix}  (cached, {entry.get('table_count', 0)} tables)")
-            continue
-        if decision == "skip":
+    total = len(report.results)
+    for idx, r in enumerate(report.results, start=1):
+        prefix = f"  [{idx}/{total}] {r.name}"
+        if r.status == "cached":
+            typer.echo(f"{prefix}  (cached, {r.table_count} tables)")
+        elif r.status == "skipped":
             typer.echo(f"{prefix}  (skipped)")
-            continue
-
-        # Source came from expand_db_sources with a pre-set error (e.g. empty enumeration).
-        if hasattr(source, "_last_error") and source._last_error:
-            failed_count += 1
-            state.record_failed(
-                name=source.name,
-                type_=source.type,
-                fingerprint=fingerprint,
-                error=source._last_error,
-                host=getattr(source, "host", None),
-                database=getattr(source, "database", None),
+        elif r.status == "failed":
+            typer.echo(f"{prefix}  → FAILED: {r.error}", err=True)
+        elif r.status == "succeeded":
+            assert r.output_path is not None
+            typer.echo(
+                f"{prefix}  ({r.decision})  → {r.table_count} tables → ./{r.output_path.name}"
             )
-            typer.echo(f"{prefix}  → FAILED: {source._last_error}", err=True)
-            continue
 
-        # "new", "retry", "rerun" — actually discover.
-        if not source.check():
-            err = getattr(source, "_last_error", "connection failed")
-            failed_count += 1
-            state.record_failed(
-                name=source.name,
-                type_=source.type,
-                fingerprint=fingerprint,
-                error=err,
-                host=getattr(source, "host", None),
-                database=getattr(source, "database", None),
-            )
-            typer.echo(f"{prefix}  → FAILED: {err}", err=True)
-            continue
-        try:
-            out, count = _write_schema(source, target_dir)
-        except Exception as e:
-            failed_count += 1
-            state.record_failed(
-                name=source.name,
-                type_=source.type,
-                fingerprint=fingerprint,
-                error=str(e),
-                host=getattr(source, "host", None),
-                database=getattr(source, "database", None),
-            )
-            typer.echo(f"{prefix}  → FAILED: {e}", err=True)
-            continue
-        succeeded += 1
-        state.record_ok(
-            name=source.name,
-            type_=source.type,
-            fingerprint=fingerprint,
-            table_count=count,
-            output_path=out,
-            host=getattr(source, "host", None),
-            database=getattr(source, "database", None),
-        )
-        label = decision
-        typer.echo(f"{prefix}  ({label})  → {count} tables → ./{out.name}")
-
-    # Mark state-only entries as removed.
-    for name, dec in decisions.items():
-        if dec == "removed" and state.sources.get(name, {}).get("status") != "orphaned":
-            state.record_removed(name)
-
-    state.save()
-
-    parts = []
-    if succeeded:
-        parts.append(f"{succeeded} discovered")
-    if cached_count:
-        parts.append(f"{cached_count} cached")
-    if failed_count:
-        parts.append(f"{failed_count} failed")
+    parts: list[str] = []
+    if report.succeeded_count:
+        parts.append(f"{report.succeeded_count} discovered")
+    if report.cached_count:
+        parts.append(f"{report.cached_count} cached")
+    if report.failed_count:
+        parts.append(f"{report.failed_count} failed")
     typer.echo(f"\n{', '.join(parts)}.")
 
     serve_and_open(target_dir.resolve(), preferred_port=8000)
-    if failed_count > 0:
+    if report.failed_count > 0:
         raise typer.Exit(code=2)
 
 
