@@ -477,6 +477,178 @@ class TestRebuildMaterializedGold:
         t = TransformMeta(name="v", schema="gold", sql="SELECT 1")
         results = rebuild_materialized_gold(con, [t])
         assert results == []
+
+    def test_rebuild_emits_warning_when_join_health_fails(
+        self, tmp_path: Path, caplog
+    ):
+        """rebuild_materialized_gold runs check_join_health on each rebuilt
+        gold; a non-None warning is passed to logger.warning.
+        (transforms.py:272)"""
+        import logging
+
+        con = duckdb.connect(str(tmp_path / "test.duckdb"))
+        _make_bronze_tables(con)
+        # Silver fact: 3 rows
+        con.execute("CREATE VIEW silver.emp_fact AS SELECT * FROM bronze.employees")
+
+        # Gold transform that duplicates the fact (inflation) + declares the
+        # fact table so check_join_health has something to compare against.
+        mat = TransformMeta(
+            name="emp_inflated",
+            schema="gold",
+            sql="SELECT * FROM silver.emp_fact UNION ALL SELECT * FROM silver.emp_fact",
+            materialized=True,
+            fact_table="silver.emp_fact",
+        )
+
+        with caplog.at_level(logging.WARNING, logger="feather_etl.transforms"):
+            results = rebuild_materialized_gold(con, [mat])
+
+        assert len(results) == 1
+        assert results[0].status == "success"
+        # The health warning is emitted via logger.warning
+        assert "JOIN INFLATION" in caplog.text
+        assert "emp_inflated" in caplog.text
+        con.close()
+
+
+class TestParseTransformFile:
+    def test_invalid_schema_directory_raises(self, tmp_path: Path):
+        """Files placed outside ``transforms/silver`` or ``transforms/gold``
+        are rejected — the parser refuses to build a TransformMeta for a
+        bronze or unknown schema. (transforms.py:81)"""
+        from feather_etl.transforms import parse_transform_file
+
+        bad_dir = tmp_path / "transforms" / "bronze"
+        bad_dir.mkdir(parents=True)
+        path = bad_dir / "oops.sql"
+        path.write_text("SELECT 1")
+
+        with pytest.raises(ValueError, match="expected one of"):
+            parse_transform_file(path)
+
+    def test_fact_table_comment_is_recorded(self, tmp_path: Path):
+        """``-- fact_table: <name>`` header is parsed into ``fact_table``
+        while being stripped from the SQL body. (transforms.py:70)"""
+        from feather_etl.transforms import parse_transform_file
+
+        sql_dir = tmp_path / "transforms" / "gold"
+        sql_dir.mkdir(parents=True)
+        path = sql_dir / "joined.sql"
+        path.write_text(
+            "-- depends_on: silver.fact_x\n"
+            "-- fact_table: silver.fact_x\n"
+            "-- materialized: true\n"
+            "SELECT * FROM silver.fact_x\n"
+        )
+
+        meta = parse_transform_file(path)
+        assert meta.fact_table == "silver.fact_x"
+        assert meta.materialized is True
+        assert meta.depends_on == ["silver.fact_x"]
+        # The comment lines are stripped from the SQL
+        assert "fact_table" not in meta.sql
+        assert "SELECT * FROM silver.fact_x" in meta.sql
+
+
+class TestCheckJoinHealth:
+    def test_returns_none_when_fact_table_not_declared(self, tmp_path: Path):
+        """No ``-- fact_table:`` header → check_join_health is a no-op."""
+        from feather_etl.transforms import check_join_health
+
+        con = duckdb.connect(str(tmp_path / "h.duckdb"))
+        t = TransformMeta(name="x", schema="gold", sql="SELECT 1")
+        assert check_join_health(con, t) is None
+        con.close()
+
+    def test_detects_join_inflation(self, tmp_path: Path):
+        """Gold has MORE rows than its declared fact table → JOIN INFLATION."""
+        from feather_etl.transforms import check_join_health
+
+        con = duckdb.connect(str(tmp_path / "h.duckdb"))
+        _make_bronze_tables(con)
+        con.execute("CREATE VIEW silver.fact AS SELECT * FROM bronze.employees")
+        # Gold is a UNION ALL with itself → doubled
+        con.execute(
+            "CREATE TABLE gold.doubled AS "
+            "SELECT * FROM silver.fact UNION ALL SELECT * FROM silver.fact"
+        )
+
+        t = TransformMeta(
+            name="doubled",
+            schema="gold",
+            sql="...",
+            fact_table="silver.fact",
+        )
+        warning = check_join_health(con, t)
+        assert warning is not None
+        assert "JOIN INFLATION" in warning
+        assert "gold.doubled" in warning
+        assert "silver.fact" in warning
+        con.close()
+
+    def test_detects_join_loss(self, tmp_path: Path):
+        """Gold has FEWER rows than its declared fact table → JOIN LOSS."""
+        from feather_etl.transforms import check_join_health
+
+        con = duckdb.connect(str(tmp_path / "h.duckdb"))
+        _make_bronze_tables(con)
+        con.execute("CREATE VIEW silver.fact AS SELECT * FROM bronze.employees")
+        # Gold is a filter that drops some rows
+        con.execute(
+            "CREATE TABLE gold.filtered AS SELECT * FROM silver.fact WHERE id <= 1"
+        )
+
+        t = TransformMeta(
+            name="filtered",
+            schema="gold",
+            sql="...",
+            fact_table="silver.fact",
+        )
+        warning = check_join_health(con, t)
+        assert warning is not None
+        assert "JOIN LOSS" in warning
+        assert "gold.filtered" in warning
+        con.close()
+
+    def test_returns_none_when_counts_match(self, tmp_path: Path):
+        from feather_etl.transforms import check_join_health
+
+        con = duckdb.connect(str(tmp_path / "h.duckdb"))
+        _make_bronze_tables(con)
+        con.execute("CREATE VIEW silver.fact AS SELECT * FROM bronze.employees")
+        con.execute("CREATE TABLE gold.matched AS SELECT * FROM silver.fact")
+
+        t = TransformMeta(
+            name="matched",
+            schema="gold",
+            sql="...",
+            fact_table="silver.fact",
+        )
+        assert check_join_health(con, t) is None
+        con.close()
+
+    def test_query_failure_produces_diagnostic_message(self, tmp_path: Path):
+        """If one of the COUNT queries raises (e.g. the declared fact table
+        doesn't exist), check_join_health returns an explanatory string
+        rather than propagating the exception."""
+        from feather_etl.transforms import check_join_health
+
+        con = duckdb.connect(str(tmp_path / "h.duckdb"))
+        con.execute("CREATE SCHEMA gold")
+        con.execute("CREATE TABLE gold.g AS SELECT 1 AS x")
+
+        t = TransformMeta(
+            name="g",
+            schema="gold",
+            sql="...",
+            fact_table="silver.definitely_not_here",
+        )
+        warning = check_join_health(con, t)
+        assert warning is not None
+        assert "Join health check failed" in warning
+        assert "gold.g" in warning
+        con.close()
         con.close()
 
 
