@@ -49,3 +49,34 @@ def mysql_check() -> tuple[bool, str | None]:
         return (True, None)
     except Exception as exc:
         return (False, str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Per-flavor bootstrap
+# ---------------------------------------------------------------------------
+
+
+def _ensure_postgres_database() -> tuple[bool, str | None]:
+    """Create `feather_test` on Postgres if it doesn't exist.
+
+    CREATE DATABASE cannot run inside a transaction, hence autocommit=True.
+    Any driver error is captured as the failure reason — never re-raised.
+    """
+    try:
+        admin = psycopg2.connect(POSTGRES_ADMIN_DSN)
+        admin.autocommit = True
+        cur = admin.cursor()
+        try:
+            cur.execute(
+                "SELECT 1 FROM pg_database WHERE datname = %s", (TARGET_DB,)
+            )
+            if cur.fetchone() is None:
+                # Identifier cannot be parameterized; TARGET_DB is a fixed const.
+                cur.execute(f'CREATE DATABASE "{TARGET_DB}"')
+        finally:
+            cur.close()
+            admin.close()
+    except Exception as exc:
+        return (False, str(exc))
+
+    return postgres_check()
