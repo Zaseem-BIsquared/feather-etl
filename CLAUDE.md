@@ -4,8 +4,14 @@ Config-driven Python ETL for heterogeneous ERP sources → local DuckDB.
 
 **Full project context:** `.claude/rules/feather-etl-project.md`
 **Requirements:** `docs/prd.md`
-**Architecture:** `README.md`
+**Architecture (codebase):** `README.md`
+**Architecture (warehouse model):** `docs/architecture/warehouse-layers.md` — four-layer Bronze/Silver/Gold/Departmental-Data-Marts model. Read before writing any transform SQL.
+**Personas:** `docs/personas.md` — Builder, Analyst, artifact consumers. Cite by version in every feature spec.
 **Work conventions:** `docs/CONTRIBUTING.md`
+
+## Where to find things
+
+All project documentation lives under `docs/`. Start with [`docs/README.md`](docs/README.md) — it is the top-level map. Each sub-folder (`architecture/`, `conventions/`, `issues/`) has its own `README.md` hub listing every doc in that folder with a one-line summary. Read the relevant hub before reading individual docs, and update the hub when you add a new doc.
 
 ## Before you write a single line of code
 
