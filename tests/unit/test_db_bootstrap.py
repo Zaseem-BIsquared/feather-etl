@@ -57,8 +57,8 @@ class TestMySQLCheck:
 
 class TestEnsurePostgresDatabase:
     def _install_admin_connect(self, monkeypatch, exists: bool):
-        """Patch psycopg2.connect for the admin DSN. Returns lists of SQL
-        statements executed + whether a post-check probe was issued."""
+        """Patch psycopg2.connect for the admin DSN. Returns the list of
+        SQL statements the fake cursor observed."""
         from tests import db_bootstrap as dbb
 
         executed: list[str] = []
