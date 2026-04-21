@@ -1,16 +1,40 @@
-"""`feather discover` core — orchestration without Typer.
+"""`feather discover` core — read each source's catalog, save it as schema JSON.
 
-Three pure top-level functions:
+Discovery is metadata-only. For each configured source, it asks "what tables
+and columns exist?" (via the source's `discover()` method) and writes the
+answer to `schema_<source>.json` next to `feather.yaml`. It does not extract
+data — that's `feather run`. The schema JSON feeds the user's curation step:
+picking which tables to ingest in `feather.yaml`.
 
-* ``detect_renames_for_sources(state, sources) -> RenameDetection``
-  Pure detection. Returns proposals + ambiguous list. No I/O.
+This module is the pure core behind the `feather discover` CLI — no Typer
+imports, no stdin, no prompts. The Typer wrapper in `commands/discover.py`
+owns user interaction and calls into this module.
 
-* ``apply_rename_decision(state, accepted, rejected, sources, config_dir) -> None``
-  Applies a pre-resolved decision. The CLI wrapper resolves the decision
-  interactively (Typer confirm prompt + --yes / --no-renames) and calls this.
+CONTENTS
+  == Public Interface ==
+    • run_discover                  — main per-source discovery loop
+    • detect_renames_for_sources    — pure rename detection (no I/O)
+    • apply_rename_decision         — apply a resolved rename decision
 
-* ``run_discover(cfg, config_dir, *, refresh, retry_failed, prune) -> DiscoverReport``
-  Per-source discovery loop. Assumes renames already resolved.
+  == Data Types ==
+    • RenameDetection         — output of rename detection (proposals + ambiguous)
+    • SourceDiscoveryResult   — per-source outcome from run_discover
+    • DiscoverReport          — aggregate result of run_discover
+
+  == Private Helpers ==
+    • _write_schema                 — discover a source and write its schema JSON
+    • _fingerprint_for              — identity string for rename detection
+
+CALL ORDER (Typer wrapper invokes these in sequence)
+  1. detect_renames_for_sources → RenameDetection
+  2. (wrapper prompts the user to accept/reject proposals)
+  3. apply_rename_decision        (applies the resolved decision)
+  4. run_discover                  → DiscoverReport
+
+SEE ALSO
+  feather_etl.discover_state        — DiscoverState, classify(), detect_renames()
+  feather_etl.sources.expand        — expand_db_sources() for multi-DB configs
+  feather_etl.commands.discover     — Typer wrapper (stdin, --yes, --no-renames)
 """
 
 from __future__ import annotations
@@ -28,100 +52,9 @@ from feather_etl.discover_state import (
 )
 
 
-@dataclass
-class RenameDetection:
-    """Output of ``detect_renames_for_sources``."""
+# == Public Interface ==
 
-    proposals: list[tuple[str, str]] = field(default_factory=list)
-    ambiguous: list[tuple[str, list[str]]] = field(default_factory=list)
-
-
-@dataclass
-class SourceDiscoveryResult:
-    """One source's outcome from ``run_discover``."""
-
-    name: str
-    decision: str  # "new" | "retry" | "rerun" | "cached" | "skip" | "removed"
-    status: str  # "succeeded" | "failed" | "cached" | "skipped" | "pruned"
-    table_count: int = 0
-    output_path: Path | None = None
-    error: str | None = None
-
-
-@dataclass
-class DiscoverReport:
-    """Aggregate result of ``run_discover``."""
-
-    results: list[SourceDiscoveryResult] = field(default_factory=list)
-    succeeded_count: int = 0
-    failed_count: int = 0
-    cached_count: int = 0
-    pruned_count: int = 0
-    state_last_run_at: str | None = None
-
-
-def _write_schema(source, target_dir: Path) -> tuple[Path, int]:
-    """Discover ``source`` and write its schema JSON. Returns (path, table_count)."""
-    schemas = source.discover()
-    payload = [
-        {
-            "table_name": s.name,
-            "columns": [{"name": c[0], "type": c[1]} for c in s.columns],
-        }
-        for s in schemas
-    ]
-    out = target_dir / schema_output_path(source)
-    out.write_text(json.dumps(payload, indent=2))
-    return out, len(schemas)
-
-
-def _fingerprint_for(source) -> str:
-    """Composition per spec §6.7.
-
-    DB sources: '<type>:<host>:<port>:<database>'. File sources: '<type>:<absolute_path>'.
-    """
-    if hasattr(source, "host") and source.host is not None:
-        return (
-            f"{source.type}:{source.host}:{source.port or ''}:{source.database or ''}"
-        )
-    return f"{source.type}:{Path(source.path).resolve()}"
-
-
-def detect_renames_for_sources(
-    state: DiscoverState,
-    sources: list,
-) -> RenameDetection:
-    """Pure detection. Returns proposals + ambiguous list. No I/O, no prompts."""
-    current_pairs = [(source.name, _fingerprint_for(source)) for source in sources]
-    proposals, ambiguous = detect_renames(state=state, current=current_pairs)
-    return RenameDetection(proposals=list(proposals), ambiguous=list(ambiguous))
-
-
-def apply_rename_decision(
-    state: DiscoverState,
-    accepted: list[tuple[str, str]],
-    rejected: list[tuple[str, str]],
-    sources: list,
-    config_dir: Path,
-) -> None:
-    """Apply a pre-resolved rename decision.
-
-    ``accepted`` proposals are applied via ``apply_renames`` (state + files
-    are renamed). ``rejected`` proposals are recorded as orphaned (the new
-    name is treated as a fresh source on the next discovery pass).
-    """
-    if accepted:
-        apply_renames(
-            state=state,
-            renames=accepted,
-            config_dir=config_dir,
-            sources=sources,
-        )
-    for old_name, new_name in rejected:
-        state.record_orphaned(
-            old_name,
-            note=f"rename rejected; new source discovered as {new_name}",
-        )
+# ── Main discovery loop ──
 
 
 def run_discover(
@@ -132,13 +65,20 @@ def run_discover(
     retry_failed: bool,
     prune: bool,
 ) -> DiscoverReport:
-    """Per-source discovery loop. Assumes renames already resolved.
+    """Run discovery on every configured source; write one schema JSON per source.
 
-    The CLI wrapper is responsible for:
-      * resolving rename proposals (interactive or via --yes / --no-renames)
-        and calling ``apply_rename_decision`` before invoking this function;
-      * exiting with code 2 on ambiguous renames (using ``RenameDetection``);
-      * calling ``serve_and_open`` after this function returns.
+    Per-source isolation: one source failing (connection, DDL, permissions)
+    does not abort the others — failures are recorded in the returned report,
+    not raised. Also writes feather_discover.state.json to track per-source
+    outcome across runs.
+
+    Modes (at most one; default = new-and-changed-only):
+      refresh       — re-discover every source
+      retry_failed  — re-discover only previously-failed sources
+      prune         — delete stale schema files + state entries; don't discover
+
+    The Typer wrapper (commands/discover.py) resolves rename proposals and
+    launches the viewer; this function does neither.
     """
     from feather_etl.sources.expand import expand_db_sources
 
@@ -295,3 +235,108 @@ def run_discover(
 
     state.save()
     return report
+
+
+# ── Rename resolution (runs before run_discover in the CLI flow) ──
+
+
+def detect_renames_for_sources(
+    state: DiscoverState,
+    sources: list,
+) -> RenameDetection:
+    """Pure detection. Returns proposals + ambiguous list. No I/O, no prompts."""
+    current_pairs = [(source.name, _fingerprint_for(source)) for source in sources]
+    proposals, ambiguous = detect_renames(state=state, current=current_pairs)
+    return RenameDetection(proposals=list(proposals), ambiguous=list(ambiguous))
+
+
+def apply_rename_decision(
+    state: DiscoverState,
+    accepted: list[tuple[str, str]],
+    rejected: list[tuple[str, str]],
+    sources: list,
+    config_dir: Path,
+) -> None:
+    """Apply a pre-resolved rename decision.
+
+    ``accepted`` proposals are applied via ``apply_renames`` (state + files
+    are renamed). ``rejected`` proposals are recorded as orphaned (the new
+    name is treated as a fresh source on the next discovery pass).
+    """
+    if accepted:
+        apply_renames(
+            state=state,
+            renames=accepted,
+            config_dir=config_dir,
+            sources=sources,
+        )
+    for old_name, new_name in rejected:
+        state.record_orphaned(
+            old_name,
+            note=f"rename rejected; new source discovered as {new_name}",
+        )
+
+
+# == Data Types ==
+
+
+@dataclass
+class RenameDetection:
+    """Output of ``detect_renames_for_sources``."""
+
+    proposals: list[tuple[str, str]] = field(default_factory=list)
+    ambiguous: list[tuple[str, list[str]]] = field(default_factory=list)
+
+
+@dataclass
+class SourceDiscoveryResult:
+    """One source's outcome from ``run_discover``."""
+
+    name: str
+    decision: str  # "new" | "retry" | "rerun" | "cached" | "skip" | "removed"
+    status: str  # "succeeded" | "failed" | "cached" | "skipped" | "pruned"
+    table_count: int = 0
+    output_path: Path | None = None
+    error: str | None = None
+
+
+@dataclass
+class DiscoverReport:
+    """Aggregate result of ``run_discover``."""
+
+    results: list[SourceDiscoveryResult] = field(default_factory=list)
+    succeeded_count: int = 0
+    failed_count: int = 0
+    cached_count: int = 0
+    pruned_count: int = 0
+    state_last_run_at: str | None = None
+
+
+# == Private Helpers ==
+
+
+def _write_schema(source, target_dir: Path) -> tuple[Path, int]:
+    """Discover ``source`` and write its schema JSON. Returns (path, table_count)."""
+    schemas = source.discover()
+    payload = [
+        {
+            "table_name": s.name,
+            "columns": [{"name": c[0], "type": c[1]} for c in s.columns],
+        }
+        for s in schemas
+    ]
+    out = target_dir / schema_output_path(source)
+    out.write_text(json.dumps(payload, indent=2))
+    return out, len(schemas)
+
+
+def _fingerprint_for(source) -> str:
+    """Composition per spec §6.7.
+
+    DB sources: '<type>:<host>:<port>:<database>'. File sources: '<type>:<absolute_path>'.
+    """
+    if hasattr(source, "host") and source.host is not None:
+        return (
+            f"{source.type}:{source.host}:{source.port or ''}:{source.database or ''}"
+        )
+    return f"{source.type}:{Path(source.path).resolve()}"
