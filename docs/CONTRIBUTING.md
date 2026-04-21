@@ -163,6 +163,31 @@ tests belong with the code they exercise.
 
 ---
 
+## Local DB prerequisites
+
+Two DB-gated test groups run against your local machine's brew-managed
+servers:
+
+- **PostgreSQL** — 5 integration tests in `tests/unit/sources/test_postgres.py`
+  and `tests/e2e/test_03_discover.py`.
+- **MySQL** — integration tests in `tests/unit/sources/test_mysql.py`.
+
+Both expect a `feather_test` database to exist. The test suite creates
+it automatically at session start if the servers are up:
+
+```bash
+brew services start postgresql@17 mysql
+uv run pytest -q     # 0 DB-gated skips on a healthy setup
+```
+
+If a server is down, the suite prints a banner naming the exact
+`brew services start …` command, the gated tests skip with a clear
+reason, and the run still exits 0. Nothing else is needed — no manual
+`createdb`, no `.env` secrets. Localhost auth uses brew defaults
+(Postgres peer/trust, MySQL `root` without password).
+
+---
+
 ## Current open reviews
 
 | File | Slice | Status |
