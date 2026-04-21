@@ -1,25 +1,31 @@
 """Shared test fixtures for feather-etl."""
 
 import shutil
-import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
+from tests.db_bootstrap import ensure_bootstrap_databases, format_banner
 from tests.helpers import make_curation_entry, write_curation
 
 
-def pytest_configure(config):
-    """Start PostgreSQL before test collection (so skipif checks see it)."""
-    if shutil.which("pg_ctl"):
-        subprocess.run(["pg_ctl", "start", "-l", "/dev/null"], capture_output=True)
+def pytest_sessionstart(session):
+    """Create `feather_test` on local Postgres & MySQL if missing.
 
+    Runs before test collection, so `@postgres` / `@mysql_db` skipif
+    probes in test modules see the live DBs.
 
-def pytest_unconfigure(config):
-    """Stop PostgreSQL after the test session."""
-    if shutil.which("pg_ctl"):
-        subprocess.run(["pg_ctl", "stop"], capture_output=True)
+    If a server is down, emit a banner naming the exact `brew services`
+    command to fix it. Never fail the session — the gated tests skip
+    with a clear reason and the suite still exits 0.
+    """
+    results = ensure_bootstrap_databases()
+    banner = format_banner(results)
+    if banner:
+        # stderr keeps the banner out of captured stdout that tests assert on
+        print(banner, file=sys.stderr)
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
