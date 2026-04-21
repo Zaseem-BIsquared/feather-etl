@@ -306,3 +306,40 @@ class TestFormatBanner:
         })
         assert "brew services start postgresql@17" in out
         assert "brew services start mysql" in out
+
+
+class TestMarkerFactories:
+    """Markers are factories (not module-level constants) because conftest
+    imports this module BEFORE pytest_sessionstart runs bootstrap — if
+    the skipif boolean were evaluated at module load, it would see the
+    pre-bootstrap state."""
+
+    def test_postgres_marker_when_available(self, monkeypatch):
+        from tests import db_bootstrap as dbb
+
+        monkeypatch.setattr(dbb, "postgres_check", lambda: (True, None))
+        marker = dbb.postgres_marker()
+
+        # A non-skipping skipif has condition=False
+        assert marker.kwargs.get("condition") is False or marker.args[0] is False
+
+    def test_postgres_marker_when_unavailable_uses_reason(self, monkeypatch):
+        from tests import db_bootstrap as dbb
+
+        monkeypatch.setattr(dbb, "postgres_check", lambda: (False, "pg down"))
+        marker = dbb.postgres_marker()
+
+        # condition=True → skip; reason comes from probe
+        cond = marker.kwargs.get("condition", marker.args[0] if marker.args else None)
+        assert cond is True
+        assert "pg down" in marker.kwargs["reason"]
+
+    def test_mysql_marker_when_unavailable_uses_reason(self, monkeypatch):
+        from tests import db_bootstrap as dbb
+
+        monkeypatch.setattr(dbb, "mysql_check", lambda: (False, "my down"))
+        marker = dbb.mysql_marker()
+
+        cond = marker.kwargs.get("condition", marker.args[0] if marker.args else None)
+        assert cond is True
+        assert "my down" in marker.kwargs["reason"]

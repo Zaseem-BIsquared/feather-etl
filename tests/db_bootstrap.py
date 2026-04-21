@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import mysql.connector
 import psycopg2
+import pytest
 
 # ---------------------------------------------------------------------------
 # Connection constants
@@ -148,3 +149,27 @@ def format_banner(results: dict[str, tuple[bool, str | None]]) -> str | None:
     lines.append("DB-gated tests will skip. Suite will still exit 0.")
     lines.append("=" * 72)
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Marker factories
+# ---------------------------------------------------------------------------
+
+
+def postgres_marker():
+    """Build a fresh `pytest.mark.skipif` from a live probe.
+
+    Called at test-file import time — which is *after* pytest_sessionstart
+    has run bootstrap, so the probe sees the live DB.
+    """
+    ok, reason = postgres_check()
+    return pytest.mark.skipif(
+        not ok, reason=reason or "PostgreSQL not available"
+    )
+
+
+def mysql_marker():
+    ok, reason = mysql_check()
+    return pytest.mark.skipif(
+        not ok, reason=reason or "MySQL not available"
+    )
