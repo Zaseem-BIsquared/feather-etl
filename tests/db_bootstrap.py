@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import mysql.connector
 import psycopg2
-import pytest
 
 # ---------------------------------------------------------------------------
 # Connection constants

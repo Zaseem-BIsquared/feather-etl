@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 
 class TestPostgresCheck:
     def test_reachable_returns_true_none(self, monkeypatch):
