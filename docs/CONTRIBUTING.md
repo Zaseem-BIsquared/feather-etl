@@ -1,7 +1,35 @@
 # Contributing conventions
 
-This document describes the file conventions for plans, reviews, and fixes.
-Every agent working on this repo should read it before starting.
+This document describes the file conventions for specs, plans, reviews, and
+fixes. Every agent working on this repo should read it before starting.
+
+---
+
+## Agent setup
+
+This repo ships with project-local Claude Code configuration so teammates
+get identical agent behavior without per-machine setup.
+
+- **Workflow preferences** — see the `# Standing workflow preferences for
+  superpowers skills` section in [`../CLAUDE.md`](../CLAUDE.md). Covers
+  Subagent-Driven autopilot, worktree-by-default branch creation, and the
+  preserved spec-review gate.
+- **Vendored superpowers skills** — patched copies of `brainstorming` and
+  `writing-plans` live in [`../.claude/skills/`](../.claude/skills/). See
+  [`../.claude/skills/README.md`](../.claude/skills/README.md) for
+  provenance and how to re-sync with upstream.
+- **Spec template** — every design spec in `docs/superpowers/specs/`
+  follows the shape of [`conventions/spec-template.md`](conventions/spec-template.md).
+  See [`../docs/superpowers/specs/2026-04-21-db-bootstrap-for-tests-design.md`](superpowers/specs/2026-04-21-db-bootstrap-for-tests-design.md)
+  for a worked example.
+- **Code layout template** — Python source files follow the DHH Stepdown
+  shape documented in [`conventions/code-layout.md`](conventions/code-layout.md).
+  [`src/feather_etl/discover.py`](../src/feather_etl/discover.py) is the
+  canonical reference implementation.
+
+You need nothing beyond Claude Code itself + the `superpowers` plugin
+installed. The repo's local configuration takes precedence over plugin
+defaults.
 
 ---
 
