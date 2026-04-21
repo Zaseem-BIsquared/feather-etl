@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.db_bootstrap import MYSQL_CONN_KWARGS, mysql_marker
+
 
 # ---------------------------------------------------------------------------
 # MySQLSource.from_yaml — unit tests (no DB needed)
@@ -158,21 +160,7 @@ class TestMySQLValidateSourceTable:
 # ---------------------------------------------------------------------------
 
 
-MYSQL_CONN_KWARGS = {"host": "localhost", "user": "root", "database": "feather_test"}
-
-
-def _mysql_available() -> bool:
-    try:
-        import mysql.connector
-
-        conn = mysql.connector.connect(**MYSQL_CONN_KWARGS)
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-
-mysql_db = pytest.mark.skipif(not _mysql_available(), reason="MySQL not available")
+mysql_db = mysql_marker()
 
 
 class TestMySQLCheckLastError:
