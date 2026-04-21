@@ -67,9 +67,7 @@ def _ensure_postgres_database() -> tuple[bool, str | None]:
         admin.autocommit = True
         cur = admin.cursor()
         try:
-            cur.execute(
-                "SELECT 1 FROM pg_database WHERE datname = %s", (TARGET_DB,)
-            )
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (TARGET_DB,))
             if cur.fetchone() is None:
                 # Identifier cannot be parameterized; TARGET_DB is a fixed const.
                 cur.execute(f'CREATE DATABASE "{TARGET_DB}"')
@@ -107,3 +105,20 @@ def _ensure_mysql_database() -> tuple[bool, str | None]:
         return (False, str(exc))
 
     return mysql_check()
+
+
+# ---------------------------------------------------------------------------
+# Combined session-start entry point
+# ---------------------------------------------------------------------------
+
+
+def ensure_bootstrap_databases() -> dict[str, tuple[bool, str | None]]:
+    """Run both flavor bootstraps. Returns per-flavor (ok, reason).
+
+    Called once from `pytest_sessionstart`. Per-flavor logic is
+    idempotent: exists → no CREATE; missing → one CREATE.
+    """
+    return {
+        "postgres": _ensure_postgres_database(),
+        "mysql": _ensure_mysql_database(),
+    }

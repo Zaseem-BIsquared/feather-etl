@@ -36,9 +36,7 @@ class TestMySQLCheck:
             def close(self):
                 pass
 
-        monkeypatch.setattr(
-            dbb.mysql.connector, "connect", lambda **k: FakeConn()
-        )
+        monkeypatch.setattr(dbb.mysql.connector, "connect", lambda **k: FakeConn())
         ok, reason = dbb.mysql_check()
         assert ok is True
         assert reason is None
@@ -115,9 +113,7 @@ class TestEnsurePostgresDatabase:
 
         assert ok is True
         assert reason is None
-        assert any(
-            "CREATE DATABASE" in s and dbb.TARGET_DB in s for s in executed
-        )
+        assert any("CREATE DATABASE" in s and dbb.TARGET_DB in s for s in executed)
 
     def test_driver_error_is_captured_not_raised(self, monkeypatch):
         from tests import db_bootstrap as dbb
@@ -157,9 +153,7 @@ class TestEnsureMySQLDatabase:
                 pass
 
         def fake_connect(**kwargs):
-            assert "database" not in kwargs, (
-                "admin connect must NOT specify a database"
-            )
+            assert "database" not in kwargs, "admin connect must NOT specify a database"
             return FakeConn()
 
         monkeypatch.setattr(dbb.mysql.connector, "connect", fake_connect)
@@ -187,9 +181,7 @@ class TestEnsureMySQLDatabase:
 
         assert ok is True
         assert reason is None
-        assert any(
-            "CREATE DATABASE" in s and dbb.TARGET_DB in s for s in executed
-        )
+        assert any("CREATE DATABASE" in s and dbb.TARGET_DB in s for s in executed)
 
     def test_driver_error_is_captured_not_raised(self, monkeypatch):
         from tests import db_bootstrap as dbb
@@ -203,3 +195,72 @@ class TestEnsureMySQLDatabase:
 
         assert ok is False
         assert "connection refused" in reason
+
+
+class TestEnsureBootstrapDatabases:
+    def test_returns_dict_with_both_flavors(self, monkeypatch):
+        from tests import db_bootstrap as dbb
+
+        monkeypatch.setattr(dbb, "_ensure_postgres_database", lambda: (True, None))
+        monkeypatch.setattr(dbb, "_ensure_mysql_database", lambda: (True, None))
+
+        results = dbb.ensure_bootstrap_databases()
+
+        assert set(results.keys()) == {"postgres", "mysql"}
+        assert results["postgres"] == (True, None)
+        assert results["mysql"] == (True, None)
+
+    def test_failure_reasons_are_propagated(self, monkeypatch):
+        from tests import db_bootstrap as dbb
+
+        monkeypatch.setattr(
+            dbb, "_ensure_postgres_database", lambda: (False, "pg down")
+        )
+        monkeypatch.setattr(
+            dbb, "_ensure_mysql_database", lambda: (False, "my down")
+        )
+
+        results = dbb.ensure_bootstrap_databases()
+
+        assert results["postgres"] == (False, "pg down")
+        assert results["mysql"] == (False, "my down")
+
+    def test_idempotent_second_call_issues_no_create(self, monkeypatch):
+        """Two back-to-back calls on a DB that already exists → zero
+        CREATE statements on the second call (the existence check
+        short-circuits). This locks the spec's idempotency requirement."""
+        from tests import db_bootstrap as dbb
+
+        executed: list[str] = []
+
+        class FakeCursor:
+            def execute(self, sql, *_):
+                executed.append(sql)
+
+            def fetchone(self):
+                return (1,)  # always "exists"
+
+            def close(self):
+                pass
+
+        class FakeConn:
+            autocommit = False
+
+            def cursor(self):
+                return FakeCursor()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(dbb.psycopg2, "connect", lambda *a, **k: FakeConn())
+        monkeypatch.setattr(
+            dbb.mysql.connector, "connect", lambda **k: FakeConn()
+        )
+        monkeypatch.setattr(dbb, "postgres_check", lambda: (True, None))
+        monkeypatch.setattr(dbb, "mysql_check", lambda: (True, None))
+
+        dbb.ensure_bootstrap_databases()
+        dbb.ensure_bootstrap_databases()
+
+        creates = [s for s in executed if "CREATE DATABASE" in s]
+        assert creates == []
