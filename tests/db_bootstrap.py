@@ -80,3 +80,30 @@ def _ensure_postgres_database() -> tuple[bool, str | None]:
         return (False, str(exc))
 
     return postgres_check()
+
+
+def _ensure_mysql_database() -> tuple[bool, str | None]:
+    """Create `feather_test` on MySQL if it doesn't exist.
+
+    Connects with no `database=` kwarg to avoid the chicken-and-egg of
+    asking for a DB that may not yet exist. Any driver error is captured
+    as the failure reason — never re-raised.
+    """
+    try:
+        admin = mysql.connector.connect(**MYSQL_ADMIN_KWARGS)
+        cur = admin.cursor()
+        try:
+            cur.execute(
+                "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA "
+                "WHERE SCHEMA_NAME = %s",
+                (TARGET_DB,),
+            )
+            if cur.fetchone() is None:
+                cur.execute(f"CREATE DATABASE `{TARGET_DB}`")
+        finally:
+            cur.close()
+            admin.close()
+    except Exception as exc:
+        return (False, str(exc))
+
+    return mysql_check()
