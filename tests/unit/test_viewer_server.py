@@ -101,7 +101,9 @@ class TestCanBind:
             holder.bind((viewer_server.DEFAULT_HOST, 0))
             holder.listen(1)
             busy_port = holder.getsockname()[1]
-            assert viewer_server._can_bind(viewer_server.DEFAULT_HOST, busy_port) is False
+            assert (
+                viewer_server._can_bind(viewer_server.DEFAULT_HOST, busy_port) is False
+            )
         finally:
             holder.close()
 

@@ -71,7 +71,9 @@ class ProjectFixture:
         `tests.helpers.make_curation_entry` directly and then
         `tests.helpers.write_curation` yourself.
         """
-        tables = [make_curation_entry(src, table, alias) for (src, table, alias) in entries]
+        tables = [
+            make_curation_entry(src, table, alias) for (src, table, alias) in entries
+        ]
         return write_curation(self.root, tables)
 
     def copy_fixture(self, name: str) -> Path:
@@ -145,4 +147,5 @@ def stub_viewer_serve(monkeypatch):
     the function becomes a no-op.
     """
     import feather_etl.commands.discover as discover_cmd
+
     monkeypatch.setattr(discover_cmd, "serve_and_open", lambda *a, **kw: None)

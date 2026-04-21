@@ -105,7 +105,9 @@ def test_db_source_with_single_database_passes_through() -> None:
     assert result == [mock_src]
 
 
-def test_db_source_list_databases_raises_records_last_error_and_passes_through() -> None:
+def test_db_source_list_databases_raises_records_last_error_and_passes_through() -> (
+    None
+):
     """When ``list_databases()`` raises, the source is kept in the list with
     an informative ``_last_error`` so downstream discover can report it."""
     from feather_etl.sources.database_source import DatabaseSource

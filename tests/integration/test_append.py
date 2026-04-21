@@ -87,9 +87,7 @@ def test_append_second_run_appends_on_change(tmp_path: Path):
     assert all(r.status == "success" for r in results2)
 
     dest_con = duckdb.connect(str(tmp_path / "feather_data.duckdb"), read_only=True)
-    count = dest_con.execute(
-        "SELECT COUNT(*) FROM bronze.src_customers"
-    ).fetchone()[0]
+    count = dest_con.execute("SELECT COUNT(*) FROM bronze.src_customers").fetchone()[0]
     dest_con.close()
     assert count == 9
 
@@ -110,8 +108,6 @@ def test_append_unchanged_source_skips(tmp_path: Path):
     assert all(r.status == "skipped" for r in results2)
 
     dest_con = duckdb.connect(str(tmp_path / "feather_data.duckdb"), read_only=True)
-    count = dest_con.execute(
-        "SELECT COUNT(*) FROM bronze.src_customers"
-    ).fetchone()[0]
+    count = dest_con.execute("SELECT COUNT(*) FROM bronze.src_customers").fetchone()[0]
     dest_con.close()
     assert count == 4

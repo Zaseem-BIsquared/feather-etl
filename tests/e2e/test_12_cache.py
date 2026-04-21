@@ -107,8 +107,7 @@ def test_table_filter_restricts_extraction(project, cli):
     assert result.exit_code == 0
 
     rows = project.query(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = 'bronze'"
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'bronze'"
     )
     tables = {r[0] for r in rows}
     assert "icube_inv" in tables
@@ -122,8 +121,7 @@ def test_source_filter_restricts_extraction(project, cli):
     assert result.exit_code == 0
 
     rows = project.query(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = 'bronze'"
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'bronze'"
     )
     tables = {r[0] for r in rows}
     assert "icube_inv" in tables
@@ -136,8 +134,7 @@ def test_table_and_source_intersect(project, cli):
     assert result.exit_code == 0
 
     rows = project.query(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = 'bronze'"
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'bronze'"
     )
     tables = {r[0] for r in rows}
     assert tables == {"icube_inv"}

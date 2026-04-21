@@ -1,5 +1,4 @@
-"""Integration: feather_etl.pipeline — run_table and run_all orchestration across sources, destinations, and state.
-"""
+"""Integration: feather_etl.pipeline — run_table and run_all orchestration across sources, destinations, and state."""
 
 from __future__ import annotations
 
@@ -153,8 +152,7 @@ def test_modified_source_reextracts(project):
     source_db = project.root / "client.duckdb"
     con = duckdb.connect(str(source_db))
     con.execute(
-        "INSERT INTO icube.InventoryGroup "
-        "SELECT * FROM icube.InventoryGroup LIMIT 1"
+        "INSERT INTO icube.InventoryGroup SELECT * FROM icube.InventoryGroup LIMIT 1"
     )
     con.close()
 

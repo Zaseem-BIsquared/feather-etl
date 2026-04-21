@@ -630,7 +630,9 @@ class TestSourcesList:
         }
         config_file = tmp_path / "feather.yaml"
         config_file.write_text(yaml.dump(cfg_dict))
-        with pytest.raises(ValueError, match=r"sources\[0\] missing required field 'type'"):
+        with pytest.raises(
+            ValueError, match=r"sources\[0\] missing required field 'type'"
+        ):
             load_config(config_file, validate=False)
 
 

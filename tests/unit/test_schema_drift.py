@@ -78,7 +78,9 @@ class TestToJsonDict:
         current = [("id", "BIGINT")]
         stored = [("id", "INTEGER")]
         d = detect_drift(current, stored).to_json_dict()
-        assert d == {"type_changed": [{"column": "id", "from": "INTEGER", "to": "BIGINT"}]}
+        assert d == {
+            "type_changed": [{"column": "id", "from": "INTEGER", "to": "BIGINT"}]
+        }
 
     def test_all_three_kinds(self):
         current = [("id", "BIGINT"), ("email", "VARCHAR")]

@@ -29,6 +29,7 @@ def test_write_config_persists_yaml(project):
     assert project.config_path.exists()
     # The file parses back to a dict we recognise.
     import yaml
+
     parsed = yaml.safe_load(project.config_path.read_text())
     assert parsed["sources"][0]["name"] == "s"
     assert parsed["destination"]["path"] == "./feather_data.duckdb"
@@ -39,6 +40,7 @@ def test_write_curation_creates_discovery_json(project):
     curation_path = project.root / "discovery" / "curation.json"
     assert curation_path.exists()
     import json
+
     manifest = json.loads(curation_path.read_text())
     assert manifest["tables"][0]["alias"] == "orders"
     assert manifest["tables"][0]["source_db"] == "s"
@@ -61,6 +63,7 @@ def test_copy_fixture_directory_copies_recursively(project):
 def test_query_returns_rows_from_data_db(project):
     # Seed the data DB directly so we can exercise .query without running a pipeline.
     import duckdb
+
     with duckdb.connect(str(project.data_db_path)) as con:
         con.execute("CREATE TABLE t (x INT)")
         con.execute("INSERT INTO t VALUES (1), (2), (3)")
@@ -106,7 +109,9 @@ def test_cli_with_explicit_config_path_uses_it(project, cli, tmp_path_factory):
     # Write a valid config to project.root with a name we can grep.
     project.copy_fixture("sample_erp.sqlite")
     project.write_config(
-        sources=[{"type": "sqlite", "name": "marker_one", "path": "./sample_erp.sqlite"}],
+        sources=[
+            {"type": "sqlite", "name": "marker_one", "path": "./sample_erp.sqlite"}
+        ],
         destination={"path": "./feather_data.duckdb"},
     )
     project.write_curation([("marker_one", "orders", "orders")])
@@ -114,21 +119,39 @@ def test_cli_with_explicit_config_path_uses_it(project, cli, tmp_path_factory):
     # Write a SECOND config file with a different source name; pass it explicitly.
     other_cfg = project.root / "feather_other.yaml"
     import yaml
-    other_cfg.write_text(yaml.dump({
-        "sources": [{"type": "sqlite", "name": "marker_two",
-                     "path": "./sample_erp.sqlite"}],
-        "destination": {"path": "./feather_data_other.duckdb"},
-    }, default_flow_style=False))
+
+    other_cfg.write_text(
+        yaml.dump(
+            {
+                "sources": [
+                    {
+                        "type": "sqlite",
+                        "name": "marker_two",
+                        "path": "./sample_erp.sqlite",
+                    }
+                ],
+                "destination": {"path": "./feather_data_other.duckdb"},
+            },
+            default_flow_style=False,
+        )
+    )
     # Reuse the same curation but under a different source name.
     from tests.helpers import make_curation_entry, write_curation
+
     # Rewrite curation to reference marker_two so validate passes.
-    write_curation(project.root, [make_curation_entry("marker_two", "orders", "orders")])
+    write_curation(
+        project.root, [make_curation_entry("marker_two", "orders", "orders")]
+    )
 
     result = cli("validate", config=other_cfg)
     assert result.exit_code == 0, result.output
     # The source-count summary will mention the other config's data.
     # Just assert it didn't quietly use the default.
-    assert "marker_two" in result.output or "1 source" in result.output or "1 table" in result.output
+    assert (
+        "marker_two" in result.output
+        or "1 source" in result.output
+        or "1 table" in result.output
+    )
 
 
 def test_stub_viewer_serve_prevents_browser_open(project, cli, monkeypatch):
@@ -138,6 +161,7 @@ def test_stub_viewer_serve_prevents_browser_open(project, cli, monkeypatch):
     This smoke test doesn't apply the fixture but shows the target attribute
     exists and is overridable."""
     import feather_etl.commands.discover as discover_cmd
+
     assert hasattr(discover_cmd, "serve_and_open"), (
         "discover command still exposes serve_and_open — stub_viewer_serve fixture relies on this"
     )

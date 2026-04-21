@@ -27,9 +27,7 @@ def _setup_project(project):
         ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
-    project.write_curation(
-        [("icube", "icube.InventoryGroup", "inventory_group")]
-    )
+    project.write_curation([("icube", "icube.InventoryGroup", "inventory_group")])
 
 
 def test_extracts_all_columns_into_bronze(project):
@@ -63,9 +61,7 @@ def test_extracts_all_columns_into_bronze(project):
         "GRPNAME",
         "Alias",
     }
-    assert required.issubset(cols), (
-        f"Missing expected columns. Got: {sorted(cols)}"
-    )
+    assert required.issubset(cols), f"Missing expected columns. Got: {sorted(cols)}"
 
 
 def test_writes_only_to_cache_watermarks(project):
@@ -153,9 +149,7 @@ def test_unresolvable_source_db_records_failure_without_raising(project):
         ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
-    entry = make_curation_entry(
-        "icube", "icube.InventoryGroup", "orphan_table"
-    )
+    entry = make_curation_entry("icube", "icube.InventoryGroup", "orphan_table")
     # Override database to a name that doesn't exist anywhere in cfg.sources
     entry["source_db"] = "nonexistent_system"
     write_curation(project.root, [entry])

@@ -316,7 +316,5 @@ def test_cli_mode_flag_via_runner(project, cli):
     result = cli("run", "--mode", "prod")
     assert result.exit_code == 0
 
-    silver_count = project.query(
-        "SELECT COUNT(*) FROM silver.erp_customers"
-    )[0][0]
+    silver_count = project.query("SELECT COUNT(*) FROM silver.erp_customers")[0][0]
     assert silver_count > 0

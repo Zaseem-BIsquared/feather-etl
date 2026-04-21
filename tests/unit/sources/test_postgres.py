@@ -8,23 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-CONN_STR = "dbname=feather_test host=localhost"
+from tests.db_bootstrap import POSTGRES_DSN as CONN_STR, postgres_marker
 
-
-def _postgres_available() -> bool:
-    try:
-        import psycopg2
-
-        conn = psycopg2.connect(CONN_STR)
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-
-postgres = pytest.mark.skipif(
-    not _postgres_available(), reason="PostgreSQL not available"
-)
+postgres = postgres_marker()
 
 
 # ---------------------------------------------------------------------------

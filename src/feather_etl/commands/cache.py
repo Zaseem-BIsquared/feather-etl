@@ -93,6 +93,7 @@ def cache(
 
     # Grouped-by-source_db output
     from collections import defaultdict
+
     groups: dict[str, list] = defaultdict(list)
     for r in results:
         groups[r.source_db].append(r)
@@ -143,6 +144,7 @@ def cache(
 def _lookup_source_name(cfg, source_db: str) -> str:
     """Find the YAML source 'name' corresponding to a source_db."""
     from feather_etl.curation import resolve_source
+
     try:
         src = resolve_source(source_db, cfg.sources)
         return src.name

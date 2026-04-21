@@ -64,6 +64,3 @@ def test_single_source_name_backfill_keeps_explicit_name_false(tmp_path: Path) -
     source = loaded.sources[0]
     assert source.name != ""
     assert source._explicit_name is False
-
-
-
