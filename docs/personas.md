@@ -1,12 +1,13 @@
 # feather-etl: User Personas
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** 2026-04-21
 **Status:** Stable — referenced by every feature design doc
 
 | Version | Changes |
 |---------|---------|
 | 1.0 | Initial version. Builder and Analyst as primary personas; Decision-maker as latent stakeholder; four deferred personas explicitly out of scope. Extracted during brainstorming for issue #26 (view discovery). |
+| 1.1 | Analyst JTBD sharpened: added "information parity with source" as an explicit care; removed the misleading "does not care about preserving source view names" bullet. The Analyst's real invariant is not about names — it is about never losing access to information they currently have. Name preservation is one possible vehicle, not the requirement. Retraction note in "Design discipline" updated to mark name preservation as an explicitly supported per-case option (not a platform default, but not a banned outcome either). |
 
 ---
 
@@ -78,6 +79,7 @@ A third party — the **Decision-maker** — is the ultimate consumer of the num
 **Cares about.**
 
 - Number accuracy and reconciliation with source
+- **Information parity with source** — whatever question they can answer by querying the ERP today, they must still be able to answer against the warehouse tomorrow. The access path may change (star schema, compatibility view, data mart); the available information must not regress.
 - Understandable mapping from ERP concepts to the warehouse's dimensional model
 - Minimal retraining — a clean, well-named star schema they can learn once
 - Clear provenance — lineage from gold back to bronze back to source
@@ -88,7 +90,7 @@ A third party — the **Decision-maker** — is the ultimate consumer of the num
 - Bronze / silver / gold layering as a concept
 - Pipeline internals — change detection, watermarks, extraction strategies
 - Warehouse infrastructure — DuckDB vs MotherDuck, file layouts
-- Preserving source view names in the warehouse (this was explicitly retracted — see "Design discipline" below)
+- The mechanism by which information parity is achieved — whether through a preserved view name, a star-schema translation, a curated data mart, or a compatibility alias on top of gold, is a Builder decision the Analyst does not weigh in on, provided parity holds
 
 ---
 
@@ -129,7 +131,7 @@ If a decision cannot be traced this way, it is probably YAGNI or it is serving a
 
 **Notable design retractions preserved here so they are not re-proposed.**
 
-- "Preserve source view names in the warehouse" is not a goal. The warehouse uses dimensional (star-schema) naming. If a specific source view is important enough to expose under a familiar name, the Builder creates a compatibility view on top of the star schema as a per-case decision — not a platform default.
+- "Preserve source view names in the warehouse" is not the default. The warehouse uses dimensional (star-schema) naming for ported logic. For thoughtful source views that the Builder explicitly judges worth keeping under their original name, the name may be retained via a compatibility view on top of the star schema — this is a supported per-view option, not a platform-wide default and not a mandatory outcome. The binding invariant is the Analyst's information parity, not any particular name preservation policy.
 - "Auto-materialize source views into the cache or warehouse" is not a goal. Source views are a mixed bag of intentional logic and temporary hacks; feather cannot tell them apart. Porting is a deliberate per-view Builder decision informed by triage, not a platform default.
 - "Treat the Decision-maker as a persona" is not a goal. Serving them through the Analyst's validation JTBD is the design move.
 
