@@ -163,6 +163,34 @@ tests belong with the code they exercise.
 
 ---
 
+## Dev shortcuts (`poe`)
+
+Composite dev commands live in `[tool.poe.tasks]` in `pyproject.toml`. List
+them with `uv run poe` (no args).
+
+| Command | What it does |
+|---|---|
+| `uv run poe cov <keyword>` | Run tests matching `<keyword>` with branch coverage scoped to `feather_etl.<keyword>`, terminal miss list + HTML report, open the report. `<keyword>` is required — e.g. `uv run poe cov discover`, `uv run poe cov pipeline`. |
+| `uv run poe cov-all` | Branch coverage across the whole `feather_etl` package, then open the HTML report. |
+
+Single-command aliases (`ruff check .`, `ruff format .`, `pytest -q`) are
+intentionally **not** wrapped — a shortcut that saves zero keystrokes is
+cognitive overhead.
+
+**Adding a task:** add an entry under `[tool.poe.tasks]` in `pyproject.toml`.
+Prefer the `shell = "…"` form whenever the command uses pipes, `;`, `&&`, or
+redirects (poe's default exec mode is argv-based and won't interpret those).
+For parameterised tasks, use `${name}` interpolation with an `args = [...]`
+declaration — see the existing `cov` task for the pattern.
+
+**Reading the HTML coverage report:** open `htmlcov/index.html`, click a
+module, then press `?` for the keyboard shortcuts. The core loop is `m` (show
+only missed) then `n` / `p` to walk through gaps. Yellow lines = partial
+branch coverage (one side of an `if` never ran); that's why `cov` uses
+`--cov-branch`.
+
+---
+
 ## Current open reviews
 
 | File | Slice | Status |
