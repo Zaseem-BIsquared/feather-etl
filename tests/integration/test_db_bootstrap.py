@@ -23,22 +23,32 @@ class TestPostgresBootstrapIntegration:
         import psycopg2
 
         conn = psycopg2.connect(POSTGRES_ADMIN_DSN)
-        conn.autocommit = True
-        cur = conn.cursor()
-        cur.execute(f'DROP DATABASE IF EXISTS "{THROWAWAY_DB}"')
-        cur.close()
-        conn.close()
+        try:
+            conn.autocommit = True
+            cur = conn.cursor()
+            try:
+                cur.execute(f'DROP DATABASE IF EXISTS "{THROWAWAY_DB}"')
+            finally:
+                cur.close()
+        finally:
+            conn.close()
 
     def _exists(self) -> bool:
         import psycopg2
 
         conn = psycopg2.connect(POSTGRES_ADMIN_DSN)
-        cur = conn.cursor()
-        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (THROWAWAY_DB,))
-        found = cur.fetchone() is not None
-        cur.close()
-        conn.close()
-        return found
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT 1 FROM pg_database WHERE datname = %s",
+                    (THROWAWAY_DB,),
+                )
+                return cur.fetchone() is not None
+            finally:
+                cur.close()
+        finally:
+            conn.close()
 
     def test_bootstrap_creates_missing_database(self, monkeypatch):
         """Point the Postgres bootstrap at THROWAWAY_DB, drop it, run, assert."""
@@ -65,25 +75,32 @@ class TestMySQLBootstrapIntegration:
         import mysql.connector
 
         conn = mysql.connector.connect(**MYSQL_ADMIN_KWARGS)
-        cur = conn.cursor()
-        cur.execute(f"DROP DATABASE IF EXISTS `{THROWAWAY_DB}`")
-        cur.close()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(f"DROP DATABASE IF EXISTS `{THROWAWAY_DB}`")
+            finally:
+                cur.close()
+        finally:
+            conn.close()
 
     def _exists(self) -> bool:
         import mysql.connector
 
         conn = mysql.connector.connect(**MYSQL_ADMIN_KWARGS)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA "
-            "WHERE SCHEMA_NAME = %s",
-            (THROWAWAY_DB,),
-        )
-        found = cur.fetchone() is not None
-        cur.close()
-        conn.close()
-        return found
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA "
+                    "WHERE SCHEMA_NAME = %s",
+                    (THROWAWAY_DB,),
+                )
+                return cur.fetchone() is not None
+            finally:
+                cur.close()
+        finally:
+            conn.close()
 
     def test_bootstrap_creates_missing_database(self, monkeypatch):
         from tests import db_bootstrap as dbb

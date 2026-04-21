@@ -167,5 +167,10 @@ def postgres_marker():
 
 
 def mysql_marker():
+    """Build a fresh `pytest.mark.skipif` from a live probe.
+
+    Called at test-file import time — which is *after* pytest_sessionstart
+    has run bootstrap, so the probe sees the live DB.
+    """
     ok, reason = mysql_check()
     return pytest.mark.skipif(not ok, reason=reason or "MySQL not available")
