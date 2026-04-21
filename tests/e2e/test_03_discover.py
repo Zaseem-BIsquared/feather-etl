@@ -28,22 +28,9 @@ import yaml
 from tests.conftest import FIXTURES_DIR
 
 
-CONN_STR = "dbname=feather_test host=localhost"
+from tests.db_bootstrap import POSTGRES_DSN as CONN_STR, postgres_marker
 
-
-def _postgres_available() -> bool:
-    try:
-        import psycopg2
-
-        psycopg2.connect(CONN_STR).close()
-        return True
-    except Exception:
-        return False
-
-
-postgres = pytest.mark.skipif(
-    not _postgres_available(), reason="PostgreSQL not available"
-)
+postgres = postgres_marker()
 
 
 # ---------------------------------------------------------------------------
@@ -791,9 +778,7 @@ def _write_rename_configs(project) -> tuple[Path, Path]:
         yaml.dump(
             {
                 "sources": [{"name": "erp", "type": "sqlite", "path": str(sqlite)}],
-                "destination": {
-                    "path": str(project.root / "feather_data.duckdb")
-                },
+                "destination": {"path": str(project.root / "feather_data.duckdb")},
             },
             default_flow_style=False,
         )
@@ -805,9 +790,7 @@ def _write_rename_configs(project) -> tuple[Path, Path]:
                 "sources": [
                     {"name": "erp_main", "type": "sqlite", "path": str(sqlite)}
                 ],
-                "destination": {
-                    "path": str(project.root / "feather_data.duckdb")
-                },
+                "destination": {"path": str(project.root / "feather_data.duckdb")},
             },
             default_flow_style=False,
         )
@@ -817,9 +800,7 @@ def _write_rename_configs(project) -> tuple[Path, Path]:
 
 @pytest.mark.usefixtures("stub_viewer_serve")
 class TestRenameNonTtyExit3:
-    def test_rename_in_yaml_first_invocation_exits_3(
-        self, project, cli, monkeypatch
-    ):
+    def test_rename_in_yaml_first_invocation_exits_3(self, project, cli, monkeypatch):
         first_cfg, renamed_cfg = _write_rename_configs(project)
         monkeypatch.chdir(project.root)
 
@@ -847,9 +828,7 @@ class TestRenameNonTtyExit3:
         assert (project.root / "schema_sqlite_erp_main.json").is_file()
         assert not (project.root / "schema_sqlite_erp.json").exists()
 
-        state = json.loads(
-            (project.root / "feather_discover_state.json").read_text()
-        )
+        state = json.loads((project.root / "feather_discover_state.json").read_text())
         assert "erp_main" in state["sources"]
         assert "erp" not in state["sources"]
 
@@ -863,15 +842,11 @@ class TestRenameNonTtyExit3:
         second = cli("discover", "--no-renames", config=renamed_cfg)
         assert second.exit_code == 0, second.output
 
-        state = json.loads(
-            (project.root / "feather_discover_state.json").read_text()
-        )
+        state = json.loads((project.root / "feather_discover_state.json").read_text())
         assert state["sources"]["erp"]["status"] == "orphaned"
         assert state["sources"]["erp_main"]["status"] == "ok"
 
-    def test_refresh_flag_bypasses_rename_confirmation(
-        self, project, cli, monkeypatch
-    ):
+    def test_refresh_flag_bypasses_rename_confirmation(self, project, cli, monkeypatch):
         first_cfg, renamed_cfg = _write_rename_configs(project)
         monkeypatch.chdir(project.root)
 
@@ -883,15 +858,11 @@ class TestRenameNonTtyExit3:
         assert "Rename confirmation required" not in refreshed.output
         assert (project.root / "schema_sqlite_erp_main.json").is_file()
 
-        state = json.loads(
-            (project.root / "feather_discover_state.json").read_text()
-        )
+        state = json.loads((project.root / "feather_discover_state.json").read_text())
         assert state["sources"]["erp_main"]["status"] == "ok"
         assert state["sources"]["erp"]["status"] == "removed"
 
-    def test_prune_flag_bypasses_rename_confirmation(
-        self, project, cli, monkeypatch
-    ):
+    def test_prune_flag_bypasses_rename_confirmation(self, project, cli, monkeypatch):
         first_cfg, renamed_cfg = _write_rename_configs(project)
         monkeypatch.chdir(project.root)
 
@@ -905,9 +876,7 @@ class TestRenameNonTtyExit3:
         assert not (project.root / "schema_sqlite_erp.json").exists()
         assert not (project.root / "schema_sqlite_erp_main.json").exists()
 
-        state = json.loads(
-            (project.root / "feather_discover_state.json").read_text()
-        )
+        state = json.loads((project.root / "feather_discover_state.json").read_text())
         assert "erp" not in state["sources"]
 
 
