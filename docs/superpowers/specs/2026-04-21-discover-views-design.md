@@ -1,257 +1,225 @@
-# Design: View discovery across database sources (Issue #26)
+# View discovery across database sources
 
-**Version:** 1.0
-**Date:** 2026-04-21
-**Status:** Draft, pending user review
-**Upstream issue:** [siraj-samsudeen/feather-etl#26](https://github.com/siraj-samsudeen/feather-etl/issues/26)
-**Personas:** [`docs/personas.md`](../../personas.md) v1.1 — Builder and Analyst
-**Requirements:** [`docs/issues/26-discover-views.md`](../../issues/26-discover-views.md)
-**Branch:** `feature/discover-views`
+Created: 2026-04-21
+Status: DRAFT
+Issue: [#26](https://github.com/siraj-samsudeen/feather-etl/issues/26)
+
+**Personas:** [`docs/personas.md`](../../personas.md) v1.2 — Builder, Analyst, and the Artifact consumers catalog.
+**Requirements source:** [`docs/issues/26-discover-views.md`](../../issues/26-discover-views.md) (includes the Implementation Handoff Addendum).
+**Branch:** `feature/discover-views`.
+
+| Version | Changes |
+|---|---|
+| 1.0 | Initial draft. Scope: three DB sources. Flat-array schema JSON. Human-viewer-only consumer. |
+| 1.1 | Scope expanded to five DB-shaped sources. JSON shape migrated to `{streams: [...]}` for forward-compat with the planned SQLite metadata DB. AI triage agent promoted to first-class artifact consumer. |
+| 2.0 | Restructured to fit [`docs/conventions/spec-template.md`](../../conventions/spec-template.md): requirements/design split, counterfactual Key decisions, declarative integration surface. Implementation procedure (per-task TDD breakdown, dependency chain) moved out of the spec entirely — it belongs in the plan doc that `writing-plans` will produce next. |
 
 ---
 
-## 1. Scope & boundaries
+# Part I — Requirements
 
-**In scope.** `feather discover` lists views from Postgres, SQL Server, and MySQL alongside base tables. Each view carries its full `CREATE VIEW` DDL text so the Builder can triage it (ignore vs. rebuild vs. copy verbatim) without opening a second tool. The schema JSON artifact and the schema viewer are extended to surface the table-vs-view distinction and the DDL. `StreamSchema` gains two descriptive fields.
+## 1. Problem
 
-**Out of scope — preserved here so they are not reopened mid-implementation.**
+Every feather-etl client deployment points at an ERP. Every ERP of meaningful age has accumulated views alongside its base tables — some are thoughtful, curated business logic the client's power users query daily; others are temporary hacks nobody cleaned up. The mix is always present; the ratio varies by client.
 
-- DDL-change detection across discover runs (drift tracking).
-- Automatic view-dependency resolution (parsing DDL to identify referenced tables).
+Today, `feather discover` makes all of that invisible. The three database sources (`postgres`, `sqlserver`, `mysql`) filter `INFORMATION_SCHEMA.TABLES` to `BASE TABLE` only. `sqlite` filters to `type = 'table'`. The DuckDB file source makes no classification at all — it returns tables and views as an undifferentiated list with no way for a downstream consumer to tell which is which.
+
+The cost to the Builder is immediate and concrete. View-level business logic is free research material — sometimes literally the specification for what the warehouse's gold layer should produce. Without a listing, the Builder either rediscovers that logic by reading the ERP's source SQL manually (slow, error-prone, forgotten) or skips views entirely and risks shipping a warehouse that silently regresses information the Analyst was pulling from views just yesterday. The Analyst's binding invariant — *whatever I could answer from the ERP today, I can answer from the warehouse tomorrow* — starts eroding the moment a view becomes invisible.
+
+A second, newer cost is that feather-etl's discovery output now feeds an AI triage agent. The agent's job is to recommend, per view, whether to ignore it, rebuild it in silver/gold, or copy its rows verbatim into the warehouse. The agent cannot recommend on what it cannot see. It also needs every view's DDL materialized in one artifact, offline-readable, because cross-view pattern recognition ("these ten views share structure") is impossible if DDL arrives one round-trip at a time.
+
+The problem, in a sentence: the discovery artifact is silently hiding the source information the Builder, the Analyst, and the triage agent all depend on.
+
+## 2. Goal
+
+After this ships, `feather discover` lists views alongside base tables across every DB-shaped source, and each discovered view carries its full `CREATE VIEW` DDL text, captured eagerly into a single self-contained schema JSON file per source. The JSON is shaped as a dict keyed by `streams`, with each entry a prospective row for the forthcoming SQLite metadata database — so the eventual migration is a mechanical `INSERT INTO streams SELECT ... FROM json_each(...)`, not a re-design. The schema viewer renders a table/view badge, a filter toggle, and a collapsible DDL block for view entries; the AI triage agent processes the same JSON to produce bucketed recommendations the Builder reviews. No new CLI commands, no new YAML keys — the change lives entirely inside existing paths.
+
+## 3. Acceptance criteria
+
+- `feather discover` against a `postgres`, `sqlserver`, `mysql`, `sqlite`, or `duckdb_file` source returns views intermixed with base tables.
+- Every view entry reports `table_type: "view"` and a populated `ddl` string.
+- Every table entry reports `table_type: "table"` and `ddl: null`.
+- The written `schema_<source>.json` file is a JSON dict whose top-level key `streams` holds an array; each entry is an object with exactly `name`, `table_type`, `ddl`, and `columns` fields.
+- `columns` is a one-level sub-array of `{name, type}` objects — no deeper nesting, no duplicated information elsewhere in the entry.
+- The schema viewer displays a `table` or `view` badge next to each sidebar entry.
+- The schema viewer provides a three-state filter (show tables / show views / show both, default both).
+- The schema viewer renders a collapsible `CREATE VIEW` block under each view's column list, with a copy-to-clipboard affordance.
+- An older `schema_<source>.json` written in the previous flat-array shape continues to render in the new viewer without errors — badges and DDL sections are absent, but nothing crashes.
+- A `feather.yaml` configured with `source_table: <view_name>` runs through `feather run` end-to-end: rows land in the destination on the first run, and a second run reports the table unchanged (or reports `checksum_error` and safely re-extracts, per engine).
+- Live-DB integration tests (skipif-guarded by existing live-connection markers) assert view discovery works against each of postgres, sqlserver, and mysql.
+
+### End-to-end verification
+
+A single concrete exemplar the reader can run by hand to confirm the criteria hold.
+
+```bash
+# Against the DuckDB fixture with a newly-added view
+uv run feather discover --config tests/fixtures/sample_erp.yaml
+
+# Inspect the shape
+python -c "import json; d=json.load(open('schema_sample_erp.json')); \
+  assert 'streams' in d and isinstance(d['streams'], list); \
+  print([(s['name'], s['table_type'], bool(s.get('ddl'))) for s in d['streams']])"
+# Expected output includes:
+#   ('erp.orders', 'table', False)
+#   ('erp.high_value_orders', 'view', True)
+
+# Open the viewer; confirm badges, filter toggle, and DDL collapsible render
+open http://127.0.0.1:8000
+```
+
+---
+
+# Part II — Design
+
+## 4. Scope
+
+Lives across `src/feather_etl/sources/*.py`, `src/feather_etl/discover.py`, `src/feather_etl/resources/schema_viewer.html`, two fixture-generator scripts, and the test suite. No new top-level CLI commands, no new `feather.yaml` keys, no new external dependencies.
+
+**In**
+
+- Every DB-shaped source reports views alongside base tables from `discover()`.
+- Every discovered view carries its full DDL, materialized at discover time (not lazily).
+- The discovery artifact serves both the human viewer and the AI triage agent from a single JSON file; the shape works equally well for both.
+- `StreamSchema` carries two new descriptive fields (`table_type`, `ddl`) usable across all sources.
+- The schema JSON on disk is a dict keyed by `streams`, with entries shaped for direct mechanical migration to a future SQLite `streams` row.
+- The schema viewer distinguishes tables from views, lets the user filter one category at a time, and surfaces each view's DDL without leaving the page.
+- Existing schema JSON files on disk (flat-array shape) continue to render in the updated viewer.
+- A Builder who configures `source_table: <view_name>` extracts the view's rows through the existing pipeline with no additional configuration.
+
+**Out**
+
+- `CREATE TABLE streams` and any SQLite metadata schema. That work lives in a parallel workstream.
+- Sidecar `.sql` files for DDL.
+- DDL-drift detection across discover runs.
+- Automatic view-dependency resolution (parsing DDL to infer referenced tables).
 - Dialect translation of view DDL (T-SQL / PL/pgSQL → DuckDB).
-- Reconciliation tooling (source-vs-warehouse diff commands).
-- Cache materialization policy for views (auto-replay, auto-materialize, etc.).
-- A new `include_views` config knob. The viewer's filter toggle covers the "hide views" need; configure-time filtering is YAGNI until a Builder asks.
+- Source-vs-warehouse reconciliation tooling.
+- Cache-materialization policy for views.
+- A new `include_views` config knob.
+- Recording the Builder's per-view triage decision anywhere in the artifact.
 
-**Personas served.**
+**Outside this scope**
 
-- **Builder** — R1: triage each view via DDL at discover time; extract view data on demand via existing `source_table: <view>` configuration.
-- **Analyst** — R2: no direct effect from this issue, but the ability to *study* view DDL is the foundation for the Builder delivering information parity later.
+- `src/feather_etl/sources/csv.py`, `excel.py`, `json_source.py` — file-shaped sources with no view concept. They inherit the new `StreamSchema` defaults transparently and need no code changes.
+- `src/feather_etl/cli.py`, `src/feather_etl/config.py` — no new commands, no new YAML keys.
+- `src/feather_etl/state.py`, `discover_state.py` — existing state tracking is unchanged; view entries increment the existing `table_count` alongside tables.
 
----
+## 5. Key decisions
 
-## 2. User-facing contract
+### Artifact shape — flat array vs dict keyed by `streams`
 
-This is the surface that is hardest to change after shipping. Locking it now.
+**Chose:** A dict whose top-level `streams` key holds the array of entries; each entry carries `name`, `table_type`, `ddl`, and a one-level `columns` sub-array.
 
-### 2.1 `feather discover` CLI behavior
+**Why not preserve the existing flat array?** The near-term workstream consolidates feather-etl's metadata into a unified SQLite database. A flat array forces either a breaking re-serialization at migration time or a permanent translation layer between disk shape and in-memory model. The keyed-by-`streams` shape maps 1-to-1 onto the future `streams` row schema — migration becomes `INSERT INTO streams SELECT ... FROM json_each(...)`. The cost today is one viewer compat shim; the savings at migration are a full redesign avoided.
 
-No new flags. Running `feather discover` against a config that lists a Postgres, SQL Server, or MySQL source now returns tables and views intermixed in the discovery output. Existing stdout format is preserved — view entries are not called out on the terminal; the distinction surfaces in the viewer.
+### DDL capture timing — eager at discover time vs lazy on demand
 
-### 2.2 Schema JSON shape (written per source to `schema_<source>.json`)
+**Chose:** Eager, inlined in each stream entry.
 
-Before:
+**Why not lazy?** Lazy fetch (viewer or agent asks; discover replies with column count only) breaks three consumer constraints documented in `personas.md` v1.2. (1) The AI triage agent's cross-view pattern recognition is a one-pass operation over the whole artifact — it cannot observe patterns across per-view round trips. (2) Offline review by a second agent or a teammate breaks if the artifact needs a live source connection to interpret. (3) Per-view round trips burn tokens linearly in view count — a 200-view ERP becomes a 200-tool-call exercise. Eager capture pays a small one-time cost at discover for a large compound benefit at every consumer.
 
-```json
-[
-  {
-    "table_name": "erp.orders",
-    "columns": [{"name": "id", "type": "INTEGER"}, ...]
-  }
-]
-```
+### Non-human artifact consumer — first-class or afterthought
 
-After:
+**Chose:** The AI triage agent is a first-class artifact consumer, co-equal with the human viewer. Design choices must satisfy both.
 
-```json
-[
-  {
-    "table_name": "erp.orders",
-    "columns": [{"name": "id", "type": "INTEGER"}, ...],
-    "table_type": "table",
-    "ddl": null
-  },
-  {
-    "table_name": "erp.high_value_orders",
-    "columns": [{"name": "id", "type": "INTEGER"}, ...],
-    "table_type": "view",
-    "ddl": "CREATE VIEW erp.high_value_orders AS SELECT * FROM erp.orders WHERE total_amount > 1000"
-  }
-]
-```
+**Why not treat the agent as "just another tool the Builder sometimes uses"?** That framing would license pretty-printed human-readable JSON, lazy DDL fetching, and other humans-first choices that fail the agent. Elevating the agent forces the artifact to stay machine-parseable, self-contained, and offline-capable. Those properties also make the artifact more robust for humans — nothing in the agent's constraints conflicts with what the viewer needs.
 
-**Contract guarantees.**
+### DuckDB file source — "fix bug" vs "reconcile asymmetry"
 
-- `table_type` is always one of `"table"` or `"view"`. Never `null`. Never `"materialized_view"` in this version.
-- `ddl` is a string for views, `null` for tables.
-- Old schema JSON files on disk (written before this change) remain readable by the new viewer — missing fields are handled gracefully.
+**Chose:** The DuckDB file source change is framed as reconciling an inherited asymmetry, not fixing a bug.
 
-### 2.3 Schema viewer HTML
+**Why not call it a bug fix?** The existing no-type-filter behavior was pre-convention code written before `table_type` existed in the product. Framing matters: "bug" invites blame-seeking and tempts over-correction ("while we're in there, let's also…"). "Reconcile asymmetry" orients the change as aligning one source with the others — a smaller, more focused edit with clearer stopping criteria. This is a Chesterton's Commit principle: treat inherited pre-convention code as inherited, not as bug.
 
-The viewer now renders:
+### Postgres DDL — verbatim vs synthesized
 
-- A compact badge (`table` / `view`) next to each entry in the sidebar list.
-- A filter toggle at the top of the sidebar: "Show tables", "Show views", "Show both" (default: both).
-- For view entries, a collapsible "CREATE VIEW" section in the detail pane, under the column list, with a copy-to-clipboard affordance.
+**Chose:** Synthesized — capture the SELECT body from `INFORMATION_SCHEMA.VIEWS.view_definition`, then wrap with `CREATE VIEW <qualified> AS <body>`.
 
-### 2.4 `feather.yaml` shape
+**Why not preserve verbatim via a Postgres-native function?** No Postgres surface returns the verbatim original `CREATE VIEW` text. Both `pg_get_viewdef()` and `INFORMATION_SCHEMA.VIEWS.view_definition` return the SELECT body only; the engine does not persist the original statement. Synthesized text is sufficient for triage-readability — the only requirement R1 places on DDL. SQL Server (`sys.sql_modules.definition`) and MySQL (`SHOW CREATE VIEW`) do return full original text and are used verbatim.
 
-Unchanged. No new keys. `source_table: <view_name>` continues to work as it has.
+### Backwards-compat for old JSON files
 
-### 2.5 Python API (`StreamSchema`)
+**Chose:** The viewer normalizes old flat-array JSON on load (three lines of JavaScript).
 
-```python
-@dataclass
-class StreamSchema:
-    name: str
-    columns: list[tuple[str, str]]
-    primary_key: list[str] | None
-    supports_incremental: bool
-    table_type: Literal["table", "view"] = "table"
-    ddl: str | None = None
-```
+**Why not require users to re-run `feather discover` after upgrading?** Discover is not a hot path; users may go months between runs. A compat shim in the consumer costs almost nothing and preserves continuity for anyone who upgrades feather without immediately re-discovering.
 
-Both new fields have defaults. All existing `StreamSchema(...)` construction sites (19 sites, all keyword-based per the impact research) continue to work unchanged.
+### `include_views` config knob — now or later
 
----
+**Chose:** Not now. Filtering lives in the viewer (a three-state toggle), not in the source config.
 
-## 3. Integration surface
+**Why not add a YAML knob for Builders who deploy against ERPs with many hack views?** Viewer-side filtering is additive and reversible (toggle at any time, no re-discover). A YAML knob is configure-once-and-forget and asymmetric (easy to forget; hard to notice the view you wanted is hidden). The viewer toggle covers the stated use case. If a Builder reports the toggle is insufficient — for example, wanting to skip DDL capture for hundreds of hack views to cut discovery time — the knob lands as a follow-on against that concrete signal.
 
-Which files change and why — ordered by blast radius.
+## 6. How it works
 
-| File | Change | Persona trace |
-|---|---|---|
-| `src/feather_etl/sources/__init__.py` | Add `table_type` and `ddl` fields to `StreamSchema`. | Foundation for R1. |
-| `src/feather_etl/sources/postgres.py` | `discover()` includes views; captures DDL via `INFORMATION_SCHEMA.VIEWS.view_definition` and synthesizes `CREATE VIEW` prefix. | R1 triage. |
-| `src/feather_etl/sources/sqlserver.py` | `discover()` includes views; captures DDL via `sys.sql_modules.definition` (full text). | R1 triage. |
-| `src/feather_etl/sources/mysql.py` | `discover()` includes views; captures DDL via `SHOW CREATE VIEW` (full text). | R1 triage. |
-| `src/feather_etl/discover.py` | Schema JSON payload grows `table_type` and `ddl` fields. | Bridges backend to viewer. |
-| `src/feather_etl/resources/schema_viewer.html` | Badge, filter toggle, collapsible DDL rendering. | R1 triage UI. |
-| `tests/e2e/test_03_discover.py` | Loosen strict key assertion (line 244) to superset. | Unblocks shape change. |
-| `tests/fixtures/sample_erp.duckdb`, `sample_erp.sqlite` | Add one view to each, regenerated via the existing scripts. | Gives tests a view to observe. |
-| `scripts/create_sample_erp_fixture.py`, `scripts/create_csv_sqlite_fixtures.py` | Add `CREATE VIEW` for `high_value_orders`. | Keeps fixtures reproducible. |
-| `tests/unit/sources/test_postgres.py`, `test_sqlserver.py`, `test_mysql.py` | Add view-discovery unit tests (mocked or in-memory where possible). | Per-engine correctness. |
-| `tests/e2e/test_discover_views.py` (new) | End-to-end: configure `source_table: <view>`, run pipeline, assert extraction + change detection. | Closes the "no view-extraction coverage" gap the research agent flagged. |
-| `tests/integration/test_postgres.py`, `test_mysql.py`, `test_sqlserver.py` | Add live-connection view tests (skipif-guarded). | Per-engine real-DB correctness. |
+`feather discover` iterates the sources from `feather.yaml`, calling each source's `discover()`. Each DB-shaped source now issues two information-schema queries rather than one: a broadened tables-and-views listing, then a follow-up per view to capture its DDL (verbatim where the engine preserves original text, synthesized where it only returns the body). Each source returns a list of `StreamSchema` objects carrying the per-entry `name`, `columns`, `primary_key`, `supports_incremental`, `table_type`, and `ddl`. The list flows into `_write_schema` in `discover.py`, which serializes to `schema_<source>.json` in the new `{"streams": [...]}` shape.
 
-File sources (CSV, SQLite, DuckDB, Excel, JSON) are **not** modified. They default `table_type` to `"table"` via the dataclass default and leave `ddl` as `None`. No view concept applies.
-
----
-
-## 4. Task breakdown
-
-Tasks are atomic and ordered so each one is testable in isolation. Each task follows TDD: the test is written first, the implementation makes it pass.
-
-### Task 1 — Extend `StreamSchema`
-
-- **What:** Add `table_type: Literal["table", "view"] = "table"` and `ddl: str | None = None` to the dataclass.
-- **Why / risk:** Foundation. Low risk — all construction sites use keyword args, no snapshot comparisons on the whole dataclass.
-- **TDD test:** Unit test: construct `StreamSchema(name="t", columns=[], primary_key=None, supports_incremental=True)` and assert `.table_type == "table"` and `.ddl is None`. Construct with `table_type="view", ddl="CREATE VIEW ..."` and assert the fields round-trip.
-- **Code:** Two new fields on the dataclass in `src/feather_etl/sources/__init__.py`.
-
-### Task 2 — Loosen the schema-JSON key assertion
-
-- **What:** Update `tests/e2e/test_03_discover.py:244` from `== {"table_name", "columns"}` to explicitly include the new keys, or use a superset check.
-- **Why / risk:** Unblocks every later task. Doing this first so the repo stays green step by step.
-- **TDD test:** The existing assertion stays but is rewritten to validate the new shape.
-- **Code:** Single-line test change.
-
-### Task 3 — Extend the schema JSON writer
-
-- **What:** In `src/feather_etl/discover.py`, update the payload comprehension to emit `table_type` and `ddl` for every entry.
-- **Why / risk:** Bridges new `StreamSchema` fields to disk. Low risk — additive.
-- **TDD test:** Unit test: `_write_schema` with a mock source returning one `StreamSchema(table_type="view", ddl="CREATE ...")`; assert the written JSON has the two new keys with correct values.
-- **Code:** Add `table_type` and `ddl` to the dict comprehension in `_write_schema`.
-
-### Task 4 — Postgres `discover()` includes views with DDL
-
-- **What:** Change the `TABLE_TYPE` filter to include `'VIEW'`. For each view, issue a follow-up query against `INFORMATION_SCHEMA.VIEWS` to fetch `view_definition`, then synthesize `CREATE VIEW {qualified} AS {body}`. Populate `StreamSchema.table_type` and `.ddl` accordingly.
-- **Why / risk:** Core R1 deliverable for Postgres. Low risk — existing discover flow is preserved for tables.
-- **TDD test:** Integration test (skipif-guarded) against a live Postgres with one base table and one view. Assert `discover()` returns both, with correct `table_type` values and non-empty DDL for the view.
-- **Code:** ~15 lines in `src/feather_etl/sources/postgres.py`.
-
-### Task 5 — SQL Server `discover()` includes views with DDL
-
-- **What:** Change the `TABLE_TYPE` filter. For each view, fetch DDL via `sys.sql_modules.definition` using `OBJECT_ID('{schema}.{name}')`. Full original text; no synthesis needed.
-- **Why / risk:** Core R1 deliverable for SQL Server.
-- **TDD test:** Integration test (skipif-guarded) against a live SQL Server. Same assertions as Task 4.
-- **Code:** ~15 lines in `src/feather_etl/sources/sqlserver.py`.
-
-### Task 6 — MySQL `discover()` includes views with DDL
-
-- **What:** Change the `TABLE_TYPE` filter. For each view, fetch DDL via `SHOW CREATE VIEW {qualified}`. Full original text.
-- **Why / risk:** Core R1 deliverable for MySQL. One extra risk: verify that `CHECKSUM TABLE` on a view either works or fails gracefully in the existing change-detection path. The existing code already falls through to `checksum_error` on any MySQL error, which is safe.
-- **TDD test:** Integration test against live MySQL with a base table and a view. Additional test: configure `source_table: <view>` and run end-to-end extraction — confirm it completes (even if `CHECKSUM TABLE` errors, the fallback triggers a full extract which still succeeds).
-- **Code:** ~15 lines in `src/feather_etl/sources/mysql.py`.
-
-### Task 7 — Extend fixtures with a view
-
-- **What:** Modify `scripts/create_sample_erp_fixture.py` and `scripts/create_csv_sqlite_fixtures.py` to add one `CREATE VIEW erp.high_value_orders AS SELECT * FROM erp.orders WHERE total_amount > 1000`. Regenerate `sample_erp.duckdb` and `sample_erp.sqlite`.
-- **Why / risk:** Required for unit and e2e view tests. Low risk — existing tests reference tables by name, not count.
-- **TDD test:** The regenerate-and-rerun command. No new test here; Task 8 consumes the fixture.
-- **Code:** Two `CREATE VIEW` statements in the two scripts.
-
-### Task 8 — Unit tests for per-engine view discovery
-
-- **What:** Add `test_discover_returns_views` in `tests/unit/sources/test_postgres.py`, `test_sqlserver.py`, `test_mysql.py`. These can use mocks or an in-memory DuckDB stand-in where possible; live DB tests stay in `tests/integration/`.
-- **Why / risk:** Per-engine correctness baseline.
-- **TDD test:** The test itself.
-- **Code:** One test per file, ~20 lines each.
-
-### Task 9 — E2E test for view extraction
-
-- **What:** `tests/e2e/test_discover_views.py` — configure a feather.yaml with `source_table: erp.high_value_orders`, run `feather run` against the new fixture, assert rows land in the destination and a second run is `unchanged` (change detection works on views in DuckDB too). Closes the coverage gap the research agent flagged.
-- **Why / risk:** Confirms the research agent's "already works" finding holds in CI.
-- **TDD test:** The test itself.
-- **Code:** One new file, ~50 lines.
-
-### Task 10 — Schema viewer: badge + DDL collapsible
-
-- **What:** Update `src/feather_etl/resources/schema_viewer.html` to render a `table` / `view` badge in the sparklist and treemap entries, and a collapsible DDL section in the detail pane for view entries.
-- **Why / risk:** R1 UI deliverable. Vanilla JS, low risk.
-- **TDD test:** The existing `tests/unit/test_viewer_server.py` covers the packaging flow. Add one test that writes a schema JSON containing a view entry and asserts the rendered HTML (or a DOM-level selector via a lightweight parser) contains the expected badge and DDL section. If that proves unwieldy for vanilla-JS, a snapshot test of the served HTML string is acceptable.
-- **Code:** ~30 lines of HTML/JS/CSS.
-
-### Task 11 — Schema viewer: filter toggle
-
-- **What:** Add a filter control at the top of the sidebar — "Show tables / Show views / Show both" (default both) — and wire it to `state.sources[si].tables` rendering.
-- **Why / risk:** Handles R1's "in deployments with many hack views, let me hide them" case without a config knob.
-- **TDD test:** Minimal DOM test: simulate a click on the toggle and assert the rendered sidebar entries update.
-- **Code:** ~15 lines.
-
----
-
-## 5. Dependency chain
+From that artifact, two parallel consumption paths run:
 
 ```
-Task 1 (StreamSchema fields)
-   ↓
-Task 2 (loosen JSON assertion) — can run in parallel with Task 1
-   ↓
-Task 3 (JSON writer emits new fields)
-   ↓
-Tasks 4, 5, 6 (Postgres, SQL Server, MySQL discover) — parallelizable; each independent
-   ↓
-Task 7 (fixtures) — must precede Tasks 8 and 9
-   ↓
-Task 8 (unit tests), Task 9 (e2e test) — parallelizable after Task 7
-   ↓
-Tasks 10, 11 (viewer UI) — parallelizable; depend on Task 3 but not on 4/5/6 functionally (can be tested with hand-written JSON)
+                 schema_<source>.json   (single artifact)
+                          │
+              ┌───────────┴───────────┐
+              ▼                       ▼
+      Human viewer              AI triage agent
+      (schema_viewer.html)       (consumes offline)
+      ─ badge per entry          ─ one-pass read
+      ─ filter toggle            ─ cross-view patterns
+      ─ collapsible DDL          ─ recommendation output
 ```
 
-Critical path: 1 → 3 → 4/5/6 → 9.
+The viewer is vanilla JavaScript with no framework — new code plugs into the existing sparklist and treemap renderers. On load, it detects whether the JSON is a raw array (old shape) or a dict keyed by `streams` (new shape) and normalizes to the latter internally so all downstream rendering sees one shape. The DDL collapsible uses a native `<details>` element; no new dependencies.
 
----
+Two quirks future maintainers will need to know. (1) For Postgres, the "DDL" stored in the artifact is a synthesized string assembled from `INFORMATION_SCHEMA.VIEWS.view_definition`; comparing it to what a DBA sees via `pg_dump` will show formatting differences (no comments, no original whitespace). (2) For MySQL, `CHECKSUM TABLE` — used by the existing full-strategy change detector — returns an error code when invoked on a view. The existing error path already converts that into `ChangeResult(changed=True, reason="checksum_error")` which safely triggers a full re-extract; no new code is needed, but the live-DB integration test should exercise this path to keep the fallback honest.
 
-## 6. Done signal
+## 7. Integration surface
 
-The single end-to-end scenario that proves all eleven tasks landed correctly:
+**New**
 
-1. Start from a clean feather-etl clone on `feature/discover-views`.
-2. Run `uv run pytest -q` — all 720+ tests pass, including the new view tests.
-3. Run `uv run feather discover --config tests/fixtures/sample_erp.yaml` against a config pointing at `sample_erp.duckdb` (or `.sqlite`) — the terminal reports discovery succeeded; the schema JSON file contains both `erp.orders` (with `table_type: "table"`) and `erp.high_value_orders` (with `table_type: "view"` and a populated `ddl`).
-4. The schema viewer opens in the browser. The sidebar shows badges on each entry. The view entry reveals a collapsible "CREATE VIEW" section with the DDL. The filter toggle hides/shows views.
-5. Against a live Postgres, SQL Server, or MySQL with at least one view (optional — skipif-guarded): `uv run feather discover` lists the view with correct DDL captured.
+- `tests/e2e/test_discover_views.py` — end-to-end test exercising a view as a first-class extraction target: discover lists it, pipeline extracts rows, second run reports unchanged (or checksum_error safely).
 
-When all five steps succeed, the issue is complete.
+**Modified**
 
----
+- `src/feather_etl/sources/__init__.py` — currently defines `StreamSchema` with four fields (name, columns, primary_key, supports_incremental); becomes home of two additional descriptive fields (`table_type`, `ddl`) carrying their defaults.
+- `src/feather_etl/discover.py` — currently writes a flat-array schema JSON with `table_name` and `columns`; becomes home of the `streams`-keyed writer producing the four canonical per-entry fields.
+- `src/feather_etl/sources/postgres.py` — currently discovers base tables only; becomes home of a combined tables-and-views listing with DDL synthesized from `INFORMATION_SCHEMA.VIEWS.view_definition`.
+- `src/feather_etl/sources/sqlserver.py` — currently discovers base tables only; becomes home of the combined listing with DDL captured verbatim from `sys.sql_modules.definition`.
+- `src/feather_etl/sources/mysql.py` — currently discovers base tables only; becomes home of the combined listing with DDL captured verbatim from `SHOW CREATE VIEW`.
+- `src/feather_etl/sources/sqlite.py` — currently filters `sqlite_master` to `type = 'table'`; becomes home of the broadened filter with DDL captured from `sqlite_master.sql`.
+- `src/feather_etl/sources/duckdb_file.py` — currently returns tables and views undifferentiated; becomes home of explicit classification via DuckDB's view surface and per-view DDL capture. The change is framed as reconciling asymmetry with peer sources.
+- `src/feather_etl/resources/schema_viewer.html` — currently consumes a flat-array payload and renders a table-only sidebar; becomes home of a shape-compat reader, a table/view badge, a three-state filter toggle, and a collapsible DDL block per view.
+- `tests/e2e/test_03_discover.py` — currently asserts an exact-key set on the old schema JSON; becomes home of the assertion for the new `streams`-keyed shape.
+- `tests/unit/sources/test_postgres.py`, `test_sqlserver.py`, `test_mysql.py`, `test_sqlite.py`, `test_duckdb_file.py` — each currently covers table discovery only; each becomes home of a view-discovery assertion verifying `table_type="view"` and a populated DDL.
+- `tests/integration/test_postgres.py`, `test_mysql.py`, `test_sqlserver.py` — each becomes home of a skipif-guarded live-DB view-discovery test exercising the per-engine DDL query path.
+- `scripts/create_sample_erp_fixture.py`, `scripts/create_csv_sqlite_fixtures.py` — each generator becomes home of one `CREATE VIEW erp.high_value_orders AS SELECT * FROM erp.orders WHERE total_amount > 1000` statement; `sample_erp.duckdb` and `sample_erp.sqlite` are regenerated.
 
-## 7. Notable decisions preserved against re-opening
+**Outside this scope**
 
-- **`table_type` is purely descriptive metadata.** It does not gate extraction behavior. Whether a view is extracted is determined by whether `source_table: <view>` appears in the user's config, same as for tables. Rationale: keeps the pipeline uniform and avoids a second code path. Persona trace: R1 derived constraint ("data extraction from views is a supported production pattern, not an escape hatch").
-- **Star-schema naming is the default for ported logic.** Preserving a source view's name in the warehouse is a supported per-view Builder decision via a compatibility view on top of gold — not a platform default. Rationale: `personas.md` §Design discipline, retraction list. Persona trace: R2 information parity is the invariant, not name preservation.
-- **No `include_views` config knob in this issue.** Viewer-side filtering is sufficient. Revisit only if a Builder reports a concrete pain point. Persona trace: YAGNI against R1.
-- **No data preview at discover time.** Builder extracts view data by configuring `source_table: <view>` and running `feather run`. Rationale: keeps discover fast and uniform; avoids a second data-access path with different semantics. Persona trace: R1 derived constraint.
-- **Postgres DDL is synthesized, not preserved verbatim.** `INFORMATION_SCHEMA.VIEWS.view_definition` returns only the SELECT body; we prefix `CREATE VIEW <qualified> AS ` to produce the full DDL. SQL Server and MySQL return full original text. Rationale: R1 does not mandate exact formatting preservation, only that DDL be readable for triage.
-- **Change detection already works on views for Postgres and SQL Server.** MySQL's `CHECKSUM TABLE` may error on views, but the existing error path falls through to `checksum_error` and a safe re-extract. Verified in Task 6's integration test. Rationale: research agent finding; no new code needed.
+- `src/feather_etl/sources/csv.py`, `excel.py`, `json_source.py` — no view concept in these formats; they inherit the new `StreamSchema` defaults transparently and need no code changes.
+- `src/feather_etl/cli.py`, `src/feather_etl/config.py` — no new commands, no new YAML keys.
+- `src/feather_etl/state.py`, `discover_state.py` — change-detection paths are already view-compatible for Postgres and SQL Server, and fail safely for MySQL; no state-tracking code changes are required.
+
+## 8. Test design
+
+Organized by layer. Project convention is real fixtures over mocks; unit tests for sources that require a live DB (postgres, sqlserver, mysql) follow the existing `tests/unit/sources/*` patterns — lightweight stand-ins where available, otherwise minimal assertions on the SQL constructed.
+
+**Unit tests** (real fixtures or minimal stand-ins, no live DB):
+
+- `StreamSchema` construction with new defaults round-trips correctly: `table_type` defaults to `"table"`, `ddl` defaults to `None`; explicit `table_type="view"` + `ddl="CREATE VIEW ..."` preserves values.
+- `_write_schema` emits the new `{streams: [...]}` shape with exactly `{name, table_type, ddl, columns}` per entry for a mixed table-and-view input.
+- Per-source: `discover()` returns a view entry with `table_type="view"` and a populated `ddl`. SQLite and DuckDB file sources use the regenerated fixtures; Postgres, SQL Server, and MySQL use the project's existing patterns for sources requiring engine calls.
+- Viewer: loading a JSON payload with a mixed table-and-view `streams` array produces a sidebar containing the expected badge markers and a `<details>` DDL block. Loading a raw-array (old-shape) payload produces a sidebar that renders without errors.
+
+**Integration tests** (real live-DB connections, gated by existing skipif markers):
+
+- Per engine (postgres, sqlserver, mysql): discover against a pre-seeded DB containing at least one base table and at least one view. Assert both are returned with correct `table_type` and non-empty DDL for the view.
+- MySQL-specific: configure `source_table: <view>` against a live MySQL, run end-to-end extraction and change detection. Assert the pipeline completes — either the `CHECKSUM TABLE` path succeeds, or the `checksum_error` fallback triggers a full re-extract cleanly.
+
+**End-to-end test** (local DuckDB/SQLite fixtures, no live DB):
+
+- `tests/e2e/test_discover_views.py`: feather.yaml configured with `source_table: erp.high_value_orders` against the updated DuckDB fixture. Run `feather run`. Assert rows land in the destination and a second run reports the view unchanged.
+
+**Manual acceptance** (done by the Builder before merging):
+
+- Run `feather discover` against a live Postgres, SQL Server, or MySQL containing at least one view.
+- Open the viewer; confirm the view appears with a badge, DDL is populated, the filter toggle hides/shows views correctly, and the copy-to-clipboard affordance works.
+- Confirm an older (pre-migration) `schema_<source>.json` file on disk still renders in the updated viewer without errors.

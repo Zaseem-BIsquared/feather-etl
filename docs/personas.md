@@ -1,6 +1,6 @@
 # feather-etl: User Personas
 
-**Version:** 1.1
+**Version:** 1.2
 **Date:** 2026-04-21
 **Status:** Stable — referenced by every feature design doc
 
@@ -8,6 +8,7 @@
 |---------|---------|
 | 1.0 | Initial version. Builder and Analyst as primary personas; Decision-maker as latent stakeholder; four deferred personas explicitly out of scope. Extracted during brainstorming for issue #26 (view discovery). |
 | 1.1 | Analyst JTBD sharpened: added "information parity with source" as an explicit care; removed the misleading "does not care about preserving source view names" bullet. The Analyst's real invariant is not about names — it is about never losing access to information they currently have. Name preservation is one possible vehicle, not the requirement. Retraction note in "Design discipline" updated to mark name preservation as an explicitly supported per-case option (not a platform default, but not a banned outcome either). |
+| 1.2 | New section "Artifact consumers — human and machine" added to explicitly elevate the AI triage agent (consuming feather's metadata artifacts such as the discovery schema JSON) to first-class status alongside the human viewer. The AI triage agent is **not** a persona in the JTBD sense — it has no identity or career risk — but it imposes concrete design constraints (eager materialization, self-contained artifacts, machine-parseable shape) that matter as much as any human JTBD. The existing deferred-persona entry "AI agent as warehouse consumer" is a *different* role (agent querying gold tables for business answers) and remains deferred as before. |
 
 ---
 
@@ -94,6 +95,36 @@ A third party — the **Decision-maker** — is the ultimate consumer of the num
 
 ---
 
+## Artifact consumers — human and machine
+
+Personas describe *humans* whose JTBD we serve. They are not the only audience the product must satisfy. feather-etl produces artifacts — the discovery schema JSON, state files, eventually a unified SQLite metadata database — that are consumed by both human users and automation. The human-vs-machine distinction matters because the design constraints each imposes are different, and missing one leads to artifacts that silently fail a real consumer.
+
+This section is a catalog of artifact consumers. Entries here are **not** personas (they have no identity, no career risk), but they constrain the product design the way a persona's JTBD does. Feature designs that touch any artifact listed here must trace back to at least one consumer's requirements.
+
+### Human viewer (`feather_etl.resources.schema_viewer.html`)
+
+- **What it consumes.** The per-source discovery schema JSON, read from disk over HTTP served locally by `viewer_server.py`.
+- **Who operates it.** The Builder (primary), occasionally the Analyst (to peek at what got discovered).
+- **Design constraints it imposes.** The artifact must be renderable; fields must be addressable by simple paths; missing fields must degrade gracefully rather than crash.
+
+### AI triage agent (consumer of the discovery artifact)
+
+- **What it consumes.** The discovery schema JSON, typically the whole file for a source in one pass, offline. Output is a per-view recommendation routing each view into one of the three buckets from Issue #26 R1 (ignore / rebuild in silver or gold / copy verbatim).
+- **Who operates it.** The Builder, who reviews and accepts, edits, or overrides the recommendations.
+- **Design constraints it imposes.**
+  - **Eager materialization.** All DDLs must be present in the artifact at discover time. Lazy fetch (per-DDL round trips) fails the agent: (1) it cannot spot "these ten views share structure and should be rebuilt as a single fact table" without seeing them together; (2) round-trip tool calls burn tokens linearly with view count; (3) the artifact must be interpretable without a live source connection so a second agent or a teammate can review offline.
+  - **Machine-parseable shape.** Structured JSON, not pretty-prose. Fields are named predictably; values have stable types; nested structures translate mechanically to relational rows.
+  - **Self-contained.** One file per source, no live-connection dependency to interpret.
+- **Relationship to the deferred "AI agent as warehouse consumer" entry below.** That deferred role is an agent querying gold/silver tables to answer business questions — a completely different consumer with completely different requirements (semantic schema annotations, reliable joins, query-time performance). The triage agent above is a first-class consumer *today* because the discovery artifact is real and shipping; the warehouse-consumer role stays deferred because the semantic layer it would need has not been designed.
+
+### Future SQLite metadata database (planned consolidation)
+
+- **What it will consume.** Today's per-purpose JSON artifacts (including the discovery schema JSON) will be consolidated into a unified SQLite metadata database in a parallel workstream. Feather's internal code paths will read from SQLite instead of JSON files after the migration lands.
+- **Who operates it.** Feather itself, indirectly all human personas and the triage agent.
+- **Design constraints it imposes on artifacts today.** JSON shapes should map 1-to-1 onto prospective SQLite rows — top-level by entity kind (e.g., `streams`), one level of nesting for child collections (e.g., `columns`), no free-form blobs, no duplicated fields. The goal is that the eventual SQLite migration is a mechanical translation, not a re-design.
+
+---
+
 ## Latent stakeholder: the Decision-maker
 
 **Identity.** The business owner, CEO, CFO, or CXO who reads the dashboards and reports the Analyst produces, and acts on them. In SMB contexts, frequently also the person paying for the feather-etl engagement.
@@ -126,8 +157,9 @@ When making any feature decision — at brainstorming, spec, plan, or implementa
 - *"Serves the Builder by [specific JTBD bullet above]"*
 - *"Serves the Analyst by [specific JTBD bullet above]"*
 - *"Enables the Analyst to protect the Decision-maker from bad numbers by [specific mechanism]"*
+- *"Satisfies the [human viewer / AI triage agent / future SQLite metadata DB] constraint that [specific constraint from the Artifact consumers section]"*
 
-If a decision cannot be traced this way, it is probably YAGNI or it is serving a deferred persona. Both cases require explicit justification before the decision lands.
+If a decision cannot be traced this way, it is probably YAGNI or it is serving a deferred persona or an artifact consumer not yet on the catalog. All such cases require explicit justification before the decision lands.
 
 **Notable design retractions preserved here so they are not re-proposed.**
 
