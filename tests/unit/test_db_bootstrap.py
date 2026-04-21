@@ -264,3 +264,45 @@ class TestEnsureBootstrapDatabases:
 
         creates = [s for s in executed if "CREATE DATABASE" in s]
         assert creates == []
+
+
+class TestFormatBanner:
+    def test_both_ok_returns_none(self):
+        from tests.db_bootstrap import format_banner
+
+        assert format_banner({
+            "postgres": (True, None),
+            "mysql": (True, None),
+        }) is None
+
+    def test_postgres_down_names_brew_command(self):
+        from tests.db_bootstrap import format_banner
+
+        out = format_banner({
+            "postgres": (False, "could not connect"),
+            "mysql": (True, None),
+        })
+        assert out is not None
+        assert "brew services start postgresql@17" in out
+        assert "could not connect" in out
+
+    def test_mysql_down_names_brew_command(self):
+        from tests.db_bootstrap import format_banner
+
+        out = format_banner({
+            "postgres": (True, None),
+            "mysql": (False, "access denied"),
+        })
+        assert out is not None
+        assert "brew services start mysql" in out
+        assert "access denied" in out
+
+    def test_both_down_names_both(self):
+        from tests.db_bootstrap import format_banner
+
+        out = format_banner({
+            "postgres": (False, "pg"),
+            "mysql": (False, "my"),
+        })
+        assert "brew services start postgresql@17" in out
+        assert "brew services start mysql" in out

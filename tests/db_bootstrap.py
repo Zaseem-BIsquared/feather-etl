@@ -122,3 +122,29 @@ def ensure_bootstrap_databases() -> dict[str, tuple[bool, str | None]]:
         "postgres": _ensure_postgres_database(),
         "mysql": _ensure_mysql_database(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Banner shown at session start when a server is down
+# ---------------------------------------------------------------------------
+
+
+_BREW_COMMANDS = {
+    "postgres": "brew services start postgresql@17",
+    "mysql": "brew services start mysql",
+}
+
+
+def format_banner(results: dict[str, tuple[bool, str | None]]) -> str | None:
+    """Return the session-start banner text, or None if both flavors are OK."""
+    failed = [(flavor, reason) for flavor, (ok, reason) in results.items() if not ok]
+    if not failed:
+        return None
+
+    lines = ["", "=" * 72, "feather-etl test suite: local DB unavailable"]
+    for flavor, reason in failed:
+        lines.append(f"  {flavor}: {reason}")
+        lines.append(f"    fix:  {_BREW_COMMANDS[flavor]}")
+    lines.append("DB-gated tests will skip. Suite will still exit 0.")
+    lines.append("=" * 72)
+    return "\n".join(lines)
