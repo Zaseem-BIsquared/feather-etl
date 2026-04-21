@@ -66,7 +66,9 @@ def test_detect_renames_returns_empty_proposals_when_state_is_empty(project):
 def test_detect_renames_finds_rename_when_fingerprint_matches_under_new_name(project):
     """Rename a source in YAML; same fingerprint → proposal."""
     # First load with name "old_db" — record state.
-    cfg = load_config(_setup_sqlite_project(project, source_name="old_db"), validate=False)
+    cfg = load_config(
+        _setup_sqlite_project(project, source_name="old_db"), validate=False
+    )
     state = DiscoverState.load(project.root)
     sources = expand_db_sources(cfg.sources)
     # Simulate a prior successful discover under "old_db".
@@ -79,7 +81,9 @@ def test_detect_renames_finds_rename_when_fingerprint_matches_under_new_name(pro
     )
 
     # Now rename source to "new_db".
-    cfg = load_config(_setup_sqlite_project(project, source_name="new_db"), validate=False)
+    cfg = load_config(
+        _setup_sqlite_project(project, source_name="new_db"), validate=False
+    )
     sources = expand_db_sources(cfg.sources)
 
     detection = detect_renames_for_sources(state, sources)
@@ -91,7 +95,9 @@ def test_detect_renames_finds_rename_when_fingerprint_matches_under_new_name(pro
 def test_detect_renames_returns_ambiguous_when_multiple_state_entries_match(project):
     """Two stale state entries with the same fingerprint as one current
     source → ambiguous (cannot decide which old name was renamed)."""
-    cfg = load_config(_setup_sqlite_project(project, source_name="new_db"), validate=False)
+    cfg = load_config(
+        _setup_sqlite_project(project, source_name="new_db"), validate=False
+    )
     state = DiscoverState.load(project.root)
     sources = expand_db_sources(cfg.sources)
     fp = _fingerprint_for(sources[0])
@@ -123,7 +129,9 @@ def test_detect_renames_returns_ambiguous_when_multiple_state_entries_match(proj
 
 
 def test_apply_rename_decision_renames_state_and_files_for_accepted_proposals(project):
-    cfg = load_config(_setup_sqlite_project(project, source_name="new_db"), validate=False)
+    cfg = load_config(
+        _setup_sqlite_project(project, source_name="new_db"), validate=False
+    )
     state = DiscoverState.load(project.root)
     sources = expand_db_sources(cfg.sources)
     fp = _fingerprint_for(sources[0])
@@ -150,7 +158,9 @@ def test_apply_rename_decision_renames_state_and_files_for_accepted_proposals(pr
 
 
 def test_apply_rename_decision_marks_orphaned_for_rejected_proposals(project):
-    cfg = load_config(_setup_sqlite_project(project, source_name="new_db"), validate=False)
+    cfg = load_config(
+        _setup_sqlite_project(project, source_name="new_db"), validate=False
+    )
     state = DiscoverState.load(project.root)
     sources = expand_db_sources(cfg.sources)
     fp = _fingerprint_for(sources[0])

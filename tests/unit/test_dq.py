@@ -191,6 +191,3 @@ class TestDuplicate:
         assert len(dup) == 1
         assert dup[0].result == "pass"
         assert "no exact duplicates" in dup[0].details
-
-
-

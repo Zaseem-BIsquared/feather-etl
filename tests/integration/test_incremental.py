@@ -79,7 +79,10 @@ def _write_incremental_config(
 def test_first_incremental_run_extracts_all(project):
     src_path = _make_source_db(project.root)
     cfg = _write_incremental_config(
-        project, src_path, source_table="erp.orders", alias="orders",
+        project,
+        src_path,
+        source_table="erp.orders",
+        alias="orders",
         primary_key=["order_id"],
     )
 
@@ -98,7 +101,10 @@ def test_first_incremental_run_extracts_all(project):
 def test_second_run_no_new_rows_extracts_zero(project):
     src_path = _make_source_db(project.root)
     cfg = _write_incremental_config(
-        project, src_path, source_table="erp.orders", alias="orders",
+        project,
+        src_path,
+        source_table="erp.orders",
+        alias="orders",
         primary_key=["order_id"],
     )
 
@@ -110,7 +116,10 @@ def test_second_run_no_new_rows_extracts_zero(project):
 def test_incremental_after_new_rows(project):
     src_path = _make_source_db(project.root)
     cfg = _write_incremental_config(
-        project, src_path, source_table="erp.orders", alias="orders",
+        project,
+        src_path,
+        source_table="erp.orders",
+        alias="orders",
         primary_key=["order_id"],
     )
 
@@ -136,7 +145,10 @@ def test_incremental_after_new_rows(project):
 def test_run_after_incremental_no_new_rows_watermark_unchanged(project):
     src_path = _make_source_db(project.root)
     cfg = _write_incremental_config(
-        project, src_path, source_table="erp.orders", alias="orders",
+        project,
+        src_path,
+        source_table="erp.orders",
+        alias="orders",
         primary_key=["order_id"],
     )
 
@@ -178,8 +190,12 @@ def test_filter_excludes_matching_rows(project):
     con.close()
 
     cfg = _write_incremental_config(
-        project, src_path, source_table="erp.orders", alias="orders",
-        primary_key=["order_id"], filter="status <> 'cancelled'",
+        project,
+        src_path,
+        source_table="erp.orders",
+        alias="orders",
+        primary_key=["order_id"],
+        filter="status <> 'cancelled'",
     )
     result = run_table(cfg, cfg.tables[0], project.root)
 
@@ -199,7 +215,10 @@ def test_filter_excludes_matching_rows(project):
 
 def test_full_incremental_cycle_with_fixture(sample_erp_db, project):
     cfg = _write_incremental_config(
-        project, sample_erp_db, source_table="erp.sales", alias="sales",
+        project,
+        sample_erp_db,
+        source_table="erp.sales",
+        alias="sales",
         primary_key=["sale_id"],
     )
 
@@ -238,8 +257,12 @@ def test_full_incremental_cycle_with_fixture(sample_erp_db, project):
 
 def test_filter_with_fixture(sample_erp_db, project):
     cfg = _write_incremental_config(
-        project, sample_erp_db, source_table="erp.sales", alias="sales",
-        primary_key=["sale_id"], filter="status <> 'cancelled'",
+        project,
+        sample_erp_db,
+        source_table="erp.sales",
+        alias="sales",
+        primary_key=["sale_id"],
+        filter="status <> 'cancelled'",
     )
     result = run_table(cfg, cfg.tables[0], project.root)
 
@@ -301,8 +324,7 @@ def test_incremental_second_run_zero_new_rows_success_path(project):
     # overlap=0, the incremental extract then returns zero rows directly.
     con = duckdb.connect(str(src_path))
     con.execute(
-        "UPDATE erp.orders SET modified_at = '2025-01-04 12:00:00' "
-        "WHERE order_id = 5"
+        "UPDATE erp.orders SET modified_at = '2025-01-04 12:00:00' WHERE order_id = 5"
     )
     con.close()
 
@@ -405,10 +427,7 @@ def test_incremental_prod_mode_applies_column_map(project):
 
     # Second run with a new row → hits the is_incremental+wm branch
     con = duckdb.connect(str(src_path))
-    con.execute(
-        "INSERT INTO erp.orders VALUES "
-        "(6, 600.00, '2025-01-06 00:00:00')"
-    )
+    con.execute("INSERT INTO erp.orders VALUES (6, 600.00, '2025-01-06 00:00:00')")
     con.close()
 
     result = run_table(cfg, cfg.tables[0], project.root)
@@ -504,7 +523,10 @@ def test_append_prod_mode_applies_column_map(project):
 
 def test_overlap_window_arithmetic(sample_erp_db, project):
     cfg = _write_incremental_config(
-        project, sample_erp_db, source_table="erp.sales", alias="sales",
+        project,
+        sample_erp_db,
+        source_table="erp.sales",
+        alias="sales",
         primary_key=["sale_id"],
     )
 

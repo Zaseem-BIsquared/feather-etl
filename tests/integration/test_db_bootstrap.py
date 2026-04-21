@@ -34,9 +34,7 @@ class TestPostgresBootstrapIntegration:
 
         conn = psycopg2.connect(POSTGRES_ADMIN_DSN)
         cur = conn.cursor()
-        cur.execute(
-            "SELECT 1 FROM pg_database WHERE datname = %s", (THROWAWAY_DB,)
-        )
+        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (THROWAWAY_DB,))
         found = cur.fetchone() is not None
         cur.close()
         conn.close()

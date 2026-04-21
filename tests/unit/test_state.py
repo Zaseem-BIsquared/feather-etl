@@ -418,6 +418,7 @@ class TestCacheWatermarks:
         assert row["last_file_hash"] == "new"
         # Only one row
         import duckdb
+
         con = duckdb.connect(str(sm.path), read_only=True)
         count = con.execute(
             "SELECT COUNT(*) FROM _cache_watermarks WHERE table_name = 't'"
@@ -441,16 +442,14 @@ class TestCacheWatermarks:
         )
         con = duckdb.connect(str(sm.path), read_only=True)
         prod_count = con.execute("SELECT COUNT(*) FROM _watermarks").fetchone()[0]
-        cache_count = con.execute(
-            "SELECT COUNT(*) FROM _cache_watermarks"
-        ).fetchone()[0]
+        cache_count = con.execute("SELECT COUNT(*) FROM _cache_watermarks").fetchone()[
+            0
+        ]
         con.close()
         assert prod_count == 0
         assert cache_count == 1
 
-    def test_write_cache_watermark_normalizes_int_checksum_to_str(
-        self, tmp_path: Path
-    ):
+    def test_write_cache_watermark_normalizes_int_checksum_to_str(self, tmp_path: Path):
         """Pins the documented boundary: int checksums (SQL Server CHECKSUM_AGG)
         are stored as str so the VARCHAR column accepts them uniformly with
         Postgres md5() hex strings."""

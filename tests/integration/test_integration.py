@@ -300,9 +300,7 @@ class TestClientFixtureEdgeCases:
         con.close()
         assert "Round Off" in cols, "'Round Off' column (space) should be preserved"
 
-    def test_invitem_blob_columns(
-        self, project: ProjectFixture, client_db_copy: Path
-    ):
+    def test_invitem_blob_columns(self, project: ProjectFixture, client_db_copy: Path):
         """INVITEM has BLOB columns (IMAGE, DivImage).  Should load without error."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
@@ -317,9 +315,7 @@ class TestClientFixtureEdgeCases:
         assert results[0].status == "success"
         assert results[0].rows_loaded == 1058
 
-    def test_all_six_icube_tables(
-        self, project: ProjectFixture, client_db_copy: Path
-    ):
+    def test_all_six_icube_tables(self, project: ProjectFixture, client_db_copy: Path):
         """All six Icube tables load in a single run."""
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
@@ -463,9 +459,7 @@ class TestErrorIsolation:
 class TestValidationGuards:
     """Tests that validate catches invalid config before runtime."""
 
-    def test_csv_source_validates_with_valid_directory(
-        self, project: ProjectFixture
-    ):
+    def test_csv_source_validates_with_valid_directory(self, project: ProjectFixture):
         """CSV source type with a valid directory passes validation."""
         from feather_etl.config import load_config
 
@@ -521,9 +515,7 @@ class TestValidationGuards:
         with pytest.raises(ValueError, match="CSV source path must be a directory"):
             load_config(project.config_path)
 
-    def test_missing_source_section_raises_valueerror(
-        self, project: ProjectFixture
-    ):
+    def test_missing_source_section_raises_valueerror(self, project: ProjectFixture):
         from feather_etl.config import load_config
 
         # Bypass ``write_config``'s tolerant behaviour and write raw YAML with
@@ -571,9 +563,7 @@ class TestValidationGuards:
 
 
 class TestPipelineReturnsOnFailure:
-    def test_run_all_returns_results_on_total_failure(
-        self, project: ProjectFixture
-    ):
+    def test_run_all_returns_results_on_total_failure(self, project: ProjectFixture):
         from feather_etl.config import load_config
         from feather_etl.pipeline import run_all
 

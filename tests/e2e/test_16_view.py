@@ -16,7 +16,9 @@ def _forbid_sync(*args, **kwargs):
     raise AssertionError("view should not call sync_viewer_html directly")
 
 
-def test_uses_current_directory_by_default(cli, project, monkeypatch: pytest.MonkeyPatch):
+def test_uses_current_directory_by_default(
+    cli, project, monkeypatch: pytest.MonkeyPatch
+):
     from feather_etl import viewer_server
 
     seen: dict[str, object] = {}

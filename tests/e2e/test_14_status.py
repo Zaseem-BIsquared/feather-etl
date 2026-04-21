@@ -14,7 +14,13 @@ from tests.helpers import make_curation_entry, write_curation
 def test_shows_status_after_run(cli, project):
     project.copy_fixture("client.duckdb")
     project.write_config(
-        sources=[{"type": "duckdb", "name": "icube", "path": str(project.root / "client.duckdb")}],
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
     project.write_curation([("icube", "icube.InventoryGroup", "inventory_group")])
@@ -28,7 +34,13 @@ def test_shows_status_after_run(cli, project):
 def test_status_no_state_db(cli, project):
     project.copy_fixture("client.duckdb")
     project.write_config(
-        sources=[{"type": "duckdb", "name": "icube", "path": str(project.root / "client.duckdb")}],
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
     project.write_curation([("icube", "icube.InventoryGroup", "inventory_group")])
@@ -41,7 +53,13 @@ def test_status_no_state_db(cli, project):
 def test_status_no_runs_yet(cli, project):
     project.copy_fixture("client.duckdb")
     project.write_config(
-        sources=[{"type": "duckdb", "name": "icube", "path": str(project.root / "client.duckdb")}],
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
     project.write_curation([("icube", "icube.InventoryGroup", "inventory_group")])
@@ -57,7 +75,13 @@ def test_status_json_empty_rows_is_silent(cli, project):
     (early-returns) rather than emitting a 'No runs recorded' sentinel."""
     project.copy_fixture("client.duckdb")
     project.write_config(
-        sources=[{"type": "duckdb", "name": "icube", "path": str(project.root / "client.duckdb")}],
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
     project.write_curation([("icube", "icube.InventoryGroup", "inventory_group")])
@@ -73,7 +97,13 @@ def test_status_shows_error_message_for_failures(cli, project):
     """UX-5: feather status should display error text for failed tables."""
     project.copy_fixture("client.duckdb")
     project.write_config(
-        sources=[{"type": "duckdb", "name": "icube", "path": str(project.root / "client.duckdb")}],
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
     write_curation(
@@ -94,7 +124,13 @@ def test_status_shows_all_time_history(cli, project):
 
     # First config: inventory_group
     project.write_config(
-        sources=[{"type": "duckdb", "name": "icube", "path": str(project.root / "client.duckdb")}],
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
     write_curation(
@@ -124,7 +160,13 @@ def test_status_json_outputs_ndjson(cli, project):
     """AC-FR11.d: feather status --json outputs NDJSON with required fields."""
     project.copy_fixture("client.duckdb")
     project.write_config(
-        sources=[{"type": "duckdb", "name": "icube", "path": str(project.root / "client.duckdb")}],
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
     project.write_curation([("icube", "icube.InventoryGroup", "inventory_group")])

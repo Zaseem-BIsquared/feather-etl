@@ -156,9 +156,7 @@ def test_run_no_rebuild_when_all_skipped(tmp_path: Path):
         [make_curation_entry("src", "erp.employees", "employees")],
     )
 
-    _write_sql(
-        tmp_path, "gold", "emp_snap", ("-- materialized: true\nSELECT 1 AS val")
-    )
+    _write_sql(tmp_path, "gold", "emp_snap", ("-- materialized: true\nSELECT 1 AS val"))
 
     cfg = load_config(config_file)
 
@@ -202,7 +200,9 @@ def test_run_all_transform_rebuild_failure_is_caught_and_logged(
     )
 
     _write_sql(
-        tmp_path, "silver", "emp_clean",
+        tmp_path,
+        "silver",
+        "emp_clean",
         "SELECT * FROM bronze.src_employees",
     )
 

@@ -93,8 +93,7 @@ def test_setup_reports_gold_views_in_dev_mode(project, cli):
         project.root,
         "gold",
         "emp_summary",
-        "-- depends_on: silver.emp_clean\n"
-        "SELECT COUNT(*) AS n FROM silver.emp_clean",
+        "-- depends_on: silver.emp_clean\nSELECT COUNT(*) AS n FROM silver.emp_clean",
     )
 
     result = cli("setup")

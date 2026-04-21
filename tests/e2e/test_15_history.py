@@ -12,7 +12,13 @@ import json
 def _two_table_env(project):
     project.copy_fixture("client.duckdb")
     project.write_config(
-        sources=[{"type": "duckdb", "name": "icube", "path": str(project.root / "client.duckdb")}],
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
     project.write_curation(
@@ -117,7 +123,13 @@ def test_history_shows_error_row_and_truncates_long_messages(cli, project):
 def test_history_json_outputs_ndjson(cli, project):
     project.copy_fixture("client.duckdb")
     project.write_config(
-        sources=[{"type": "duckdb", "name": "icube", "path": str(project.root / "client.duckdb")}],
+        sources=[
+            {
+                "type": "duckdb",
+                "name": "icube",
+                "path": str(project.root / "client.duckdb"),
+            }
+        ],
         destination={"path": str(project.root / "feather_data.duckdb")},
     )
     project.write_curation([("icube", "icube.InventoryGroup", "inventory_group")])

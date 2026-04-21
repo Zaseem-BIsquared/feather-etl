@@ -163,13 +163,9 @@ def postgres_marker():
     has run bootstrap, so the probe sees the live DB.
     """
     ok, reason = postgres_check()
-    return pytest.mark.skipif(
-        not ok, reason=reason or "PostgreSQL not available"
-    )
+    return pytest.mark.skipif(not ok, reason=reason or "PostgreSQL not available")
 
 
 def mysql_marker():
     ok, reason = mysql_check()
-    return pytest.mark.skipif(
-        not ok, reason=reason or "MySQL not available"
-    )
+    return pytest.mark.skipif(not ok, reason=reason or "MySQL not available")

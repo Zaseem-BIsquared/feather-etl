@@ -31,8 +31,16 @@ def _write_two_fixture_sources(project) -> None:
     shutil.copy2(project.root / "client.duckdb", project.root / "client_b.duckdb")
     project.write_config(
         sources=[
-            {"name": "a", "type": "duckdb", "path": str(project.root / "client.duckdb")},
-            {"name": "b", "type": "duckdb", "path": str(project.root / "client_b.duckdb")},
+            {
+                "name": "a",
+                "type": "duckdb",
+                "path": str(project.root / "client.duckdb"),
+            },
+            {
+                "name": "b",
+                "type": "duckdb",
+                "path": str(project.root / "client_b.duckdb"),
+            },
         ],
         destination={"path": str(project.root / "out.duckdb")},
     )
@@ -164,8 +172,7 @@ def test_feather_run_extracts_from_multiple_sources(project, cli, monkeypatch):
 
     # Verify data landed in bronze.
     rows = project.query(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = 'bronze'"
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'bronze'"
     )
     tables = [r[0] for r in rows]
 
@@ -199,8 +206,7 @@ def test_table_filter_works_with_bronze_name(project, cli, monkeypatch):
     assert result.exit_code == 0
 
     rows = project.query(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = 'bronze'"
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'bronze'"
     )
     tables = [r[0] for r in rows]
 

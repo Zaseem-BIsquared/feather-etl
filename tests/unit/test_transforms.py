@@ -478,9 +478,7 @@ class TestRebuildMaterializedGold:
         results = rebuild_materialized_gold(con, [t])
         assert results == []
 
-    def test_rebuild_emits_warning_when_join_health_fails(
-        self, tmp_path: Path, caplog
-    ):
+    def test_rebuild_emits_warning_when_join_health_fails(self, tmp_path: Path, caplog):
         """rebuild_materialized_gold runs check_join_health on each rebuilt
         gold; a non-None warning is passed to logger.warning.
         (transforms.py:272)"""
